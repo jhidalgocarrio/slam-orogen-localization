@@ -1,0 +1,84 @@
+name "asguard_localization"
+# Optionally declare the version number
+# version "0.1"
+
+# If new data types need to be defined, they have to be put in a separate C++
+# header, and this header will be loaded here
+# import_types_from "asguard_localizationType.hpp"
+using_library "asguard"
+
+# If the component/deployments use data types that are defined in other oroGen
+# projects, these projects should be imported there as well.
+import_types_from "base"
+import_types_from 'sysmon'
+import_types_from "asguard"
+import_types_from "torque_estimator"
+
+# Declare a new task context (i.e., a component)
+#
+# The corresponding C++ class can be edited in tasks/Task.hpp and
+# tasks/Task.cpp, and will be put in the asguard_localization namespace.
+task_context "Task" do
+
+    #******************************
+    #******* Input ports  *********
+    #******************************
+    input_port('hbridge_samples', '/base/actuators/Status').
+        needs_reliable_connection.
+	doc 'timestamped Motorstate samples providing odometry information.'
+
+    input_port('systemstate_samples', '/sysmon/SystemStatus').
+        needs_reliable_connection.
+        doc 'timestamped systemstate readings, used for the passive joint encoder'
+
+    input_port('calibrated_sensors', '/base/samples/IMUSensors').
+        doc 'provides timestamped IMUReading samples containing the calibrated sensor readings (linear acceleration and angular velocity).'
+	doc 'The linear acceleration is given by the accelerometers in case the property acc_output of the driver is set to ACCELERATION.'
+	doc 'Otherwise, the linear acceleration is given by the inclinometers which has a range between +1 and -1 g.'
+
+    input_port("torque_estimated", "torque_estimator/WheelTorques").
+        doc("Estimated torque values")
+
+    input_port("ground_forces_estimated", "torque_estimator/GroundForces").
+        doc("Estimated ground force values")
+
+    input_port("orientation_debug", "/base/samples/RigidBodyState").
+        doc("Rover orientation information (only for debug purpose)")
+
+    ##########################
+    # Transformer
+    ##########################
+    transformer do
+	transform "imu", "body"
+	align_port("calibrated_sensors", 0.01)
+	align_port("hbridge_samples", 0.01)
+	align_port("systemstate_samples", 0.01)
+	align_port("torque_estimated", 0.01)
+	align_port("ground_forces_estimated", 0.01)
+	align_port("orientation_debug", 0.01)
+	max_latency(0.1)
+    end
+
+    #******************************
+    #******* Output Ports *********
+    #******************************
+    output_port('pose_samples_out', '/base/samples/RigidBodyState').
+	doc 'Estimated rover pose'
+
+
+    port_driven
+
+end
+
+
+# Declares a deployment, i.e. an actual executable that contains various tasks.
+deployment "asguard_localization_test" do
+    # This is a test deployment that should not be installed
+    do_not_install
+
+    add_default_logger.realtime
+
+    # Declares it as periodic, with a period of 100ms
+    task("asguard_localization", "Task")
+end
+
