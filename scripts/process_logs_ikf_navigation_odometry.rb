@@ -43,8 +43,8 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator', 'lowlevel')
     
     #Mapping the inputs ports in the localization tasks
     log_replay.hbridge.status_motors.connect_to(localization_task.hbridge_samples, :type => :buffer, :size => 10 )
-    log_replay.stim300.calibrated_sensors.connect_to(localization_task.calibrated_sensors, :type => :buffer, :size => 10 )
     log_replay.sysmon.system_status.connect_to(localization_task.systemstate_samples, :type => :buffer, :size => 10 )
+    log_replay.stim300.calibrated_sensors.connect_to(localization_task.calibrated_sensors, :type => :buffer, :size => 10 )
 #     log_replay.torque_estimator.torque_estimated.connect_to(localization_task.torque_estimated, :type => :buffer, :size => 10 )
 #     log_replay.torque_estimator.ground_forces_estimated.connect_to(localization_task.ground_forces_estimated, :type => :buffer, :size => 10 )
     

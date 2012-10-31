@@ -24,7 +24,11 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator') do
     localization_task = TaskContext.get 'asguard_localization'
     ikf_attitude_task = TaskContext.get 'ikf_orientation_estimator'
     nav_odometry_task = TaskContext.get 'nav_odometry'
-    proprio_task = TaskContext.get 'propriocessing'
+    
+    #get the lowlevel tasks (already running)
+    hbridge_task = TaskContext.get 'hbridge'
+    sysmon_task = TaskContext.get 'sysmon'
+    stim300_task = TaskContext.get 'stim300'
     
     
     Orocos.conf.apply(ikf_attitude_task, ['stim300'], :override => true )
@@ -38,21 +42,20 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator') do
     localization_task.body_frame = "body"
     
     #Mapping the inputs ports in the localization tasks
-    proprio_task.hbridge_samples_out.connect_to (localization_task.hbridge_samples, :type => :buffer, :size => 10 )
-    proprio_task.systemstate_samples_out.connect_to(localization_task.systemstate_samples, :type => :buffer, :size => 10 )
-    proprio_task.calibrated_sensors_out.connect_to(localization_task.calibrated_sensors, :type => :buffer, :size => 10 )
-    
+    hbridge_task.status_motors.connect_to (localization_task.hbridge_samples, :type => :buffer, :size => 10 )
+    sysmon_task.system_status.connect_to(localization_task.systemstate_samples, :type => :buffer, :size => 10 )
+    stim300_task.calibrated_sensors.connect_to(localization_task.calibrated_sensors, :type => :buffer, :size => 10 )
     
     #Mapping the inputs ports in the ikf orientation task
-    proprio_task.calibrated_sensors_out.connect_to( ikf_attitude_task.imu_samples, :type => :buffer, :size => 10 )
+    stim300_task.calibrated_sensors.connect_to( ikf_attitude_task.imu_samples, :type => :buffer, :size => 10 )
     
     # Connect the output of the ikf to the input port of the localization_task
     ikf_attitude_task.attitude_b_g.connect_to (localization_task.orientation_debug, :type => :buffer, :size => 10 )
     
     #Mapping the inputs ports in the navigation tasks
-    proprio_task.hbridge_samples_out.connect_to(nav_odometry_task.hbridge_samples, :type => :buffer, :size => 10 )
-    ikf_attitude_task.attitude_b_g.connect_to(nav_odometry_task.orientation_samples, :type => :buffer, :size => 10 )
-    proprio_task.systemstate_samples_out.connect_to(nav_odometry_task.systemstate_samples, :type => :buffer, :size => 10 )
+    hbridge_task.status_motors.connect_to(nav_odometry_task.hbridge_samples, :type => :buffer, :size => 10 )
+    sysmon_task.system_status.connect_to(nav_odometry_task.orientation_samples, :type => :buffer, :size => 10 )
+    stim300_task.calibrated_sensors.connect_to(nav_odometry_task.systemstate_samples, :type => :buffer, :size => 10 )
 
      # Finalize transformer configuration
     Orocos.transformer.setup(localization_task)
