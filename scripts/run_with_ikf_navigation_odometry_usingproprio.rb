@@ -26,7 +26,6 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator') do
     nav_odometry_task = TaskContext.get 'nav_odometry'
     proprio_task = TaskContext.get 'propriocessing'
     
-    
     Orocos.conf.apply(ikf_attitude_task, ['stim300'], :override => true )
     ikf_attitude_task.delta_time = (1.0/16.0)
     

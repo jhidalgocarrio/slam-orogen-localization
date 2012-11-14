@@ -6,6 +6,7 @@ name "asguard_localization"
 # header, and this header will be loaded here
 # import_types_from "asguard_localizationType.hpp"
 using_library "asguard"
+using_library "asguard_localization"
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
@@ -21,6 +22,75 @@ import_types_from "torque_estimator"
 task_context "Task" do
 
     #******************************
+    #**** Location Properties *****
+    #******************************
+    property('latitude', 'double', 0.926478944).
+	doc 'Latitude of Bremen in radians (equivalent to 53.083333 degrees).'
+
+    property('longitude', 'double', 0.153588974).
+	doc 'Longitude of Bremen in radians (equivalent to 8.8 degrees).'
+
+    property('altitude', 'double', 12).
+	doc 'Altitude of Bremen in meters'
+
+    property('magnetic_declination', 'double', 0.023561944).
+	doc 'Bremen magnetic declination in radians (equivalent to 1.35 degrees EAST).'
+
+    property('magnetic_declination_mode', 'int', 1).
+	doc 'The declination is positive when the magnetic north is east of true north'
+	doc '1 is EAST, which means positive declination. 2 is WEST, which means negative declination.'
+	
+    property('dip_angle', 'double', 1.187696556).
+	doc 'Dip angle of Bremen in radians (equivalent to 68.05 degrees ).'    
+
+
+    #*************************************
+    #**** Inertial Sensor Properties *****
+    #*************************************
+
+    #**** Sensors bandwidth ****
+    property('sensors_bandwidth', 'double', 16).
+	doc "Inertial sensors bandwidth in Hertz. This is characteristic of the sensor and should be equal or smaller than the sampling rate."
+    
+    #**** For Gyroscopes ****
+
+    property('gbiasof', '/base/Vector3d').
+	doc 'bias offset in static regimen for the Gyroscopes'
+    property("gyrorw", "/base/Vector3d").
+	doc "angle random walk for gyroscopes (rad/sqrt(s))"
+    property("gyrorrw", "/base/Vector3d").
+	doc "rate random walk for gyroscopes (rad/s/sqrt(s))"
+
+    #**** For Accelerometers ****
+    
+    property("abiasof", "/base/Vector3d").
+	doc 'bias offset in static regimen for the Accelerometers'
+    property("accrw", "/base/Vector3d").
+	doc "velocity random walk for accelerometers (m/s/sqrt(s))"
+    property("accrrw", "/base/Vector3d").
+	doc "acceleration random walk for accelerometers (m/s^2/sqrt(s))"
+
+    property("eccx", "/base/Vector3d").
+	doc "Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame)."
+    property("eccy", "/base/Vector3d").
+	doc "Eccentricity (in meters) for Y-axis Acc in IMU frame (with respect to the IMU reference frame)."
+    property("eccz", "/base/Vector3d").
+	doc "Eccentricity (in meters) for Z-axis Acc in IMU frame (with respect to the IMU reference frame)."
+
+
+    #**** Magnetometers ****
+
+    property("magrw", "/base/Vector3d").
+	doc "random walk for magnetometers"
+
+    #******************************
+    #**** Filter Properties *******
+    #******************************
+    property('filter_frequency', 'double', 100).
+	doc 'Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (trasnformer)'
+
+
+    #******************************
     #******* Input ports  *********
     #******************************
     input_port('hbridge_samples', '/base/actuators/Status').
@@ -33,8 +103,6 @@ task_context "Task" do
 
     input_port('calibrated_sensors', '/base/samples/IMUSensors').
         doc 'provides timestamped IMUReading samples containing the calibrated sensor readings (linear acceleration and angular velocity).'
-	doc 'The linear acceleration is given by the accelerometers in case the property acc_output of the driver is set to ACCELERATION.'
-	doc 'Otherwise, the linear acceleration is given by the inclinometers which has a range between +1 and -1 g.'
 
     input_port("torque_estimated", "torque_estimator/WheelTorques").
         doc("Estimated torque values")
@@ -42,20 +110,20 @@ task_context "Task" do
     input_port("ground_forces_estimated", "torque_estimator/GroundForces").
         doc("Estimated ground force values")
 
-    input_port("orientation_debug", "/base/samples/RigidBodyState").
-        doc("Rover orientation information (only for debug purpose)")
+    input_port("orientation_init", "/base/samples/RigidBodyState").
+        doc("Rover orientation information (only for initialization or debug purpose)")
 
     ##########################
     # Transformer
     ##########################
     transformer do
 	transform "imu", "body"
-	align_port("calibrated_sensors", 0.01)
-	align_port("hbridge_samples", 0.01)
+	align_port("calibrated_sensors", 0.008)
+	align_port("hbridge_samples", 0.001)
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_estimated", 0.01)
 	align_port("ground_forces_estimated", 0.01)
-	align_port("orientation_debug", 0.01)
+	align_port("orientation_init", 0.01)
 	max_latency(0.1)
     end
 

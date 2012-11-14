@@ -5,6 +5,7 @@
 
 #include <asguard/KinematicModel.hpp>
 #include <asguard/BodyState.hpp>
+#include <asguard_localization/sckf.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
@@ -26,12 +27,17 @@ namespace asguard_localization {
     #ifndef D2R
     #define D2R M_PI/180.00 /** Convert degree to radian **/
     #endif
+    
     #ifndef R2D
     #define R2D 180.00/M_PI /** Convert radian to degree **/
     #endif
     
     #ifndef NUMAXIS
-    #define NUMAXIS 3 /**< Number of axis sensed by the sensors **/
+    #define NUMAXIS 3 /** Number of axis sensed by the sensors **/
+    #endif
+    
+    #ifndef NUMBER_INIT_ACC
+    #define NUMBER_INIT_ACC 1000 /** Number acc samples to compute initial pitch and roll considering not init_attitude provided by orientation_init **/
     #endif
 
     /*! \class Task 
@@ -53,42 +59,104 @@ namespace asguard_localization {
 	friend class TaskBase;
     protected:
 	
+	/** SCKF structure **/
+	localization::sckf mysckf;
+	
+	/** index for acc mean value for init attitude **/
+	int accidx; 
+	
+	/** Integration step for the filter in seconds **/
+	double delta_t;
+	
+	/** Number of samples to process in the callback function **/
+	unsigned int numberIMUSamples; /** number of Ground Force info samples **/
+	unsigned int numberHbridgeSamples; /** number of Hbridge samples for the resampling**/
+ 	unsigned int numberAsguardStatusSamples; /** number of  Asguard status samples for the resampling **/
+ 	unsigned int numberTorqueSamples; /** number of  Torque info samples for the resampling **/
+ 	unsigned int numberForceSamples; /** number of Ground Force info samples for the resampling **/
+ 	
+ 	/** Current counter of samples arrived to each port **/
+ 	unsigned int counterHbridgeSamples; /** counter for Hbridge samples**/
+ 	unsigned int counterAsguardStatusSamples; /** counter for Asguard status samples  **/
+ 	unsigned int counterTorqueSamples; /** counter for  Torque info samples **/
+ 	unsigned int counterForceSamples; /** number of Ground Force info samples **/
+ 	unsigned int counterIMUSamples; /** number of Ground Force info samples **/
+ 	
+	
 	/** Wheel kinematics structures **/
 	asguard::KinematicModel wheelFL;
 	asguard::KinematicModel wheelFR;
 	asguard::KinematicModel wheelRL;
 	asguard::KinematicModel wheelRR;
 	
-	/** Integration step for the dead-reckoning **/
-	base::Time delta_t;
-	
 	/** Data arrived **/
 	bool imuValues, hbridgeValues, asguardValues, orientationValues;
 	
+	/** Accelerometers eccentricity **/
+	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
+	
 	/** Inputs port samples **/
-	int current[NUMBER_WHEELS]; /** Array to perform the current mean value **/
-	float pwm[NUMBER_WHEELS]; /** Array to perform the PWM mean value **/
-	base::samples::IMUSensors imuSamples; /** IMU samples **/
 	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
 	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
+	base::samples::IMUSensors imuSamples; /** IMU samples **/
+	base::samples::RigidBodyState orientation; /** Orientation information (init and debug)**/
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact **/
-	base::samples::RigidBodyState orientation; /** Orientation information (debug)**/
+	
+	/** Input ports timing **/
+	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;
 	
 	/** Status information replica to compute the velocity **/
 	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
-	base::samples::RigidBodyState prevOrientation; /** Orientation information (debug)**/
+	base::samples::RigidBodyState prevOrientation; /** Orientation information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
+	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
 	
+	/** Initial values of Acceleremeters for Picth and Roll calculation */
+	Eigen::Matrix <double,NUMAXIS, NUMBER_INIT_ACC> init_acc; 
 	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
+	
+	/** Feet for FL wheel **/
+	base::samples::RigidBodyState rbsC0FL2body;
+	base::samples::RigidBodyState rbsC1FL2body;
+	base::samples::RigidBodyState rbsC2FL2body;
+	base::samples::RigidBodyState rbsC3FL2body;
+	base::samples::RigidBodyState rbsC4FL2body;
+	
+	/** Feet for FR wheel **/
+	base::samples::RigidBodyState rbsC0FR2body;
+	base::samples::RigidBodyState rbsC1FR2body;
+	base::samples::RigidBodyState rbsC2FR2body;
+	base::samples::RigidBodyState rbsC3FR2body;
+	base::samples::RigidBodyState rbsC4FR2body;
+	
+	/** Feet for RL wheel **/
+	base::samples::RigidBodyState rbsC0RL2body;
+	base::samples::RigidBodyState rbsC1RL2body;
+	base::samples::RigidBodyState rbsC2RL2body;
+	base::samples::RigidBodyState rbsC3RL2body;
+	base::samples::RigidBodyState rbsC4RL2body;
+	
+	/** Feet for RR wheel **/
+	base::samples::RigidBodyState rbsC0RR2body;
+	base::samples::RigidBodyState rbsC1RR2body;
+	base::samples::RigidBodyState rbsC2RR2body;
+	base::samples::RigidBodyState rbsC3RR2body;
+	base::samples::RigidBodyState rbsC4RR2body;
+	
+	/** Wheel Jacobian Matrices **/
+	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFL;
+	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFR;
+	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRL;
+	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRR;
 
         virtual void calibrated_sensorsTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &calibrated_sensors_sample);
         virtual void ground_forces_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::GroundForces &ground_forces_estimated_sample);
         virtual void hbridge_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &hbridge_samples_sample);
         virtual void systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample);
         virtual void torque_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_estimated_sample);
-	virtual void orientation_debugTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &orientation_debug_sample);
+	virtual void orientation_initTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &orientation_init_sample);
 
     public:
         /** TaskContext constructor for Task
@@ -165,6 +233,14 @@ namespace asguard_localization {
          * before calling start() again.
          */
         void cleanupHook();
+	
+	/** \brief Select the Foot in contact among all the Foot Points
+	 */
+	void selectContactPoints (std::vector<int> &contactPoints);
+	
+	/** \brief Select the Foot in contact among all the Foot Points
+	 */
+	void calculateFootPoints ();
     };
 }
 
