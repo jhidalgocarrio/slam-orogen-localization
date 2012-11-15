@@ -124,7 +124,7 @@ task_context "Task" do
 	align_port("torque_estimated", 0.01)
 	align_port("ground_forces_estimated", 0.01)
 	align_port("orientation_init", 0.01)
-	max_latency(0.1)
+	max_latency(0.5)
     end
 
     #******************************

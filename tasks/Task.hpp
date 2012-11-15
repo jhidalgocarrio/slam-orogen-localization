@@ -15,11 +15,15 @@
 
 namespace asguard_localization {
     
+//     #ifndef EIGEN_NO_AUTOMATIC_RESIZING
+//     #define EIGEN_NO_AUTOMATIC_RESIZING
+//     #endif
     
      /** General defines **/
     #ifndef OK
     #define OK	0  /** Integer value in order to return when everything is all right. */
     #endif
+    
     #ifndef ERROR
     #define ERROR -1  /** Integer value in order to return when an error occured. */
     #endif
@@ -112,7 +116,18 @@ namespace asguard_localization {
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
 	
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
-	Eigen::Matrix <double,NUMAXIS, NUMBER_INIT_ACC> init_acc; 
+	Eigen::Matrix <double,NUMAXIS, NUMBER_INIT_ACC> init_acc;
+	
+	/** Joint encoders velocities (order is 0 -> PassiveJoint, 1-> RL, 2 -> RR, 3 -> FR, 4 -> FL, ) **/
+	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;
+	
+	/** Jacobian matrix for the rover Eu = Jp **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> J; /** Sparse Wheels Jacobian matrix **/
+	
+	/** Matrices for the filter **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Be; /** Measurement matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> H; /** Observation matrix **/
 	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
@@ -241,6 +256,15 @@ namespace asguard_localization {
 	/** \brief Select the Foot in contact among all the Foot Points
 	 */
 	void calculateFootPoints ();
+	
+	/** \brief Compute Joint velocities 
+	 */
+	void calculateVelocities ();
+	
+	/** \brief It forms the composite matrices for the
+	 * slip kinematics and the filter observation.
+	 */
+	void compositeMatrices ();
     };
 }
 

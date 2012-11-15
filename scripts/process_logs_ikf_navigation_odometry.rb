@@ -35,7 +35,7 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator', 'lowlevel')
     log_replay = Orocos::Log::Replay.open( ARGV[0] )
     
     localization_task.calibrated_sensors.frame = "stim300"
-    localization_task.orientation_debug.frame = "stim300"
+    localization_task.orientation_init.frame = "stim300"
     
     # Transformer configuration names
     localization_task.imu_frame = "stim300"
@@ -53,7 +53,7 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator', 'lowlevel')
     log_replay.stim300.calibrated_sensors.connect_to( ikf_attitude_task.imu_samples, :type => :buffer, :size => 10 )
     
     # Connect the output of the ikf to the input port of the localization_task
-    ikf_attitude_task.attitude_b_g.connect_to (localization_task.orientation_debug, :type => :buffer, :size => 10 )
+    ikf_attitude_task.attitude_b_g.connect_to (localization_task.orientation_init, :type => :buffer, :size => 10 )
     
     #Mapping the inputs ports in the navigation tasks
     log_replay.hbridge.status_motors.connect_to(nav_odometry_task.hbridge_samples, :type => :buffer, :size => 10 )
