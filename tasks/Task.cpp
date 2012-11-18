@@ -15,7 +15,9 @@ Task::Task(std::string const& name)
     imuValues = false;
     hbridgeValues = false;
     asguardValues = false;
-    orientationValues = false;
+    poseInitValues = false;
+    initPosition = false;
+    initAttitude = false;
     
     /** Sizing hbridgeStatus **/
     hbridgeStatus.resize(NUMBER_WHEELS);
@@ -50,8 +52,8 @@ Task::Task(std::string const& name)
     eccz = eccx;
     
     /** Orientation **/
-    orientation.invalidate();
-    prevOrientation = orientation;
+    poseInit.invalidate();
+    prevPoseInit = poseInit;
     
     /** Set also here the default Foot in Contact **/
     contactPoints.resize(4);
@@ -79,32 +81,44 @@ Task::~Task()
 void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &calibrated_sensors_sample)
 {
     Eigen::Affine3d tf; /** Transformer transformation **/
+    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
     
     /** Get the transformation **/
     if (!_imu2body.get(ts, tf, false))
 	return;
+    
+    qtf = Eigen::Quaternion <double> (tf.rotation());
     
     #ifdef DEBUG_PRINTS
     std::cout<<"Transformer:\n"<<tf.matrix()<<"\n";
     #endif
 	
     /** Check if the eccentricities are not defined **/
-    if (base::isNaN(eccx) && base::isNaN(eccy) && base::isNaN(eccz))
+    if (base::isNaN(eccx[0]) && base::isNaN(eccy[0]) && base::isNaN(eccz[0]))
     {
+	#ifdef DEBUG_PRINTS
+	std::cout<<"Eccentricities are NaN\n";
+	std::cout<<"Translation:\n"<<tf.translation()<<"\n";
+	std::cout<<"Eccx :\n"<<tf.rotation() * _eccx.value()<<"\n";
+	std::cout<<"Eccy :\n"<<tf.rotation() * _eccy.value()<<"\n";
+	std::cout<<"Eccz :\n"<<tf.rotation() * _eccz.value()<<"\n";
+	#endif
+	
 	/** Store the excentricity **/
-	eccx = tf.translation() + tf *_eccx.value();
-	eccy = tf.translation() + tf *_eccy.value();
-	eccz = tf.translation() + tf *_eccz.value();
+	eccx = tf.translation() + tf.rotation() *_eccx.value();
+	eccy = tf.translation() + tf.rotation() *_eccy.value();
+	eccz = tf.translation() + tf.rotation() *_eccz.value();
 	
 	/** Set the eccentricity to the filter **/
 	mysckf.setEccentricity(eccx, eccy, eccz);
     }
     
     /** If the initial attitude is not defined and the orientation port is not connected **/
-    if (base::isNaN(mysckf.getAttitude()) && (!_orientation_init.connected()))
+    if (!initAttitude)
     {
-	
-	RTT::log(RTT::Info) << "Calculating initial level position since Init orientation is not provided." << RTT::endlog();
+	#ifdef DEBUG_PRINTS
+	std::cout<< "Calculating initial level position since Init orientation is not provided." <<"\n";
+	#endif
 	
 	/** Add one acc sample to the buffer **/
 	init_acc.col(accidx) = calibrated_sensors_sample.acc;
@@ -120,26 +134,70 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    meanacc[1] = init_acc.row(1).mean();
 	    meanacc[2] = init_acc.row(2).mean();
 	    
-	    RTT::log(RTT::Info) <<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<RTT::endlog();	
-	    RTT::log(RTT::Info) <<"*** Computed gravity: "<<meanacc.norm()<<RTT::endlog();
+	    #ifdef DEBUG_PRINTS
+	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
+	    std::cout<<"*** Computed gravity: "<<meanacc.norm()<<"\n";
+	    #endif
 	    
-	    euler[0] = (double) asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
-	    euler[1] = (double)-atan(meanacc[0]/meanacc[2]); //Pitch
-	    euler[2] = 0.00;
+	    euler[0] = (double) -asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
+	    euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
+	    euler[2] = M_PI;
 	    
 	    /** Set the initial attitude when no initial IMU orientation is provided **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
 	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
 	    
-	    /** Set the initial attitude quaternion of the filter **/
-	    mysckf.setAttitude (attitude);
+	    /** This attitude is in the IMU frame. It needs to be expressed in body with the help of the transformer **/
+	    attitude = attitude * qtf;
 	    
-	    RTT::log(RTT::Info) << "******** Initial Attitude *******"<<RTT::endlog();
-	    RTT::log(RTT::Info) << "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]<<RTT::endlog();
+	    /** Check if there is initial pose connected **/
+	    if (_pose_init.connected() && initPosition)
+	    {
+		/** Get the initial Yaw from the initialPose **/
+		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+		euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+		euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+		
+		/** Set the initial attitude with the Yaw provided from the initial pose **/
+		attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
+		Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
+		Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
+		
+		/** Set the initial attitude quaternion of the filter **/
+		mysckf.setAttitude (attitude);
+		
+		initAttitude = true;
+		
+	    }
+	    else if (!_pose_init.connected())
+	    {
+		/** Set the initial attitude quaternion of the filter **/
+		mysckf.setAttitude (attitude);
+		initAttitude = true;
+	    }
+    	    
+	   
+	    if (initAttitude)
+	    {
+		/**Store the value as the initial one for the rbsBC **/
+		rbsBC.orientation = attitude;
+		rbsBC.angular_velocity.setZero();
+		
+		/** Assume very well know initial attitude **/
+		rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+		rbsBC.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+		
+		#ifdef DEBUG_PRINTS
+		euler = mysckf.getEuler();
+		std::cout<< "******** Initial Attitude *******"<<"\n";
+		std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
+		#endif
+	    }
+	    
 	}
     }
-    else if (!base::isNaN(mysckf.getAttitude()))
+    else
     {
 	/** It starts again the sampling **/
 	if (counterIMUSamples == 0)
@@ -150,11 +208,18 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    imuSamples.mag.setZero();
 	}
 	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"** Received IMU Samples **\n";
+	std::cout<<"acc:\n"<<calibrated_sensors_sample.acc<<"\n";
+	std::cout<<"gyro:\n"<<calibrated_sensors_sample.gyro<<"\n";
+	std::cout<<"mag:\n"<<calibrated_sensors_sample.mag<<"\n";
+	#endif
+	
 	/** Convert the IMU values in the body orientation **/
 	imuSamples.time = calibrated_sensors_sample.time;
-	imuSamples.acc += tf * calibrated_sensors_sample.acc;
-	imuSamples.gyro += tf * calibrated_sensors_sample.gyro;
-	imuSamples.mag += tf * calibrated_sensors_sample.mag;
+	imuSamples.acc += qtf * calibrated_sensors_sample.acc;
+	imuSamples.gyro += qtf * calibrated_sensors_sample.gyro;
+	imuSamples.mag += qtf * calibrated_sensors_sample.mag;
 	
 	counterIMUSamples++;
 	
@@ -257,12 +322,15 @@ void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::
 	
 	#ifdef DEBUG_PRINTS
  	std::cout<<"** counterAsguardStatusSamples("<<counterAsguardStatusSamples<<") at ("<<asguardStatus.time.toMicroseconds()<< ")**\n";
+	std::cout<<"** passive joint value: "<< asguardStatus.asguardJointEncoder<<"\n";
 	#endif
 	
 	counterAsguardStatusSamples = 0;
 	outTimeStatus.fromMicroseconds(0.00);
 	
-	if (prevAsguardStatus.asguardJointEncoder == base::NaN<double>())
+	asguardValues = true;
+	
+	if (base::isNaN(prevAsguardStatus.asguardJointEncoder))
 	    prevAsguardStatus = asguardStatus;
     }
 
@@ -278,29 +346,38 @@ void Task::ground_forces_estimatedTransformerCallback(const base::Time &ts, cons
 //     throw std::runtime_error("Transformer callback for ground_forces_estimated not implemented");
 }
 
-void Task::orientation_initTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& orientation_init_sample)
+void Task::pose_initTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& pose_init_sample)
 {
-    Eigen::Affine3d tf; /** Transformer transformation **/
-    Eigen::Quaternion <double> qtf; /** Transformer transformation in quaternion**/
     
-    orientation = orientation_init_sample;
+    poseInit = pose_init_sample;
     
-    if (!_imu2body.get(ts, tf, false))
-	return;
-    
-    qtf = Eigen::Quaternion <double> (Eigen::AngleAxisd(tf.rotation()));
-    orientation.orientation = orientation.orientation * qtf;
-    
-    if (base::isNaN(mysckf.getAttitude()))
+    if (!rbsBC.hasValidPosition())
     {
-	Eigen::Quaterniond attitude = orientation.orientation;
-	mysckf.setAttitude(attitude);
+	
+	rbsBC.position = poseInit.position;
+	rbsBC.velocity.setZero();
+	
+	/** Assume well known starting position **/
+	rbsBC.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
+	rbsBC.cov_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+	
+	#ifdef DEBUG_PRINTS
+	Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
+	euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+	euler[1] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+	euler[0] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+ 	std::cout<<"** poseInit at ("<<poseInit.time.toMicroseconds()<< ")**\n";
+	std::cout<<"** position\n"<< poseInit.position<<"\n";
+	std::cout<<"** Roll: "<<euler[0]*R2D<<"Pitch: "<<euler[1]*R2D<<"Yaw: "<<euler[2]*R2D<<"\n";
+	#endif
+	
+	initPosition = true;
     }
     
-    orientationValues = true;
+    poseInitValues = true;
      
-    if (!prevOrientation.hasValidOrientation())
-	prevOrientation = orientation;
+    if (!prevPoseInit.hasValidOrientation())
+	prevPoseInit = poseInit;
 }
 
 
@@ -314,6 +391,7 @@ bool Task::configureHook()
     double theoretical_g; /** Ideal gravity value **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /**< Measurement noise convariance matrix for acc */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rat; /**< Measurement noise convariance matrix for attitude correction (gravity vector noise) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /**< Measurement noise convariance matrix for velocity (accelerometers integration) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /**< Measurement noise convariance matrix for gyros */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rm; /**< Measurement noise convariance matrix for mag */
@@ -329,19 +407,24 @@ bool Task::configureHook()
     if (_sensors_bandwidth.value() != 0.00)
 	delta_time = 1.0/_sensors_bandwidth.value();
     
+    /** Set the initial BC to the Geographic frame **/
+    rbsBC.invalidate();
     rbsBC.sourceFrame = "Body Frame";
     rbsBC.targetFrame = "Geographic_Frame (North-West-Up)";
+        
+    if (!_pose_init.connected())
+    {
+	/** set zero position **/
+	rbsBC.position.setZero();
+	rbsBC.velocity.setZero();
+	
+	/** Assume well known starting position **/
+	rbsBC.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
+	rbsBC.cov_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+	
+	initPosition = true;
+    }
     
-    /** Set the initial BC to the Geographic frame **/
-    rbsBC.invalidateCovariances(true, true, true, true);
-    rbsBC.position.setZero();
-    rbsBC.velocity.setZero();
-    rbsBC.orientation = Eigen::Quaterniond::Identity();
-    rbsBC.angular_velocity.setZero();
-    
-    /** Assume well known starting position **/
-    rbsBC.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
-    rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
     
     /** Set the counters to Zero **/
     counterHbridgeSamples = 0;
@@ -365,18 +448,24 @@ bool Task::configureHook()
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
     Ra = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_time),2);
-    Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_time),2);
-    Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_time),2);
+    Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_t),2);
+    Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_t),2);
+    Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_t),2);
     
     /** Gyroscopes covariance matrix with is std_vel = std_acc * sqrt(integration_step) **/
-    Rv = Ra * delta_t;
+    Rv = Ra + (Ra * delta_t);
+    
+    /** Gravity vector covariance matrix **/
+    Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Rat(0,0) = Ra(0,0) + Ra(1,1) + Ra(2,2);
+    Rat(1,1) = Ra(0,0) + Ra(1,1) + Ra(2,2);
+    Rat(2,2) = Ra(0,0) + Ra(1,1) + Ra(2,2);
     
     /** Gyroscopes covariance matrix **/
     Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rg(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_time),2);
-    Rg(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_time),2);
-    Rg(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_time),2);
+    Rg(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_t),2);
+    Rg(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_t),2);
+    Rg(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_t),2);
 
     /** Magnetometers covariance matrix **/
     Rm = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -390,7 +479,7 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.001 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
+    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.0001 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -415,8 +504,8 @@ bool Task::configureHook()
     /** Gravitational value according to the location **/
     theoretical_g = localization::GravityModel (_latitude.value(), _altitude.value());
     
-     /** Initialization of the filter **/
-     mysckf.Init(P_0, Qec, Qbg, Qba, Rv, Rg, Ren, Ra, Rm, theoretical_g, (double)_dip_angle.value());
+    /** Initialization of the filter **/
+    mysckf.Init(P_0, Qec, Qbg, Qba, Rv, Rg, Ren, Rat, Rm, theoretical_g, (double)_dip_angle.value());
      
     /** Initialization set the vector state to zero but it can be changed here **/
     x_0.resize(sckf::X_STATE_VECTOR_SIZE,1);
@@ -475,9 +564,9 @@ bool Task::configureHook()
 	RTT::log(RTT::Warning) << "Wheel ground force estimation samples NO connected." << RTT::endlog();
     }
     
-    if (_orientation_init.connected())
+    if (_pose_init.connected())
     {
-	RTT::log(RTT::Warning) << "Initial orientation connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "Initial pose connected" << RTT::endlog();
     }
     else
     {
@@ -493,6 +582,12 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[Info] Frequency of Torque Estimator[Hertz]: "<<(1.0/_torque_estimated_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Ground Force Estimator[Hertz]: "<<(1.0/_ground_forces_estimated_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Filter running at Frequency[Hertz]: "<<_filter_frequency.value()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] numberIMUSamples: "<<numberIMUSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] numberHbridgeSamples: "<<numberHbridgeSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] numberAsguardStatusSamples: "<<numberAsguardStatusSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] numberForceSamples: "<<numberForceSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] numberTorqueSamples: "<<numberTorqueSamples<<RTT::endlog();
+    
     
     
     return true;
@@ -506,14 +601,20 @@ bool Task::startHook()
 void Task::updateHook()
 {
     TaskBase::updateHook();
-     
+ 
     #ifdef DEBUG_PRINTS
     std::cout<<"In UpdateHook\n";
+    std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
     #endif
- 
+    
     /** Start the filter if all the values arrived to the ports in the correct order **/
     if (imuValues && asguardValues && hbridgeValues)
     {
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"************************************************\n";
+	#endif
+    
 	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
 	this->calculateFootPoints();
 	
@@ -526,6 +627,14 @@ void Task::updateHook()
 	wheelRR.setContactFootID(contactPoints[1]);
 	wheelRL.setContactFootID(contactPoints[0]);
 	
+	wheelFL.getContactFootID();
+	wheelFR.getContactFootID();
+	wheelRR.getContactFootID();
+	wheelRL.getContactFootID();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"*********** Compute Trans Body to Contact Point **\n";
+	#endif
 	/** Compute the wheel Contact Point **/
 	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);    
 	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
@@ -550,26 +659,47 @@ void Task::updateHook()
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
 	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
 	
+	mysckf.getEuler();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** PREDICT *****************************\n";
+	#endif
+	
 	/** Predict the state in the filter **/
 	mysckf.predict(angular_velocity, delta_t);
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** UPDATE *****************************\n";
+	#endif
 	
 	/** Update the state in the filter **/
 	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
 	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
-	mysckf.update(H, Be, vjoints, acc, angular_velocity, mag, delta_t, false);
+//  	mysckf.update(H, Be, vjoints, acc, angular_velocity, mag, delta_t, false);
 	
-	/** Update the estimated values **/
+	/** Compute rover velocity using the navigation equation with new calculated values **/
+	this->leastSquareSolution();
 	
-	/** Compute rover pose with new calculated values **/
+	/** Dead-reckoning and save into rbsBC **/
+	this->updateDeadReckoning();
+	
+	/** Write new pose to the output port **/
+	_pose_samples_out.write(rbsBC);
+	
+	/** Body pose to asguard for the vizkit visualization **/
+	this->toAsguardBodyState();
+	
+	/** To bebug ports **/
+	this->toDebugPorts();
+	
 	
 	/** Set to false the new values for next filter iteration **/
 	imuValues = false;
-	orientationValues = false;
+	poseInitValues = false;
 	hbridgeValues = false;
 	asguardValues = false;
     }
     
-   
     
 }
 void Task::errorHook()
@@ -629,6 +759,23 @@ void Task::calculateFootPoints()
     wheelFR.Body2FootPoint (4, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
     rbsC4FR2body = wheelFR.getBody2FootPoint();
     
+    	
+    /** For the Wheel 3 Forward Left **/
+    wheelFL.Body2FootPoint (0, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    rbsC0FL2body = wheelFL.getBody2FootPoint();
+    wheelFL.Body2FootPoint (1, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    rbsC1FL2body = wheelFL.getBody2FootPoint();
+    wheelFL.Body2FootPoint (2, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    rbsC2FL2body = wheelFL.getBody2FootPoint();
+    wheelFL.Body2FootPoint (3, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    rbsC3FL2body = wheelFL.getBody2FootPoint();
+    wheelFL.Body2FootPoint (4, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    rbsC4FL2body = wheelFL.getBody2FootPoint();
+    
+//     wheelFL.Body2ContactPoint (hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+//     rbsC2FL2body = wheelFL.getBody2ContactPoint();
+    
+    
     return;
 
 }
@@ -651,9 +798,12 @@ void Task::selectContactPoints(std::vector<int> &contactPoints)
     footFL[4] = rbsC4FL2body.position(2);
     
     contactPoints[3] = std::distance(footFL.begin(), std::min_element(footFL.begin(), footFL.end()));
-    /*std::cout<<"FL position: "<< rbsC0FL2body.position(2)<<"\n";
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"FL position: "<< rbsC0FL2body.position(2)<<"\n";
     std::cout<<"footFL: "<<footFL[0]<<" "<<footFL[1]<<" "<<footFL[2]<<" "<<footFL[3]<<" "<<footFL[4]<<"\n";
-    std::cout<<"contactPoints[3]: "<< contactPoints[3]<<"\n";*/
+    std::cout<<"contactPoints[3]: "<< contactPoints[3]<<"\n";
+    #endif
     
     /** For the FR wheel **/
     footFR.resize(5);
@@ -698,7 +848,10 @@ void Task::calculateVelocities()
     /** Set the correct size for the joint velocities vector **/
     vjoints.resize (1 + NUMBER_WHEELS, 1);
    
-     /** Passive joint velocity **/
+    #ifdef DEBUG_PRINTS
+    std::cout<<"New: "<< asguardStatus.asguardJointEncoder <<" Prev: "<<prevAsguardStatus.asguardJointEncoder<<"\n";
+    #endif
+    /** Passive joint velocity **/
     vjoints(0) = (asguardStatus.asguardJointEncoder - prevAsguardStatus.asguardJointEncoder)/delta_t; //passive joints
     
     /** Velocities for the vector **/
@@ -709,6 +862,10 @@ void Task::calculateVelocities()
 	#endif
 	vjoints(i) = (hbridgeStatus.states[i-1].positionExtern - prevHbridgeStatus.states[i-1].positionExtern)/delta_t; //wheel rotation
     }
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"Encoders velocities:\n"<<vjoints<<"\n";
+    #endif
     
     /** The previous values are the current ones for the next iteration **/
     prevAsguardStatus = asguardStatus;
@@ -726,8 +883,8 @@ void Task::compositeMatrices()
     J = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Zero();
     H.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
     H = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Zero();
-    Be.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_MEASUREMENT_VECTOR_SIZE);
-    Be = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_MEASUREMENT_VECTOR_SIZE>::Zero();
+    Be.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::Y_MEASUREMENT_VECTOR_SIZE);
+    Be = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::Y_MEASUREMENT_VECTOR_SIZE>::Zero();
     
     /** Compute the composite rover equation matrix E **/
     E.block<2*NUMAXIS, 2*NUMAXIS>(0,0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
@@ -738,7 +895,7 @@ void Task::compositeMatrices()
     #ifdef DEBUG_PRINTS
     std::cout<< "Composite matrices\n";
     std::cout<< "E is of size "<<E.rows()<<"x"<<E.cols()<<"\n";
-    std::cout << "The E matrix \n" << E << endl;
+    std::cout << "The E matrix \n" << E << std::endl;
     #endif
     
     /** Compute the rover Jacobian matrix **/
@@ -806,7 +963,7 @@ void Task::compositeMatrices()
     
     #ifdef DEBUG_PRINTS
     std::cout<< "J is of size "<<J.rows()<<"x"<<J.cols()<<"\n";
-    std::cout << "The J matrix \n" << J << endl;
+    std::cout << "The J matrix \n" << J << std::endl;
     #endif
     
     
@@ -816,7 +973,7 @@ void Task::compositeMatrices()
     
     #ifdef DEBUG_PRINTS
     std::cout<< "Be is of size "<<Be.rows()<<"x"<<Be.cols()<<"\n";
-    std::cout << "The Be matrix \n" << Be << endl;
+    std::cout << "The Be matrix \n" << Be << std::endl;
     #endif
     
     /** Form the matrix H for the observation of the filter **/
@@ -824,9 +981,289 @@ void Task::compositeMatrices()
     
     #ifdef DEBUG_PRINTS
     std::cout<< "H is of size "<<H.rows()<<"x"<<H.cols()<<"\n";
-    std::cout << "The H matrix \n" << H << endl;
+    std::cout << "The H matrix \n" << H << std::endl;
     #endif
     
     return;
 }
 
+Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
+{
+    /** Sensed and non-sensed matrices **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y, Z and Yaw
+    
+    /** Navigation matrices Ax = By **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS> A; /** Non-Sensed values matrix  **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 24> B; /** Sensed values matrix **/
+    
+    /** Navigation Vectors **/
+    Eigen::Matrix <double, NUMAXIS, 1> x; /** non-sensed velocity vector **/
+    Eigen::Matrix <double, 24, 1> y; /** sensed velocity vector **/
+    
+    /** vector b **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
+    
+    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
+    
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS*(2*NUMAXIS)> W;
+    
+	
+    /** Form the sensed vector **/
+    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
+    y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
+    y.block<sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS,0) = mysckf.getStatex().block<(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1>(0,0);
+	
+    /** Form the Es and En **/
+    En.col(0) = E.col(0); //x
+    En.col(1) = E.col(1); //y
+    En.col(2) = E.col(2); //z
+    
+    Es.col(0) = E.col(3); //roll
+    Es.col(1) = E.col(4); //pitch
+    Es.col(2) = E.col(5); //yaw
+    
+    /** A and B matrices to solve by least-square technique **/
+    A = En;
+    
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = -Es;
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),21>(0,NUMAXIS) = J;
+    
+    std::cout << "The A matrix \n" << A << std::endl;
+    std::cout << "The B matrix \n" << B << std::endl;
+    std::cout<<"The sensed vector y\n"<<y<<"\n";
+    
+    b = B*y;
+    
+    /** DEBUG OUTPUT **/
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> matrixAType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  24> matrixBType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  4> matrixConjType; // columns are columns of A + 1
+    
+    matrixConjType Conj;
+    
+    Eigen::FullPivLU<matrixAType> lu_decompA(A);
+    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
+	    
+    Eigen::FullPivLU<matrixBType> lu_decompB(B);
+    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
+    
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = A;
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,NUMAXIS) = b;
+    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
+    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
+    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
+    /** **/
+    
+    /** Form the weigth matrix **/
+//     W.block<sckf::A_STATE_VECTOR_SIZE, NUMAXIS> (0,0) = mysckf.getCovarianceAttitude().inverse();
+//     W.block<1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (sckf::A_STATE_VECTOR_SIZE,NUMAXIS) = 
+//     mysckf.getCovariancex().block<1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>(0,0).inverse();
+    
+    M = A;
+    x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+//     U = (A.transpose() * W * A).inverse();
+//     x =  U * A.transpose() * W * b;
+    
+    double relative_error = (A*x - b).norm() / b.norm();
+    std::cout << "The relative error is:\n" << relative_error << std::endl;
+    std::cout << "The solution is:\n" << x << std::endl;
+    
+    if (!base::isNaN(x(0)+x(1)+x(2)))
+    {
+	/** Prepare the vState variable for the dead reckoning **/
+	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
+    
+	/** Fill the vState with the new values for the dead reckoning **/
+	vState.block<NUMAXIS,1>(0,0) = x; // x,y and z
+    }  
+    
+    return x;
+}
+
+
+void Task::updateDeadReckoning ()
+{
+    Eigen::Matrix <double, NUMAXIS, 1> attitude; /** in roll, pitch and yaw **/
+    base::samples::RigidBodyState rbsDeltaPose;
+    envire::TransformWithUncertainty actualPose;
+    envire::TransformWithUncertainty deltaPose;
+    
+    /** Calculate the delta position from velocity (dead reckoning) asuming constant acceleration **/
+    rbsDeltaPose.position = ((this->delta_t) * (vState.block<3,1>(0,1) + vState.block<3,1>(0,0)));
+    rbsDeltaPose.cov_position = this->U;
+    rbsDeltaPose.velocity = vState.block<3,1>(0,0);
+    
+    /** Create the transformation from the delta position and the actual position **/
+    actualPose = rbsBC;
+    deltaPose = rbsDeltaPose;
+    
+    std::cout<<"actualPose(before)\n" <<actualPose;
+    
+    /** To perform the transformation **/
+    actualPose = actualPose * deltaPose;
+    
+    /** Fill the rigid body state **/
+    rbsBC.time = hbridgeStatus.time;
+    actualPose.copyToRigidBodyState(rbsBC);
+    rbsBC.orientation = mysckf.getAttitude();
+    rbsBC.cov_orientation = mysckf.getCovarianceAttitude().block<NUMAXIS, NUMAXIS>(0,0);
+    rbsBC.velocity = rbsDeltaPose.velocity;
+    
+    std::cout<<"Delta_t"<<this->delta_t<< "\n";
+    std::cout<<"Distance\n"<<rbsBC.orientation * vState.block<3,1>(0,0) * this->delta_t << "\n";
+
+    return;
+}
+
+void Task::toAsguardBodyState()
+{
+    register int i;
+    
+    /** Asguard BodyState (for visualization) **/
+    asguard::BodyState asguardBodyState;
+    
+    asguardBodyState.time = hbridgeStatus.time;
+    asguardBodyState.twistAngle = asguardStatus.asguardJointEncoder;
+    
+    /** For wheel FL (index 3) **/
+    for (i = 0; i< FEET_PER_WHEEL; i++)
+    {
+	asguard::WheelContact mContact;
+	mContact.angle = 0.00;
+	
+	if (i == this->contactPoints[3])
+	    mContact.contact = 1.0;
+	else
+	    mContact.contact = 0.0;
+	
+	asguardBodyState.setWheelContact(wheelFL.getWheelIdx(), i, mContact);
+	asguardBodyState.setWheelPos(wheelFL.getWheelIdx(), hbridgeStatus.states[3].positionExtern);
+    }
+    
+    
+    /** For wheel FR (index 2) **/
+    for (i = 0; i< FEET_PER_WHEEL; i++)
+    {
+	asguard::WheelContact mContact;
+	mContact.angle = 0.00;
+	
+	if (i == this->contactPoints[2])
+	    mContact.contact = 1.0;
+	else
+	    mContact.contact = 0.0;
+	
+	asguardBodyState.setWheelContact(wheelFR.getWheelIdx(), i, mContact);
+	asguardBodyState.setWheelPos(wheelFR.getWheelIdx(), hbridgeStatus.states[2].positionExtern);
+    }
+    
+    /** For wheel RR (index 1) **/
+    for (i = 0; i< FEET_PER_WHEEL; i++)
+    {
+	asguard::WheelContact mContact;
+	mContact.angle = 0.00;
+	
+	if (i == this->contactPoints[1])
+	    mContact.contact = 1.0;
+	else
+	    mContact.contact = 0.0;
+	
+	asguardBodyState.setWheelContact(wheelRR.getWheelIdx(), i, mContact);
+	asguardBodyState.setWheelPos(wheelRR.getWheelIdx(), hbridgeStatus.states[1].positionExtern);
+    }
+    
+    /** For wheel RL (index 0) **/
+    for (i = 0; i< FEET_PER_WHEEL; i++)
+    {
+	asguard::WheelContact mContact;
+	mContact.angle = 0.00;
+	
+	if (i == this->contactPoints[0])
+	    mContact.contact = 1.0;
+	else
+	    mContact.contact = 0.0;
+	
+	asguardBodyState.setWheelContact(wheelRL.getWheelIdx(), i, mContact);
+	asguardBodyState.setWheelPos(wheelRL.getWheelIdx(), hbridgeStatus.states[0].positionExtern);
+    }
+    
+    _bodystate_samples.write(asguardBodyState);
+    
+    
+    /** For the movement of the points with the BC **/
+    rbsC0FL2body.setTransform(rbsBC.getTransform()*rbsC0FL2body.getTransform());
+    rbsC1FL2body.setTransform(rbsBC.getTransform()*rbsC1FL2body.getTransform());
+    rbsC2FL2body.setTransform(rbsBC.getTransform()*rbsC2FL2body.getTransform());
+    rbsC3FL2body.setTransform(rbsBC.getTransform()*rbsC3FL2body.getTransform());
+    rbsC4FL2body.setTransform(rbsBC.getTransform()*rbsC4FL2body.getTransform());
+    
+    rbsC0FR2body.setTransform(rbsBC.getTransform()*rbsC0FR2body.getTransform());
+    rbsC1FR2body.setTransform(rbsBC.getTransform()*rbsC1FR2body.getTransform());
+    rbsC2FR2body.setTransform(rbsBC.getTransform()*rbsC2FR2body.getTransform());
+    rbsC3FR2body.setTransform(rbsBC.getTransform()*rbsC3FR2body.getTransform());
+    rbsC4FR2body.setTransform(rbsBC.getTransform()*rbsC4FR2body.getTransform());
+    
+    rbsC0RL2body.setTransform(rbsBC.getTransform()*rbsC0RL2body.getTransform());
+    rbsC1RL2body.setTransform(rbsBC.getTransform()*rbsC1RL2body.getTransform());
+    rbsC2RL2body.setTransform(rbsBC.getTransform()*rbsC2RL2body.getTransform());
+    rbsC3RL2body.setTransform(rbsBC.getTransform()*rbsC3RL2body.getTransform());
+    rbsC4RL2body.setTransform(rbsBC.getTransform()*rbsC4RL2body.getTransform());
+    
+    rbsC0RR2body.setTransform(rbsBC.getTransform()*rbsC0RR2body.getTransform());
+    rbsC1RR2body.setTransform(rbsBC.getTransform()*rbsC1RR2body.getTransform());
+    rbsC2RR2body.setTransform(rbsBC.getTransform()*rbsC2RR2body.getTransform());
+    rbsC3RR2body.setTransform(rbsBC.getTransform()*rbsC3RR2body.getTransform());
+    rbsC4RR2body.setTransform(rbsBC.getTransform()*rbsC4RR2body.getTransform());
+    
+    
+    
+    /** Write values in the output ports **/
+    _C0FL2body_out.write(rbsC0FL2body);
+    _C1FL2body_out.write(rbsC1FL2body);
+    _C2FL2body_out.write(rbsC2FL2body);
+    _C3FL2body_out.write(rbsC3FL2body);
+    _C4FL2body_out.write(rbsC4FL2body);
+    
+    _C0FR2body_out.write(rbsC0FR2body);
+    _C1FR2body_out.write(rbsC1FR2body);
+    _C2FR2body_out.write(rbsC2FR2body);
+    _C3FR2body_out.write(rbsC3FR2body);
+    _C4FR2body_out.write(rbsC4FR2body);
+    
+    _C0RR2body_out.write(rbsC0RR2body);
+    _C1RR2body_out.write(rbsC1RR2body);
+    _C2RR2body_out.write(rbsC2RR2body);
+    _C3RR2body_out.write(rbsC3RR2body);
+    _C4RR2body_out.write(rbsC4RR2body);
+    
+    _C0RL2body_out.write(rbsC0RL2body);
+    _C1RL2body_out.write(rbsC1RL2body);
+    _C2RL2body_out.write(rbsC2RL2body);
+    _C3RL2body_out.write(rbsC3RL2body);
+    _C4RL2body_out.write(rbsC4RL2body);
+
+}
+
+
+void Task::toDebugPorts()
+{
+
+    /** Port out the slip vectors **/
+    _slipFL.write(mysckf.getSlipVector(3));
+    _slipFR.write(mysckf.getSlipVector(2));
+    _slipRR.write(mysckf.getSlipVector(1));
+    _slipRL.write(mysckf.getSlipVector(0));
+    
+    /** Port out the contact angle **/
+    _contact_angle.write(mysckf.getContactAngles());
+    
+    /** Port out the imu velocities in body frame **/
+    _linear_velocities.write(mysckf.getLinearVelocities());
+    _angular_velocities.write(mysckf.getAngularVelocities());
+    
+     /** Port out filter vector and matrices **/
+     _K.write(mysckf.getAttitudeKalmanGain());
+     _innovation_ki.write(mysckf.getInnovation());
+     _Pki_k.write(mysckf.getCovarianceAttitude());
+    
+}

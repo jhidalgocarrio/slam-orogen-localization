@@ -41,7 +41,7 @@ namespace asguard_localization {
     #endif
     
     #ifndef NUMBER_INIT_ACC
-    #define NUMBER_INIT_ACC 1000 /** Number acc samples to compute initial pitch and roll considering not init_attitude provided by orientation_init **/
+    #define NUMBER_INIT_ACC 1000 /** Number acc samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
     #endif
 
     /*! \class Task 
@@ -66,11 +66,18 @@ namespace asguard_localization {
 	/** SCKF structure **/
 	localization::sckf mysckf;
 	
+	/** Init pose **/
+	bool initPosition, initAttitude;
+	
 	/** index for acc mean value for init attitude **/
 	int accidx; 
 	
 	/** Integration step for the filter in seconds **/
 	double delta_t;
+	
+	/** Dead reckoning variables **/
+	Eigen::Matrix <double, 2*NUMAXIS, 2> vState; /** robot state linear and angular velocities time nT col(0) and (n-1)T col(1) (order is x,y,z,roll, pitch and yaw) **/
+	Eigen::Matrix<double, NUMAXIS,NUMAXIS> U; /** Uncertainty matrix (1/Information matrix) from the least squared solution **/
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberIMUSamples; /** number of Ground Force info samples **/
@@ -94,7 +101,7 @@ namespace asguard_localization {
 	asguard::KinematicModel wheelRR;
 	
 	/** Data arrived **/
-	bool imuValues, hbridgeValues, asguardValues, orientationValues;
+	bool imuValues, hbridgeValues, asguardValues, poseInitValues;
 	
 	/** Accelerometers eccentricity **/
 	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
@@ -103,7 +110,7 @@ namespace asguard_localization {
 	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
 	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors imuSamples; /** IMU samples **/
-	base::samples::RigidBodyState orientation; /** Orientation information (init and debug)**/
+	base::samples::RigidBodyState poseInit; /** Orientation information (init and debug)**/
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact **/
 	
 	/** Input ports timing **/
@@ -111,7 +118,7 @@ namespace asguard_localization {
 	
 	/** Status information replica to compute the velocity **/
 	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
-	base::samples::RigidBodyState prevOrientation; /** Orientation information (init and debug)**/
+	base::samples::RigidBodyState prevPoseInit; /** Orientation information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
 	
@@ -122,8 +129,8 @@ namespace asguard_localization {
 	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;
 	
 	/** Jacobian matrix for the rover Eu = Jp **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> J; /** Sparse Wheels Jacobian matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix (24 x 6) **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> J; /** Sparse Wheels Jacobian matrix (24 x 21) **/
 	
 	/** Matrices for the filter **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Be; /** Measurement matrix **/
@@ -171,7 +178,7 @@ namespace asguard_localization {
         virtual void hbridge_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &hbridge_samples_sample);
         virtual void systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample);
         virtual void torque_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_estimated_sample);
-	virtual void orientation_initTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &orientation_init_sample);
+	virtual void pose_initTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_init_sample);
 
     public:
         /** TaskContext constructor for Task
@@ -265,6 +272,32 @@ namespace asguard_localization {
 	 * slip kinematics and the filter observation.
 	 */
 	void compositeMatrices ();
+	
+	/** \brief It solves the position update
+	 * 
+	 */
+	Eigen::Matrix< double, NUMAXIS , 1  > leastSquareSolution();
+	
+	/** \Brief Performs the time integration of the Least-Squares solution
+	 * 
+	 * @return void
+	 */
+	void updateDeadReckoning ();
+	
+	/** \Brief Fill the Asguard BodyState structure
+	 * 
+	 * All the produced information relevant to Asguard BodyState class
+	 * is store in it in order to port out to the correspondent port.
+	 * 
+	 * @return void
+	 */
+	void toAsguardBodyState();
+	
+	/** \Brief Write debug info in the ports
+	 * 
+	 * @return void
+	 */
+	void toDebugPorts();
     };
 }
 

@@ -110,8 +110,8 @@ task_context "Task" do
     input_port("ground_forces_estimated", "torque_estimator/GroundForces").
         doc("Estimated ground force values")
 
-    input_port("orientation_init", "/base/samples/RigidBodyState").
-        doc("Rover orientation information (only for initialization or debug purpose)")
+    input_port("pose_init", "/base/samples/RigidBodyState").
+        doc("Rover position and orientation information (only for initialization or debug purpose)")
 
     ##########################
     # Transformer
@@ -123,7 +123,7 @@ task_context "Task" do
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_estimated", 0.01)
 	align_port("ground_forces_estimated", 0.01)
-	align_port("orientation_init", 0.01)
+	align_port("pose_init", 0.01)
 	max_latency(0.5)
     end
 
@@ -133,6 +133,113 @@ task_context "Task" do
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
 	doc 'Estimated rover pose'
 
+
+    #*************************************
+    #******* Visualization Ports *********
+    #*************************************
+    output_port('bodystate_samples', '/asguard/BodyState').
+	doc 'timestamped asguard bodystate information'
+
+    # FRONT LEFT WHEEL
+    output_port('C0FL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 0 Contact point frame of Forward Left Wheel wrt the Body center'
+
+    output_port('C1FL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 1 Contact point frame of Forward Left Wheel wrt the Body center'
+
+    output_port('C2FL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 2 Contact point frame of Forward Left Wheel wrt the Body center'
+
+    output_port('C3FL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 3 Contact point frame of Forward Left Wheel wrt the Body center'
+
+    output_port('C4FL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 4 Contact point frame of Forward Right Wheel wrtthe Body center'
+
+    # FRONT RIGHT WHEEL
+    output_port('C0FR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 0 Contact point frame of Forward Right Wheel wrt the Body center'
+
+    output_port('C1FR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 1 Contact point frame of Forward Right Wheel wrt the Body center'
+
+    output_port('C2FR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 2 Contact point frame of Forward Right Wheel wrt the Body center'
+
+    output_port('C3FR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 3 Contact point frame of Forward Right Wheel wrt the Body center'
+
+    output_port('C4FR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 4 Contact point frame of Forward Right Wheel wrtthe Body center'
+
+    # REAR LEFT WHEEL
+    output_port('C0RL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 0 Contact point frame of Rear Left Wheel wrt the Body center'
+
+    output_port('C1RL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 1 Contact point frame of Rear Left Wheel wrt the Body center'
+
+    output_port('C2RL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 2 Contact point frame of Rear Left Wheel wrt the Body center'
+
+    output_port('C3RL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 3 Contact point frame of Rear Left Wheel wrt the Body center'
+
+    output_port('C4RL2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 4 Contact point frame of Rear Right Wheel wrtthe Body center'
+
+    # REAR RIGHT WHEEL
+    output_port('C0RR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 0 Contact point frame of Rear Right Wheel wrt the Body center'
+
+    output_port('C1RR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 1 Contact point frame of Rear Right Wheel wrt the Body center'
+
+    output_port('C2RR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 2 Contact point frame of Rear Right Wheel wrt the Body center'
+
+    output_port('C3RR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 3 Contact point frame of Rear Right Wheel wrt the Body center'
+
+    output_port('C4RR2body_out', 'base/samples/RigidBodyState')
+	doc 'position and orientation of foot 4 Contact point frame of Rear Right Wheel wrtthe Body center'
+
+
+    #******************************
+    #******* DebugOut Ports *******
+    #******************************
+    output_port('slipFL', '/base/Vector3d').
+	doc 'Slip vector for FL wheel'
+
+    output_port('slipFR', '/base/Vector3d').
+	doc 'Slip vector for FR wheel'
+
+    output_port('slipRR', '/base/Vector3d').
+	doc 'Slip vector for RR wheel'
+
+    output_port('slipRL', '/base/Vector3d').
+	doc 'Slip vector for RL wheel'
+
+    output_port('contact_angle', '/base/VectorXd').
+	doc 'Contact angle vector of the wheels'
+
+    output_port('zki', '/base/VectorXd').
+	doc 'Measurement vector'
+
+    output_port('innovation_ki', '/base/VectorXd').
+	doc 'Innovation of measurement step'
+
+    output_port('K', '/base/MatrixXd').
+	doc 'Kalman matrix of the sckf'
+
+    output_port('Pki_k', '/base/MatrixXd').
+	doc 'Process covariance matrix'
+
+    output_port('linear_velocities', '/base/Vector3d').
+	doc 'Linear velocities compued by the inertial sensors'
+
+    output_port('angular_velocities', '/base/Vector3d').
+	doc 'Angular velocities computed by the inertial sensors.'
 
     port_driven
 

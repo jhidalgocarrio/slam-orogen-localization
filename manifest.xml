@@ -14,6 +14,7 @@
   <depend package="dummy-dependency-n" />
   -->
   <depend package="base/types" />
+  <depend package="asguard/orogen/sysmon"/>
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
   <depend package="asguard/asguard" />
