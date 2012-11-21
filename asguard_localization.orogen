@@ -124,7 +124,7 @@ task_context "Task" do
 	align_port("torque_estimated", 0.01)
 	align_port("ground_forces_estimated", 0.01)
 	align_port("pose_init", 0.01)
-	max_latency(0.5)
+	max_latency(0.1)
     end
 
     #******************************
@@ -241,7 +241,7 @@ task_context "Task" do
     output_port('angular_velocities', '/base/Vector3d').
 	doc 'Angular velocities computed by the inertial sensors.'
 
-    port_driven
+    port_driven "hbridge_samples"
 
 end
 

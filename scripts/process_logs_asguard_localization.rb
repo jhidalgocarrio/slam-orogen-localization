@@ -237,11 +237,24 @@ Orocos.run('asguard_localization_test') do
 	rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))
 	rbsTruth.resetModel(0.4)
 	
+	imuTruthTrajectory = Vizkit.default_loader.TrajectoryVisualization
+	imuTruthTrajectory.setColor(Eigen::Vector3.new(255, 255, 0)) #Yellow
+	rbsIMUTruth = Vizkit.default_loader.RigidBodyStateVisualization
+	rbsIMUTruth.setColor(Eigen::Vector3.new(255, 255, 0))
+	rbsIMUTruth.resetModel(0.2)
+	
 	#Connect to the ground truth output port of the navigation kinematics task
 	log_replay.vicon.pose_samples.connect_to rbsTruth
 
 	log_replay.vicon.pose_samples.connect_to do|vicon,_|    
 	    truthTrajectory.updateTrajectory(vicon.position)
+	end
+	
+	#Connect to the ground truth output port of the navigation kinematics task
+	log_replay.Task.pose_samples.connect_to rbsIMUTruth
+	
+	log_replay.Task.pose_samples.connect_to  do|imu_vicon,_|    
+	    imuTruthTrajectory.updateTrajectory(imu_vicon.position)
 	end
     end
     

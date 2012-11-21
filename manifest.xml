@@ -18,6 +18,7 @@
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
   <depend package="asguard/asguard" />
+  <depend package="asguard/orogen/asguard" />
   <depend package="asguard/orogen/torque_estimator" />
   <depend package="asguard/asguard_localization" />
   <!--

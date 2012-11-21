@@ -276,7 +276,7 @@ namespace asguard_localization {
 	/** \brief It solves the position update
 	 * 
 	 */
-	Eigen::Matrix< double, NUMAXIS , 1  > leastSquareSolution();
+	Eigen::Matrix< double, NUMAXIS , 1  > leastSquaresSolution();
 	
 	/** \Brief Performs the time integration of the Least-Squares solution
 	 * 
@@ -298,6 +298,12 @@ namespace asguard_localization {
 	 * @return void
 	 */
 	void toDebugPorts();
+	
+	/** \Brief Least-Square Motion Estimation
+	 * 
+	 * @return the vector solution.
+	 */
+	Eigen::Matrix <double, 8, 1> leastSquareSolutionNoXYSlip ();
     };
 }
 

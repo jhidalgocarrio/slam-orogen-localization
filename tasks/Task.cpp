@@ -2,7 +2,7 @@
 
 #include "Task.hpp"
 
-#define DEBUG_PRINTS 1
+// #define DEBUG_PRINTS 1
 
 using namespace asguard_localization;
 using namespace localization;
@@ -139,7 +139,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    std::cout<<"*** Computed gravity: "<<meanacc.norm()<<"\n";
 	    #endif
 	    
-	    euler[0] = (double) -asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
+	    euler[0] = (double) asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
 	    euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
 	    euler[2] = M_PI;
 	    
@@ -147,6 +147,11 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
 	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
+	    
+	    #ifdef DEBUG_PRINTS
+	    std::cout<< "******** Initial Attitude (STIM300 frame)  *******"<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
+	    #endif
 	    
 	    /** This attitude is in the IMU frame. It needs to be expressed in body with the help of the transformer **/
 	    attitude = attitude * qtf;
@@ -202,10 +207,12 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	/** It starts again the sampling **/
 	if (counterIMUSamples == 0)
 	{
+	    prevImuSamples = imuSamples;
 	    outTimeIMU =  calibrated_sensors_sample.time;
 	    imuSamples.acc.setZero();
 	    imuSamples.gyro.setZero();
 	    imuSamples.mag.setZero();
+	    imuValues = false;
 	}
 	
 	#ifdef DEBUG_PRINTS
@@ -252,6 +259,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 {
     if (counterHbridgeSamples == 0)
     {
+	prevHbridgeStatus = hbridgeStatus;
 	outTimeHbridge = hbridge_samples_sample.time;
 	for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
 	{
@@ -260,10 +268,14 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    hbridgeStatus.states[i].positionExtern = 0.0;
 	    hbridgeStatus.states[i].pwm = 0.0;
 	}
+	hbridgeValues = false;
     }
     
     for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
     {
+	#ifdef DEBUG_PRINTS
+ 	std::cout<<"** counterHbridgeSamples("<<counterHbridgeSamples<<") received ("<<hbridge_samples_sample.states[i].positionExtern<<")**\n";
+	#endif
 	hbridgeStatus.states[i].current += hbridge_samples_sample.states[i].current;
 	hbridgeStatus.states[i].position = hbridge_samples_sample.states[i].position;
 	hbridgeStatus.states[i].positionExtern = hbridge_samples_sample.states[i].positionExtern;
@@ -296,14 +308,116 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    prevHbridgeStatus = hbridgeStatus;
     }
     
+    /** Implementation of the filter **/
+    #ifdef DEBUG_PRINTS
+    std::cout<<"In Filter Implementation\n";
+    std::cout<<"imuCounter ("<<counterIMUSamples<<") asguardCounter("<<counterAsguardStatusSamples<<") hbridgeCounter("<<counterHbridgeSamples<<")\n";
+    std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
+    #endif
+    
+    /** Start the filter if all the values arrived to the ports in the correct order **/
+    if (imuValues && asguardValues && hbridgeValues)
+    {
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"************************************************\n";
+	#endif
+    
+	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
+	this->calculateFootPoints();
+	
+	/** Select the Contact Point among the Foot Points **/
+	this->selectContactPoints(contactPoints);
+	
+	/** Set the Contact Point in the KinematicModel **/
+	wheelFL.setContactFootID(contactPoints[3]);
+	wheelFR.setContactFootID(contactPoints[2]);
+	wheelRR.setContactFootID(contactPoints[1]);
+	wheelRL.setContactFootID(contactPoints[0]);
+	
+	wheelFL.getContactFootID();
+	wheelFR.getContactFootID();
+	wheelRR.getContactFootID();
+	wheelRL.getContactFootID();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"*********** Compute Trans Body to Contact Point **\n";
+	#endif
+	/** Compute the wheel Contact Point **/
+	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);    
+	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+	wheelFR.Body2ContactPoint(hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+	wheelFL.Body2ContactPoint(hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+	
+	/** Compute the wheel Jacobians for the Selected Foot Point **/
+	Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
+	jacobRL = wheelRL.getWheelJacobian (slipvector);
+	jacobRR = wheelRR.getWheelJacobian (slipvector);
+	jacobFR = wheelFR.getWheelJacobian (slipvector);
+	jacobFL = wheelFL.getWheelJacobian (slipvector);
+	
+	/** Calculate velocities joints velocities **/
+	this->calculateVelocities();
+	
+	/** Composite Slip-Kinematics and Observation matrix for the SCKF **/
+	this->compositeMatrices();
+	
+	/** Substract Earth rotation from gyros **/
+	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples.gyro;
+	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
+	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
+	
+	mysckf.getEuler();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** PREDICT *****************************\n";
+	#endif
+	
+	/** Predict the state in the filter **/
+	mysckf.predict(angular_velocity, delta_t);
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** UPDATE *****************************\n";
+	#endif
+	
+	/** Update the state in the filter **/
+	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
+	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
+ 	mysckf.update(H, Be, vjoints, acc, angular_velocity, mag, delta_t, false);
+	
+	
+// 	/** Least-Square Motion Estimation **/
+// 	this->leastSquareSolutionNoXYSlip();
+	
+	/** Compute rover velocity using the navigation equation with new calculated values **/
+	this->leastSquaresSolution();
+	
+	if (vjoints != Eigen::Matrix<double,(1+sckf::NUMBER_OF_WHEELS),1>::Zero())
+	{    
+	    /** Dead-reckoning and save into rbsBC **/
+	    this->updateDeadReckoning();
+	}
+	
+	/** Write new pose to the output port **/
+	_pose_samples_out.write(rbsBC);
+	
+	/** Body pose to asguard for the vizkit visualization **/
+	this->toAsguardBodyState();
+	
+	/** To bebug ports **/
+	this->toDebugPorts();
+	
+    }
 
 }
 void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample)
 {
     if (counterAsguardStatusSamples == 0)
     {
+	prevAsguardStatus = asguardStatus;
 	outTimeStatus = systemstate_samples_sample.time;
 	asguardStatus.asguardVoltage = 0.00;
+	asguardValues = false;
     }
     
     asguardStatus.time = systemstate_samples_sample.time;
@@ -333,7 +447,7 @@ void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::
 	if (base::isNaN(prevAsguardStatus.asguardJointEncoder))
 	    prevAsguardStatus = asguardStatus;
     }
-
+    
 }
 
 void Task::torque_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_estimated_sample)
@@ -387,7 +501,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 
 bool Task::configureHook()
 {
-    double delta_time;/** Delta (bandwidth) time of inertial sensors **/
+    double delta_bandwidth;/** Delta (bandwidth) time of inertial sensors **/
     double theoretical_g; /** Ideal gravity value **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /**< Measurement noise convariance matrix for acc */
@@ -405,7 +519,7 @@ bool Task::configureHook()
         return false;
     
     if (_sensors_bandwidth.value() != 0.00)
-	delta_time = 1.0/_sensors_bandwidth.value();
+	delta_bandwidth = 1.0/_sensors_bandwidth.value();
     
     /** Set the initial BC to the Geographic frame **/
     rbsBC.invalidate();
@@ -448,9 +562,9 @@ bool Task::configureHook()
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
     Ra = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_t),2);
-    Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_t),2);
-    Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_t),2);
+    Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
+    Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
+    Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Gyroscopes covariance matrix with is std_vel = std_acc * sqrt(integration_step) **/
     Rv = Ra + (Ra * delta_t);
@@ -463,15 +577,15 @@ bool Task::configureHook()
     
     /** Gyroscopes covariance matrix **/
     Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rg(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_t),2);
-    Rg(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_t),2);
-    Rg(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_t),2);
+    Rg(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_bandwidth),2);
+    Rg(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_bandwidth),2);
+    Rg(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_bandwidth),2);
 
     /** Magnetometers covariance matrix **/
     Rm = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rm(0,0) = pow(_magrw.get()[0]/sqrt(delta_time),2);
-    Rm(1,1) = pow(_magrw.get()[1]/sqrt(delta_time),2);
-    Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_time),2);
+    Rm(0,0) = pow(_magrw.get()[0]/sqrt(delta_bandwidth),2);
+    Rm(1,1) = pow(_magrw.get()[1]/sqrt(delta_bandwidth),2);
+    Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Encoders errors **/
     Ren.resize(1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS);
@@ -479,7 +593,7 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.0001 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
+    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.001 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -601,105 +715,6 @@ bool Task::startHook()
 void Task::updateHook()
 {
     TaskBase::updateHook();
- 
-    #ifdef DEBUG_PRINTS
-    std::cout<<"In UpdateHook\n";
-    std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
-    #endif
-    
-    /** Start the filter if all the values arrived to the ports in the correct order **/
-    if (imuValues && asguardValues && hbridgeValues)
-    {
-	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"************************************************\n";
-	#endif
-    
-	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
-	this->calculateFootPoints();
-	
-	/** Select the Contact Point among the Foot Points **/
-	this->selectContactPoints(contactPoints);
-	
-	/** Set the Contact Point in the KinematicModel **/
-	wheelFL.setContactFootID(contactPoints[3]);
-	wheelFR.setContactFootID(contactPoints[2]);
-	wheelRR.setContactFootID(contactPoints[1]);
-	wheelRL.setContactFootID(contactPoints[0]);
-	
-	wheelFL.getContactFootID();
-	wheelFR.getContactFootID();
-	wheelRR.getContactFootID();
-	wheelRL.getContactFootID();
-	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"*********** Compute Trans Body to Contact Point **\n";
-	#endif
-	/** Compute the wheel Contact Point **/
-	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);    
-	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
-	wheelFR.Body2ContactPoint(hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
-	wheelFL.Body2ContactPoint(hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
-	
-	/** Compute the wheel Jacobians for the Selected Foot Point **/
-	Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
-	jacobRL = wheelRL.getWheelJacobian (slipvector);
-	jacobRR = wheelRR.getWheelJacobian (slipvector);
-	jacobFR = wheelFR.getWheelJacobian (slipvector);
-	jacobFL = wheelFL.getWheelJacobian (slipvector);
-	
-	/** Calculate velocities joints velocities **/
-	this->calculateVelocities();
-	
-	/** Composite Slip-Kinematics and Observation matrix for the SCKF **/
-	this->compositeMatrices();
-	
-	/** Substract Earth rotation from gyros **/
-	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples.gyro;
-	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
-	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
-	
-	mysckf.getEuler();
-	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"********** PREDICT *****************************\n";
-	#endif
-	
-	/** Predict the state in the filter **/
-	mysckf.predict(angular_velocity, delta_t);
-	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"********** UPDATE *****************************\n";
-	#endif
-	
-	/** Update the state in the filter **/
-	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
-	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
-//  	mysckf.update(H, Be, vjoints, acc, angular_velocity, mag, delta_t, false);
-	
-	/** Compute rover velocity using the navigation equation with new calculated values **/
-	this->leastSquareSolution();
-	
-	/** Dead-reckoning and save into rbsBC **/
-	this->updateDeadReckoning();
-	
-	/** Write new pose to the output port **/
-	_pose_samples_out.write(rbsBC);
-	
-	/** Body pose to asguard for the vizkit visualization **/
-	this->toAsguardBodyState();
-	
-	/** To bebug ports **/
-	this->toDebugPorts();
-	
-	
-	/** Set to false the new values for next filter iteration **/
-	imuValues = false;
-	poseInitValues = false;
-	hbridgeValues = false;
-	asguardValues = false;
-    }
-    
     
 }
 void Task::errorHook()
@@ -844,13 +859,21 @@ void Task::selectContactPoints(std::vector<int> &contactPoints)
 
 void Task::calculateVelocities()
 {
+    base::Time hbridgeDelta_t = hbridgeStatus.time - prevHbridgeStatus.time;
+    base::Time passiveJointDelta_t = asguardStatus.time - prevAsguardStatus.time;
+    base::Time imuDelta_t = imuSamples.time - prevImuSamples.time;
     
     /** Set the correct size for the joint velocities vector **/
     vjoints.resize (1 + NUMBER_WHEELS, 1);
    
     #ifdef DEBUG_PRINTS
+    std::cout<<"Timestamp New: "<< asguardStatus.time.toMicroseconds() <<" Timestamp Prev: "<<prevAsguardStatus.time.toMicroseconds()<<"\n";
+    std::cout<<"Delta time(passiveJoint): "<< passiveJointDelta_t.toSeconds()<<"\n";
+    std::cout<<"Timestamp New: "<< imuSamples.time.toMicroseconds() <<" Timestamp Prev: "<<prevImuSamples.time.toMicroseconds()<<"\n";
+    std::cout<<"Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
     std::cout<<"New: "<< asguardStatus.asguardJointEncoder <<" Prev: "<<prevAsguardStatus.asguardJointEncoder<<"\n";
     #endif
+    
     /** Passive joint velocity **/
     vjoints(0) = (asguardStatus.asguardJointEncoder - prevAsguardStatus.asguardJointEncoder)/delta_t; //passive joints
     
@@ -858,6 +881,8 @@ void Task::calculateVelocities()
     for (int i = 1; i< (NUMBER_WHEELS + 1); i++)
     {
 	#ifdef DEBUG_PRINTS
+	std::cout<<"Timestamp New: "<< hbridgeStatus.time.toMicroseconds() <<" Timestamp Prev: "<<prevHbridgeStatus.time.toMicroseconds()<<"\n";
+	std::cout<<"Delta time: "<< hbridgeDelta_t.toSeconds()<<"\n";
 	std::cout<<"New: "<< hbridgeStatus.states[i-1].positionExtern <<" Prev: "<<prevHbridgeStatus.states[i-1].positionExtern<<"\n";
 	#endif
 	vjoints(i) = (hbridgeStatus.states[i-1].positionExtern - prevHbridgeStatus.states[i-1].positionExtern)/delta_t; //wheel rotation
@@ -866,11 +891,6 @@ void Task::calculateVelocities()
     #ifdef DEBUG_PRINTS
     std::cout<<"Encoders velocities:\n"<<vjoints<<"\n";
     #endif
-    
-    /** The previous values are the current ones for the next iteration **/
-    prevAsguardStatus = asguardStatus;
-    prevHbridgeStatus = hbridgeStatus;
-    prevImuSamples = imuSamples;
     
     return;
 }
@@ -987,11 +1007,11 @@ void Task::compositeMatrices()
     return;
 }
 
-Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
+Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
 {
     /** Sensed and non-sensed matrices **/
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y, Z and Yaw
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y and Z
     
     /** Navigation matrices Ax = By **/
     Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS> A; /** Non-Sensed values matrix  **/
@@ -1008,30 +1028,46 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
     
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS*(2*NUMAXIS)> W;
     
-	
     /** Form the sensed vector **/
-    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
+    y.block<NUMAXIS, 1> (0,0) = imuSamples.gyro;//mysckf.getAngularVelocities();
     y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
-    y.block<sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS,0) = mysckf.getStatex().block<(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1>(0,0);
+    for (int i = 0; i<sckf::NUMBER_OF_WHEELS; i++)
+    {
+	y.block<NUMAXIS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*i),0) = mysckf.getSlipVector(i);
+	#ifdef DEBUG_PRINTS
+	std::cout<<"[LS] Slip vector("<<i<<") is:\n"<<mysckf.getSlipVector(i)<<"\n";
+	#endif
+// 	Eigen::Matrix<double, sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS, 1>::Zero();//mysckf.getStatex().block<(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1>(0,0);
+    }
+    
+    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAngles();
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[LS] Contact angle vector is:\n"<<mysckf.getContactAngles()<<"\n";
+    #endif
+    
 	
     /** Form the Es and En **/
-    En.col(0) = E.col(0); //x
-    En.col(1) = E.col(1); //y
-    En.col(2) = E.col(2); //z
-    
     Es.col(0) = E.col(3); //roll
     Es.col(1) = E.col(4); //pitch
     Es.col(2) = E.col(5); //yaw
     
-    /** A and B matrices to solve by least-square technique **/
+    En.col(0) = E.col(0); //x
+    En.col(1) = E.col(1); //y
+    En.col(2) = E.col(2); //z
+    
+    /** A and B matrices to solve by least-squares technique **/
     A = En;
     
     B.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = -Es;
     B.block<NUMBER_WHEELS*(2*NUMAXIS),21>(0,NUMAXIS) = J;
     
-    std::cout << "The A matrix \n" << A << std::endl;
-    std::cout << "The B matrix \n" << B << std::endl;
-    std::cout<<"The sensed vector y\n"<<y<<"\n";
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[LS] A is of size "<<A.rows()<<"x"<<A.cols()<<"\n";
+    std::cout<<"[LS] A:\n" << A << std::endl;
+    std::cout<<"[LS] B is of size "<<B.rows()<<"x"<<B.cols()<<"\n";
+    std::cout<<"[LS] B:\n" << B << std::endl;
+    std::cout<<"[LS] The sensed vector y\n"<<y<<"\n";
+    #endif
     
     b = B*y;
     
@@ -1042,6 +1078,7 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
     
     matrixConjType Conj;
     
+    #ifdef DEBUG_PRINTS
     Eigen::FullPivLU<matrixAType> lu_decompA(A);
     std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
 	    
@@ -1053,6 +1090,7 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
     Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
     std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
     std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
+    #endif
     /** **/
     
     /** Form the weigth matrix **/
@@ -1082,15 +1120,142 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquareSolution()
 }
 
 
-void Task::updateDeadReckoning ()
+Eigen::Matrix <double, 8, 1> Task::leastSquareSolutionNoXYSlip()
 {
+    
+    /** Sensed and non-sensed matrices **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 2> Es; //Sensed is pitch and roll
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> En; //Non-sensed is X, Y, Z and Yaw
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 17> Js; //Sensed is wheel_rotation, passive joint,  slip x and y and contact angle, 
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn; //Non-sensed is slip z
+    
+    /** Navigation matrices Ax = By **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),8> A; /** Non-Sensed values matrix  **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 19> B; /** Sensed values matrix **/
+    
+    /** Navigation Vectors **/
+    Eigen::Matrix <double, 8, 1> x; /** non-sensed velocity vector **/
+    Eigen::Matrix <double, 19, 1> y; /** sensed velocity vector **/
+    
+    
+    /** vector b **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
+    
+    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
+    
+    /** Form the sensed vector **/
+    y <<imuSamples.gyro[0], imuSamples.gyro[1], vjoints[0], vjoints[1], vjoints[2], vjoints[3], vjoints[4], 0.00, 0.00, 0.00,
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00;
+    
+    
+    
+    /** Form the Es and En **/
+    Es.col(0) = E.col(3); //roll
+    Es.col(1) = E.col(4); //pitch
+    
+    En.col(0) = E.col(0); //x
+    En.col(1) = E.col(1); //y
+    En.col(2) = E.col(2); //z
+    En.col(3) = E.col(5); //yaw
+    
+    /** Form the Js and Jn **/
+    Jn.col(0) = J.col(7);
+    Jn.col(1) = J.col(10);
+    Jn.col(2) = J.col(13);
+    Jn.col(3) = J.col(16);
+    
+    Js.col(0) = J.col(0);
+    Js.col(1) = J.col(1);
+    Js.col(2) = J.col(2);
+    Js.col(3) = J.col(3);
+    Js.col(4) = J.col(4);
+    Js.col(5) = J.col(5);
+    Js.col(6) = J.col(6);
+    Js.col(7) = J.col(8);
+    Js.col(8) = J.col(9);
+    Js.col(9) = J.col(11);
+    Js.col(10) = J.col(12);
+    Js.col(11) = J.col(14);
+    Js.col(12) = J.col(15);
+    Js.col(13) = J.col(17);
+    Js.col(14) = J.col(18);
+    Js.col(15) = J.col(19);
+    Js.col(16) = J.col(20);
+    
+    
+    /** A and B matrices to solve by least-square technique **/
+    A.block<NUMBER_WHEELS*(2*NUMAXIS),4>(0,0) = En;
+    A.block<NUMBER_WHEELS*(2*NUMAXIS),4>(0,4) = -Jn;
+    
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),2>(0,0) = -Es;
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),17>(0,2) = Js;
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"The A matrix \n" << A << std::endl;
+    std::cout<<"The B matrix \n" << B << std::endl;
+    std::cout<<"The sensed vector y\n"<<y<<"\n";
+    #endif
+    
+    b = B*y;
+    
+    /** DEBUG OUTPUT **/
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixAType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  19> matrixBType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  9> matrixConjType; // columns are columns of A + 1
+    
+    matrixConjType Conj;
+    
+    #ifdef DEBUG_PRINTS
+    Eigen::FullPivLU<matrixAType> lu_decompA(A);
+    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
+	    
+    Eigen::FullPivLU<matrixBType> lu_decompB(B);
+    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
+    
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),8>(0,0) = A;
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,8) = b;
+    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
+    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
+    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
+    #endif
+    /** **/
+    
+    M = A;
+    x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+//     x =  (A.transpose() * A).inverse() * A.transpose() * b;
+    
+    double relative_error = (A*x - b).norm() / b.norm();
+    std::cout << "The relative error is:\n" << relative_error << std::endl;
+    std::cout << "The solution is:\n" << x << std::endl;
+    
+    if (!base::isNaN(x(0)+x(1)+x(2)+x(3)+x(4)+x(5)+x(6)+x(7)))
+    {
+	/** Prepare the vState variable for the dead reckoning **/
+	vState.block<6,1>(0,1) = vState.block<6,1>(0,0); // move the previous state to the col(1)
+    
+	/** Fill the vState with the new values for the dead reckoning **/
+	vState.block<3,1>(0,0) = x.block<3,1>(0,0); // x,y and z
+	vState(3,0) = imuSamples.gyro[0]; //roll
+	vState(4,0) = imuSamples.gyro[1]; //pitch
+	vState(5,0) = x(3); //yaw
+    }
+    
+    
+    
+    return x;
+}
+
+
+
+void Task::updateDeadReckoning ()
+{    
     Eigen::Matrix <double, NUMAXIS, 1> attitude; /** in roll, pitch and yaw **/
     base::samples::RigidBodyState rbsDeltaPose;
     envire::TransformWithUncertainty actualPose;
     envire::TransformWithUncertainty deltaPose;
     
     /** Calculate the delta position from velocity (dead reckoning) asuming constant acceleration **/
-    rbsDeltaPose.position = ((this->delta_t) * (vState.block<3,1>(0,1) + vState.block<3,1>(0,0)));
+    rbsDeltaPose.position = ((this->delta_t/2.0) * (vState.block<3,1>(0,1) + vState.block<3,1>(0,0)));
     rbsDeltaPose.cov_position = this->U;
     rbsDeltaPose.velocity = vState.block<3,1>(0,0);
     
@@ -1262,8 +1427,9 @@ void Task::toDebugPorts()
     _angular_velocities.write(mysckf.getAngularVelocities());
     
      /** Port out filter vector and matrices **/
-     _K.write(mysckf.getAttitudeKalmanGain());
+     _K.write(mysckf.getKalmanGain());
      _innovation_ki.write(mysckf.getInnovation());
-     _Pki_k.write(mysckf.getCovarianceAttitude());
+     _Pki_k.write(mysckf.getCovariancex());
     
 }
+
