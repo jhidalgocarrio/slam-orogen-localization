@@ -193,6 +193,9 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 		rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
 		rbsBC.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 		
+		/** Set the gravity to the filter to the mean computed **/
+// 		mysckf.setGravity(meanacc.norm());
+		
 		#ifdef DEBUG_PRINTS
 		euler = mysckf.getEuler();
 		std::cout<< "******** Initial Attitude *******"<<"\n";
@@ -383,20 +386,21 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Update the state in the filter **/
 	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
 	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
- 	mysckf.update(H, Be, vjoints, acc, angular_velocity, mag, delta_t, false);
+	Eigen::Matrix<double, NUMAXIS, 1> vel = vState.block<3,1>(0,0);
+ 	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
-// 	/** Least-Square Motion Estimation **/
-// 	this->leastSquareSolutionNoXYSlip();
+	/** Least-Square Motion Estimation **/
+	this->leastSquareSolutionNoXYSlip();
 	
 	/** Compute rover velocity using the navigation equation with new calculated values **/
 	this->leastSquaresSolution();
 	
-	if (vjoints != Eigen::Matrix<double,(1+sckf::NUMBER_OF_WHEELS),1>::Zero())
-	{    
+// 	if (vjoints != Eigen::Matrix<double,(1+sckf::NUMBER_OF_WHEELS),1>::Zero())
+// 	{    
 	    /** Dead-reckoning and save into rbsBC **/
 	    this->updateDeadReckoning();
-	}
+// 	}
 	
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
@@ -571,9 +575,9 @@ bool Task::configureHook()
     
     /** Gravity vector covariance matrix **/
     Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rat(0,0) = Ra(0,0) + Ra(1,1) + Ra(2,2);
-    Rat(1,1) = Ra(0,0) + Ra(1,1) + Ra(2,2);
-    Rat(2,2) = Ra(0,0) + Ra(1,1) + Ra(2,2);
+    Rat(0,0) = 0.0054785914701378034;
+    Rat(1,1) = 0.0061094546837916494;
+    Rat(2,2) = 0.0063186020143245212;
     
     /** Gyroscopes covariance matrix **/
     Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -593,7 +597,7 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.001 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
+    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.1 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -1029,18 +1033,17 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS*(2*NUMAXIS)> W;
     
     /** Form the sensed vector **/
-    y.block<NUMAXIS, 1> (0,0) = imuSamples.gyro;//mysckf.getAngularVelocities();
+    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
     y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
     for (int i = 0; i<sckf::NUMBER_OF_WHEELS; i++)
     {
-	y.block<NUMAXIS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*i),0) = mysckf.getSlipVector(i);
+	y.block<NUMAXIS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*i),0) = mysckf.getSlipVector(i);//Eigen::Matrix<double, NUMAXIS, 1>::Zero();//
 	#ifdef DEBUG_PRINTS
 	std::cout<<"[LS] Slip vector("<<i<<") is:\n"<<mysckf.getSlipVector(i)<<"\n";
 	#endif
-// 	Eigen::Matrix<double, sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS, 1>::Zero();//mysckf.getStatex().block<(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1>(0,0);
     }
     
-    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAngles();
+    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAngles();//Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1>::Zero();//mysckf.getContactAngles();
     #ifdef DEBUG_PRINTS
     std::cout<<"[LS] Contact angle vector is:\n"<<mysckf.getContactAngles()<<"\n";
     #endif
@@ -1103,9 +1106,11 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
 //     U = (A.transpose() * W * A).inverse();
 //     x =  U * A.transpose() * W * b;
     
-    double relative_error = (A*x - b).norm() / b.norm();
-    std::cout << "The relative error is:\n" << relative_error << std::endl;
+    leastSquaresError = (A*x - b).norm() / b.norm();
+    #ifdef DEBUG_PRINTS
+    std::cout << "The relative error is:\n" << leastSquaresError << std::endl;
     std::cout << "The solution is:\n" << x << std::endl;
+    #endif
     
     if (!base::isNaN(x(0)+x(1)+x(2)))
     {
@@ -1114,6 +1119,7 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
     
 	/** Fill the vState with the new values for the dead reckoning **/
 	vState.block<NUMAXIS,1>(0,0) = x; // x,y and z
+	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS, 1> (0,0);
     }  
     
     return x;
@@ -1225,8 +1231,10 @@ Eigen::Matrix <double, 8, 1> Task::leastSquareSolutionNoXYSlip()
 //     x =  (A.transpose() * A).inverse() * A.transpose() * b;
     
     double relative_error = (A*x - b).norm() / b.norm();
+    #ifdef DEBUG_PRINTS
     std::cout << "The relative error is:\n" << relative_error << std::endl;
     std::cout << "The solution is:\n" << x << std::endl;
+    #endif
     
     if (!base::isNaN(x(0)+x(1)+x(2)+x(3)+x(4)+x(5)+x(6)+x(7)))
     {
@@ -1263,7 +1271,9 @@ void Task::updateDeadReckoning ()
     actualPose = rbsBC;
     deltaPose = rbsDeltaPose;
     
+    #ifdef DEBUG_PRINTS
     std::cout<<"actualPose(before)\n" <<actualPose;
+    #endif
     
     /** To perform the transformation **/
     actualPose = actualPose * deltaPose;
@@ -1275,8 +1285,10 @@ void Task::updateDeadReckoning ()
     rbsBC.cov_orientation = mysckf.getCovarianceAttitude().block<NUMAXIS, NUMAXIS>(0,0);
     rbsBC.velocity = rbsDeltaPose.velocity;
     
+    #ifdef DEBUG_PRINTS
     std::cout<<"Delta_t"<<this->delta_t<< "\n";
     std::cout<<"Distance\n"<<rbsBC.orientation * vState.block<3,1>(0,0) * this->delta_t << "\n";
+    #endif
 
     return;
 }
@@ -1412,6 +1424,8 @@ void Task::toAsguardBodyState()
 
 void Task::toDebugPorts()
 {
+    base::samples::RigidBodyState rbsIMU;
+    base::samples::RigidBodyState rbsModel;
 
     /** Port out the slip vectors **/
     _slipFL.write(mysckf.getSlipVector(3));
@@ -1423,13 +1437,23 @@ void Task::toDebugPorts()
     _contact_angle.write(mysckf.getContactAngles());
     
     /** Port out the imu velocities in body frame **/
-    _linear_velocities.write(mysckf.getLinearVelocities());
-    _angular_velocities.write(mysckf.getAngularVelocities());
+    rbsIMU.invalidate();
+    rbsIMU.time = rbsBC.time;
+    rbsIMU.position = mysckf.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
+    rbsIMU.velocity = vState.block<3,1>(0,0) + mysckf.getLinearVelocities();
+    rbsIMU.angular_velocity = mysckf.getAngularVelocities();
+    _velocities_imu.write(rbsIMU);
+    
+    rbsModel.invalidate();
+    rbsModel.time = rbsBC.time;
+    rbsModel.velocity = vState.block<3,1>(0,0);
+    _velocities_model.write(rbsModel);
     
      /** Port out filter vector and matrices **/
      _K.write(mysckf.getKalmanGain());
      _innovation_ki.write(mysckf.getInnovation());
      _Pki_k.write(mysckf.getCovariancex());
+     _least_squares_error.write(leastSquaresError);
     
 }
 

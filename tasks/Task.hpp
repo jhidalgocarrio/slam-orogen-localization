@@ -75,6 +75,9 @@ namespace asguard_localization {
 	/** Integration step for the filter in seconds **/
 	double delta_t;
 	
+	/** Error in the Least-Squares computation **/
+	double leastSquaresError;
+	
 	/** Dead reckoning variables **/
 	Eigen::Matrix <double, 2*NUMAXIS, 2> vState; /** robot state linear and angular velocities time nT col(0) and (n-1)T col(1) (order is x,y,z,roll, pitch and yaw) **/
 	Eigen::Matrix<double, NUMAXIS,NUMAXIS> U; /** Uncertainty matrix (1/Information matrix) from the least squared solution **/
