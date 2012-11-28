@@ -307,6 +307,12 @@ namespace asguard_localization {
 	 * @return the vector solution.
 	 */
 	Eigen::Matrix <double, 8, 1> leastSquaresSolutionNoXYSlip ();
+	
+	/** \Brief Calculate the velocity from model
+	 * 
+	 * @return void
+	 */
+	void calculateVelocityModelNoSlip();
     };
 }
 

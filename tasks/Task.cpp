@@ -2,7 +2,7 @@
 
 #include "Task.hpp"
 
-// #define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace asguard_localization;
 using namespace localization;
@@ -380,22 +380,24 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Predict the state in the filter **/
 	mysckf.predict(angular_velocity, delta_t);
 	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"********** UPDATE *****************************\n";
-	#endif
+// 	#ifdef DEBUG_PRINTS
+// 	std::cout<<"********** UPDATE *****************************\n";
+// 	#endif
 	
 	/** Update the state in the filter **/
-	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
-	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
-	Eigen::Matrix<double, NUMAXIS, 1> vel = vState.block<3,1>(0,0);
- 	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
+// 	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
+// 	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
+// 	Eigen::Matrix<double, NUMAXIS, 1> vel = vState.block<3,1>(0,0);
+//  	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
 // 	/** Least-Square Motion Estimation **/
 // 	this->leastSquaresSolutionNoXYSlip();
 
-	/** Compute rover velocity using the navigation equation with new calculated values **/
-	this->leastSquaresSolution();
+	this->calculateVelocityModelNoSlip();
+
+// 	/** Compute rover velocity using the navigation equation with new calculated values **/
+// 	this->leastSquaresSolution();
 	
 	/** Dead-reckoning and save into rbsBC **/
 	this->updateDeadReckoning();
@@ -1036,6 +1038,114 @@ void Task::compositeMatrices()
     #endif
     
     return;
+}
+
+void Task::calculateVelocityModelNoSlip()
+{
+    /** Sensed and non-sensed matrices **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y and Z
+    
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 5> Js; //Sensed is roll, pitch and yaw
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn; //Non-sensed is X, Y and Z
+    
+    /** Navigation matrices Ax = By **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),7> A; /** Non-Sensed values matrix  **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),8> B; /** Sensed values matrix **/
+    
+    /** Navigation Vectors **/
+    Eigen::Matrix <double, 7, 1> x; /** non-sensed velocity vector **/
+    Eigen::Matrix <double, 8, 1> y; /** sensed velocity vector **/
+    
+    /** Vector b **/
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
+    
+    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
+    
+    /** Form the sensed vector **/
+    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
+    y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
+    
+    /** Form the Es and En **/
+    Es.col(0) = E.col(3); //roll
+    Es.col(1) = E.col(4); //pitch
+    Es.col(2) = E.col(5); //yaw
+    
+    En.col(0) = E.col(0); //x
+    En.col(1) = E.col(1); //y
+    En.col(2) = E.col(2); //z
+    
+    /** Form the Jacobian matrices **/
+    Jn.col(0) = J.col(17);
+    Jn.col(1) = J.col(18);
+    Jn.col(2) = J.col(19);
+    Jn.col(3) = J.col(20);
+    
+    Js.col(0) = J.col(0);
+    Js.col(1) = J.col(1);
+    Js.col(2) = J.col(2);
+    Js.col(3) = J.col(3);
+    Js.col(4) = J.col(4);
+    
+    /** A and B matrices to solve by least-squares technique **/
+    A.block<NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = En;
+    A.block<NUMBER_WHEELS*(2*NUMAXIS), 4>(0,NUMAXIS) = -Jn;
+    
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = -Es;
+    B.block<NUMBER_WHEELS*(2*NUMAXIS),5>(0,NUMAXIS) = Js;
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[VM] A is of size "<<A.rows()<<"x"<<A.cols()<<"\n";
+    std::cout<<"[VM] A:\n" << A << std::endl;
+    std::cout<<"[VM] B is of size "<<B.rows()<<"x"<<B.cols()<<"\n";
+    std::cout<<"[VM] B:\n" << B << std::endl;
+    std::cout<<"[VM] The sensed vector y\n"<<y<<"\n";
+    #endif
+    
+    b = B*y;
+    
+    /** DEBUG OUTPUT **/
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 7> matrixAType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixBType;
+    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixConjType; // columns are columns of A + 1
+    
+    matrixConjType Conj;
+    
+    #ifdef DEBUG_PRINTS
+    Eigen::FullPivLU<matrixAType> lu_decompA(A);
+    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
+	    
+    Eigen::FullPivLU<matrixBType> lu_decompB(B);
+    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
+    
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),7>(0,0) = A;
+    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,7) = b;
+    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
+    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
+    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
+    #endif
+    /** **/
+    
+    M = A;
+    x = (A.transpose() * A).inverse() * A.transpose() * b;
+//     x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+    
+    leastSquaresError = (A*x - b).norm() / b.norm();
+    #ifdef DEBUG_PRINTS
+    std::cout << "The relative error is:\n" << leastSquaresError << std::endl;
+    std::cout << "The solution is:\n" << x << std::endl;
+    #endif
+    
+    if (!base::isNaN(x(0)+x(1)+x(2)))
+    {
+	/** Prepare the vState variable for the dead reckoning **/
+	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
+    
+	/** Fill the vState with the new values for the dead reckoning **/
+	vState.block<NUMAXIS,1>(0,0) = x.block<NUMAXIS,1>(0,0); // x,y and z
+	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS,1>(0,0);
+    }  
+
 }
 
 Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
