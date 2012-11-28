@@ -51,9 +51,10 @@ Task::Task(std::string const& name)
     eccy = eccx;
     eccz = eccx;
     
-    /** Orientation **/
+    /** Pose Init **/
     poseInit.invalidate();
     prevPoseInit = poseInit;
+    
     
     /** Set also here the default Foot in Contact **/
     contactPoints.resize(4);
@@ -160,7 +161,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    if (_pose_init.connected() && initPosition)
 	    {
 		/** Get the initial Yaw from the initialPose **/
-		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0] + (_heading_misalignment.value()*D2R);//YAW
 		euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 		euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 		
@@ -175,7 +176,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 		initAttitude = true;
 		
 	    }
-	    else if (!_pose_init.connected())
+	    else if (!_pose_init.connected() || !initPosition)
 	    {
 		/** Set the initial attitude quaternion of the filter **/
 		mysckf.setAttitude (attitude);
@@ -218,12 +219,12 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    imuValues = false;
 	}
 	
-	#ifdef DEBUG_PRINTS
+// 	#ifdef DEBUG_PRINTS
 	std::cout<<"** Received IMU Samples **\n";
 	std::cout<<"acc:\n"<<calibrated_sensors_sample.acc<<"\n";
 	std::cout<<"gyro:\n"<<calibrated_sensors_sample.gyro<<"\n";
 	std::cout<<"mag:\n"<<calibrated_sensors_sample.mag<<"\n";
-	#endif
+// 	#endif
 	
 	/** Convert the IMU values in the body orientation **/
 	imuSamples.time = calibrated_sensors_sample.time;
@@ -312,19 +313,19 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     }
     
     /** Implementation of the filter **/
-    #ifdef DEBUG_PRINTS
+//     #ifdef DEBUG_PRINTS
     std::cout<<"In Filter Implementation\n";
     std::cout<<"imuCounter ("<<counterIMUSamples<<") asguardCounter("<<counterAsguardStatusSamples<<") hbridgeCounter("<<counterHbridgeSamples<<")\n";
     std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
-    #endif
+//     #endif
     
     /** Start the filter if all the values arrived to the ports in the correct order **/
     if (imuValues && asguardValues && hbridgeValues)
     {
 	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"************************************************\n";
-	#endif
+// 	#ifdef DEBUG_PRINTS
+	std::cout<<"****************** ("<<hbridgeStatus.time.toMicroseconds()<<") ******************************\n";
+// 	#endif
     
 	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
 	this->calculateFootPoints();
@@ -370,7 +371,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
 	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
 	
-	mysckf.getEuler();
+// 	mysckf.getEuler();
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** PREDICT *****************************\n";
@@ -390,17 +391,14 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
  	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
-	/** Least-Square Motion Estimation **/
-	this->leastSquareSolutionNoXYSlip();
-	
+// 	/** Least-Square Motion Estimation **/
+// 	this->leastSquaresSolutionNoXYSlip();
+
 	/** Compute rover velocity using the navigation equation with new calculated values **/
 	this->leastSquaresSolution();
 	
-// 	if (vjoints != Eigen::Matrix<double,(1+sckf::NUMBER_OF_WHEELS),1>::Zero())
-// 	{    
-	    /** Dead-reckoning and save into rbsBC **/
-	    this->updateDeadReckoning();
-// 	}
+	/** Dead-reckoning and save into rbsBC **/
+	this->updateDeadReckoning();
 	
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
@@ -469,7 +467,11 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
     
     poseInit = pose_init_sample;
     
-    if (!rbsBC.hasValidPosition())
+    #ifdef DEBUG_PRINTS
+    std::cout<<"** received poseInit sample at("<<pose_init_sample.time.toMicroseconds()<<") **\n";
+    #endif
+    
+    if (!initPosition)
     {
 	
 	rbsBC.position = poseInit.position;
@@ -488,6 +490,26 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	std::cout<<"** position\n"<< poseInit.position<<"\n";
 	std::cout<<"** Roll: "<<euler[0]*R2D<<"Pitch: "<<euler[1]*R2D<<"Yaw: "<<euler[2]*R2D<<"\n";
 	#endif
+
+	/** Initial attitude from IMU acceleration has been already calculated **/
+	if (initAttitude)
+	{
+	    Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
+	    Eigen::Quaternion <double> attitude = mysckf.getAttitude(); /** Initial attitude in case no port in orientation is connected **/
+	    
+	    /** Get the initial Yaw from the initialPose **/
+	    euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0] + (_heading_misalignment.value()*D2R);//YAW
+	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+	    
+	    /** Set the initial attitude with the Yaw provided from the initial pose **/
+	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
+	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
+	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
+	    
+	    /** Set the initial attitude quaternion of the filter **/
+	    mysckf.setAttitude (attitude);
+	}
 	
 	initPosition = true;
     }
@@ -569,6 +591,11 @@ bool Task::configureHook()
     Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
     Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
     Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<< "[Task configure] Ra is of size "<<Ra.rows()<<"x"<<Ra.cols()<<"\n";
+    std::cout<< "[Task configure] Ra:\n"<<Ra<<"\n";
+    #endif
     
     /** Gyroscopes covariance matrix with is std_vel = std_acc * sqrt(integration_step) **/
     Rv = Ra + (Ra * delta_t);
@@ -1025,7 +1052,7 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
     Eigen::Matrix <double, NUMAXIS, 1> x; /** non-sensed velocity vector **/
     Eigen::Matrix <double, 24, 1> y; /** sensed velocity vector **/
     
-    /** vector b **/
+    /** Vector b **/
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
     
     Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
@@ -1126,7 +1153,7 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
 }
 
 
-Eigen::Matrix <double, 8, 1> Task::leastSquareSolutionNoXYSlip()
+Eigen::Matrix <double, 8, 1> Task::leastSquaresSolutionNoXYSlip()
 {
     
     /** Sensed and non-sensed matrices **/
@@ -1227,8 +1254,8 @@ Eigen::Matrix <double, 8, 1> Task::leastSquareSolutionNoXYSlip()
     /** **/
     
     M = A;
-    x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-//     x =  (A.transpose() * A).inverse() * A.transpose() * b;
+//     x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+    x =  (A.transpose() * A).inverse() * A.transpose() * b;
     
     double relative_error = (A*x - b).norm() / b.norm();
     #ifdef DEBUG_PRINTS
@@ -1281,7 +1308,7 @@ void Task::updateDeadReckoning ()
     /** Fill the rigid body state **/
     rbsBC.time = hbridgeStatus.time;
     actualPose.copyToRigidBodyState(rbsBC);
-    rbsBC.orientation = mysckf.getAttitude();
+    rbsBC.orientation = mysckf.getAttitude();//poseInit.orientation;
     rbsBC.cov_orientation = mysckf.getCovarianceAttitude().block<NUMAXIS, NUMAXIS>(0,0);
     rbsBC.velocity = rbsDeltaPose.velocity;
     
@@ -1426,6 +1453,7 @@ void Task::toDebugPorts()
 {
     base::samples::RigidBodyState rbsIMU;
     base::samples::RigidBodyState rbsModel;
+    base::samples::RigidBodyState rbsVicon;
 
     /** Port out the slip vectors **/
     _slipFL.write(mysckf.getSlipVector(3));
@@ -1444,10 +1472,16 @@ void Task::toDebugPorts()
     rbsIMU.angular_velocity = mysckf.getAngularVelocities();
     _velocities_imu.write(rbsIMU);
     
+    /** Port out the velocity computed in the model **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
     rbsModel.velocity = vState.block<3,1>(0,0);
     _velocities_model.write(rbsModel);
+    
+    /** Port out the info comming from vicon **/
+    rbsVicon = poseInit;
+    rbsVicon.time = rbsBC.time;
+    _rbsVicon.write(rbsVicon);
     
      /** Port out filter vector and matrices **/
      _K.write(mysckf.getKalmanGain());

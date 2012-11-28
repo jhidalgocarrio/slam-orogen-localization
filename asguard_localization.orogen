@@ -83,6 +83,11 @@ task_context "Task" do
     property("magrw", "/base/Vector3d").
 	doc "random walk for magnetometers"
 
+    #**** Misalignment ****
+    property("heading_misalignment", "double").
+	doc "Misalignment between the heading set in the tructh system (i.e.: vicon) and the real one. Units in degrees."
+
+
     #******************************
     #**** Filter Properties *******
     #******************************
@@ -236,10 +241,13 @@ task_context "Task" do
 	doc 'Process covariance matrix'
 
     output_port('velocities_imu', 'base/samples/RigidBodyState').
-	doc 'Linear velocities compued by the inertial sensors'
+	doc 'Linear velocities computed by the inertial sensors'
 
     output_port('velocities_model', 'base/samples/RigidBodyState').
-	doc 'Linear velocities compued by the model'
+	doc 'Linear velocities computed by the model'
+
+    output_port('rbsVicon', 'base/samples/RigidBodyState').
+	doc 'Pose and velocities computed by the vicon system'
 
     output_port('least_squares_error', 'double').
 	doc 'Relative error in the least-squares computation.'

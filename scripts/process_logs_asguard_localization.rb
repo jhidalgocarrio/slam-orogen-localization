@@ -18,7 +18,7 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
-viz = {:ikf_attitude => false, :proprio => false, :vicon => true}
+viz = {:ikf_attitude => false, :proprio => false, :vicon => false, :pvicon => true, :ivicon => true}
 
 Orocos.run('asguard_localization_test') do 
   
@@ -52,6 +52,8 @@ Orocos.run('asguard_localization_test') do
 	
     if viz[:vicon]
 	log_replay.vicon.pose_samples.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
+    elsif viz[:pvicon]
+	log_replay.propriocessing.pose_samples_out.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
     end
 
     asguard_localization_task.calibrated_sensors.frame = "stim300"
@@ -237,18 +239,36 @@ Orocos.run('asguard_localization_test') do
 	rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))
 	rbsTruth.resetModel(0.4)
 	
-	imuTruthTrajectory = Vizkit.default_loader.TrajectoryVisualization
-	imuTruthTrajectory.setColor(Eigen::Vector3.new(255, 255, 0)) #Yellow
-	rbsIMUTruth = Vizkit.default_loader.RigidBodyStateVisualization
-	rbsIMUTruth.setColor(Eigen::Vector3.new(255, 255, 0))
-	rbsIMUTruth.resetModel(0.2)
-	
 	#Connect to the ground truth output port of the navigation kinematics task
 	log_replay.vicon.pose_samples.connect_to rbsTruth
 
 	log_replay.vicon.pose_samples.connect_to do|vicon,_|    
 	    truthTrajectory.updateTrajectory(vicon.position)
 	end
+    end
+    
+    if viz[:pvicon]
+	# True Body and true trajectory
+	truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
+	truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green
+	rbsTruth = Vizkit.default_loader.RigidBodyStateVisualization
+	rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))
+	rbsTruth.resetModel(0.4)
+	
+	#Connect to the ground truth output port of the navigation kinematics task
+	log_replay.propriocessing.pose_samples_out.connect_to rbsTruth
+
+	log_replay.propriocessing.pose_samples_out.connect_to do|vicon,_|    
+	    truthTrajectory.updateTrajectory(vicon.position)
+	end
+    end
+    
+    if viz[:ivicon]
+	imuTruthTrajectory = Vizkit.default_loader.TrajectoryVisualization
+	imuTruthTrajectory.setColor(Eigen::Vector3.new(255, 255, 0)) #Yellow
+	rbsIMUTruth = Vizkit.default_loader.RigidBodyStateVisualization
+	rbsIMUTruth.setColor(Eigen::Vector3.new(255, 255, 0))
+	rbsIMUTruth.resetModel(0.2)
 	
 	#Connect to the ground truth output port of the navigation kinematics task
 	log_replay.Task.pose_samples.connect_to rbsIMUTruth
@@ -257,8 +277,6 @@ Orocos.run('asguard_localization_test') do
 	    imuTruthTrajectory.updateTrajectory(imu_vicon.position)
 	end
     end
-    
-    
     
     asguard_localization_task.pose_samples_out.connect_to BC
     asguard_localization_task.pose_samples_out.connect_to do |asguard_rbs,_|

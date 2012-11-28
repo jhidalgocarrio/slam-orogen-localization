@@ -70,7 +70,7 @@ namespace asguard_localization {
 	bool initPosition, initAttitude;
 	
 	/** index for acc mean value for init attitude **/
-	int accidx; 
+	int accidx; 	
 	
 	/** Integration step for the filter in seconds **/
 	double delta_t;
@@ -306,7 +306,7 @@ namespace asguard_localization {
 	 * 
 	 * @return the vector solution.
 	 */
-	Eigen::Matrix <double, 8, 1> leastSquareSolutionNoXYSlip ();
+	Eigen::Matrix <double, 8, 1> leastSquaresSolutionNoXYSlip ();
     };
 }
 
