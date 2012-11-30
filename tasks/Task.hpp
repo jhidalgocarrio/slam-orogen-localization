@@ -139,6 +139,9 @@ namespace asguard_localization {
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Be; /** Measurement matrix **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> H; /** Observation matrix **/
 	
+	/** Array of past rover velocity model **/
+	boost::circular_buffer<double> cbVelModelX, cbVelModelY, cbVelModelZ;
+	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
 	
@@ -312,7 +315,17 @@ namespace asguard_localization {
 	 * 
 	 * @return void
 	 */
-	void calculateVelocityModelNoSlip();
+	Eigen::Matrix <double, NUMAXIS, 1> calculateVelocityModelNoSlip ();
+	
+	/** \Brief Get the velocity from model
+	 * 
+	 * Corresponding velocity from model
+	 * at the time of the window size
+	 * of teh sckf
+	 * 
+	 * @return void
+	 */
+	Eigen::Matrix <double, NUMAXIS, 1> getVelocityModel ();
     };
 }
 

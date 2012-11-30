@@ -380,24 +380,29 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Predict the state in the filter **/
 	mysckf.predict(angular_velocity, delta_t);
 	
-// 	#ifdef DEBUG_PRINTS
-// 	std::cout<<"********** UPDATE *****************************\n";
-// 	#endif
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** UPDATE *****************************\n";
+	#endif
+	
+	/** Calculate the velocity from the model and store it in the array **/
+	Eigen::Matrix<double, NUMAXIS, 1> vel;
+	vel = this->calculateVelocityModelNoSlip();
+	cbVelModelX.push_back(vel(0));
+	cbVelModelY.push_back(vel(1));
+	cbVelModelZ.push_back(vel(2));
 	
 	/** Update the state in the filter **/
-// 	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
-// 	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
-// 	Eigen::Matrix<double, NUMAXIS, 1> vel = vState.block<3,1>(0,0);
-//  	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
+	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
+	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
+	vel = this->getVelocityModel();
+ 	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
 // 	/** Least-Square Motion Estimation **/
 // 	this->leastSquaresSolutionNoXYSlip();
 
-	this->calculateVelocityModelNoSlip();
-
-// 	/** Compute rover velocity using the navigation equation with new calculated values **/
-// 	this->leastSquaresSolution();
+	/** Compute rover velocity using the navigation equation with new calculated values **/
+	this->leastSquaresSolution();
 	
 	/** Dead-reckoning and save into rbsBC **/
 	this->updateDeadReckoning();
@@ -660,6 +665,11 @@ bool Task::configureHook()
     x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,0) = _gbiasof.value();
     x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),0) = _abiasof.value();
     mysckf.setStatex(x_0);
+    
+    /** Resize the circular buffer for the velocities model **/
+    cbVelModelX.resize(sckf::INTEGRATION_XAXIS_WINDOW_SIZE);
+    cbVelModelY.resize(sckf::INTEGRATION_YAXIS_WINDOW_SIZE);
+    cbVelModelZ.resize(sckf::INTEGRATION_ZAXIS_WINDOW_SIZE);
     
     
     /** Info and Warnings about the Task **/
@@ -1040,7 +1050,7 @@ void Task::compositeMatrices()
     return;
 }
 
-void Task::calculateVelocityModelNoSlip()
+Eigen::Matrix <double, NUMAXIS, 1> Task::calculateVelocityModelNoSlip()
 {
     /** Sensed and non-sensed matrices **/
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
@@ -1136,16 +1146,17 @@ void Task::calculateVelocityModelNoSlip()
     std::cout << "The solution is:\n" << x << std::endl;
     #endif
     
-    if (!base::isNaN(x(0)+x(1)+x(2)))
-    {
-	/** Prepare the vState variable for the dead reckoning **/
-	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
+//     if (!base::isNaN(x(0)+x(1)+x(2)))
+//     {
+// 	/** Prepare the vState variable for the dead reckoning **/
+// 	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
+//     
+// 	/** Fill the vState with the new values for the dead reckoning **/
+// 	vState.block<NUMAXIS,1>(0,0) = x.block<NUMAXIS,1>(0,0); // x,y and z
+// 	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS,1>(0,0);
+//     }  
     
-	/** Fill the vState with the new values for the dead reckoning **/
-	vState.block<NUMAXIS,1>(0,0) = x.block<NUMAXIS,1>(0,0); // x,y and z
-	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS,1>(0,0);
-    }  
-
+    return x.block<NUMAXIS,1>(0,0);
 }
 
 Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
@@ -1578,7 +1589,7 @@ void Task::toDebugPorts()
     rbsIMU.invalidate();
     rbsIMU.time = rbsBC.time;
     rbsIMU.position = mysckf.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
-    rbsIMU.velocity = vState.block<3,1>(0,0) + mysckf.getLinearVelocities();
+    rbsIMU.velocity = this->getVelocityModel() + mysckf.getLinearVelocities();
     rbsIMU.angular_velocity = mysckf.getAngularVelocities();
     _velocities_imu.write(rbsIMU);
     
@@ -1600,4 +1611,16 @@ void Task::toDebugPorts()
      _least_squares_error.write(leastSquaresError);
     
 }
+
+Eigen::Matrix <double, NUMAXIS, 1> Task::getVelocityModel()
+{
+    Eigen::Matrix <double, NUMAXIS, 1> linVelModel;
+    
+    linVelModel[0] = cbVelModelX[0];
+    linVelModel[1] = cbVelModelY[0];
+    linVelModel[2] = cbVelModelZ[0];
+
+    return linVelModel;
+}
+
 
