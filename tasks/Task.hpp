@@ -139,9 +139,6 @@ namespace asguard_localization {
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Be; /** Measurement matrix **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> H; /** Observation matrix **/
 	
-	/** Array of past rover velocity model **/
-	boost::circular_buffer<double> cbVelModelX, cbVelModelY, cbVelModelZ;
-	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
 	
@@ -279,10 +276,22 @@ namespace asguard_localization {
 	 */
 	void compositeMatrices ();
 	
+	/** \Brief Calculate the rover velocity and contact angles from the odometry model
+	 * 
+	 * @return void
+	 */
+	void calculateVelocityModelNoSlip (Eigen::Matrix<double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::sckf::NUMBER_OF_WHEELS, 1> &acontact);
+	
 	/** \brief It solves the position update
 	 * 
 	 */
 	Eigen::Matrix< double, NUMAXIS , 1  > leastSquaresSolution();
+	
+	/** \Brief Least-Square Motion Estimation
+	 * 
+	 * @return the vector solution.
+	 */
+	Eigen::Matrix <double, 8, 1> leastSquaresSolutionNoXYSlip ();
 	
 	/** \Brief Performs the time integration of the Least-Squares solution
 	 * 
@@ -305,27 +314,6 @@ namespace asguard_localization {
 	 */
 	void toDebugPorts();
 	
-	/** \Brief Least-Square Motion Estimation
-	 * 
-	 * @return the vector solution.
-	 */
-	Eigen::Matrix <double, 8, 1> leastSquaresSolutionNoXYSlip ();
-	
-	/** \Brief Calculate the velocity from model
-	 * 
-	 * @return void
-	 */
-	Eigen::Matrix <double, NUMAXIS, 1> calculateVelocityModelNoSlip ();
-	
-	/** \Brief Get the velocity from model
-	 * 
-	 * Corresponding velocity from model
-	 * at the time of the window size
-	 * of teh sckf
-	 * 
-	 * @return void
-	 */
-	Eigen::Matrix <double, NUMAXIS, 1> getVelocityModel ();
     };
 }
 

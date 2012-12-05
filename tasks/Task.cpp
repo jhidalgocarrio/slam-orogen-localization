@@ -55,7 +55,6 @@ Task::Task(std::string const& name)
     poseInit.invalidate();
     prevPoseInit = poseInit;
     
-    
     /** Set also here the default Foot in Contact **/
     contactPoints.resize(4);
     contactPoints[0] = 2; contactPoints[1] = 2;
@@ -219,12 +218,12 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    imuValues = false;
 	}
 	
-// 	#ifdef DEBUG_PRINTS
+	#ifdef DEBUG_PRINTS
 	std::cout<<"** Received IMU Samples **\n";
 	std::cout<<"acc:\n"<<calibrated_sensors_sample.acc<<"\n";
 	std::cout<<"gyro:\n"<<calibrated_sensors_sample.gyro<<"\n";
 	std::cout<<"mag:\n"<<calibrated_sensors_sample.mag<<"\n";
-// 	#endif
+	#endif
 	
 	/** Convert the IMU values in the body orientation **/
 	imuSamples.time = calibrated_sensors_sample.time;
@@ -366,36 +365,37 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Composite Slip-Kinematics and Observation matrix for the SCKF **/
 	this->compositeMatrices();
 	
-	/** Substract Earth rotation from gyros **/
+	/** Inertial sensor information **/
 	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples.gyro;
+	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
+	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
+	
+	/** Substract Earth rotation from gyros **/
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
 	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
 	
-// 	mysckf.getEuler();
-	
 	#ifdef DEBUG_PRINTS
+	mysckf.getEuler();
 	std::cout<<"********** PREDICT *****************************\n";
 	#endif
 	
-	/** Predict the state in the filter **/
-	mysckf.predict(angular_velocity, delta_t);
+	/** Predict the state of the filter **/
+	mysckf.predict(angular_velocity, acc, delta_t);
+	
+	/** Calculate the velocity from the model **/
+	Eigen::Matrix<double, NUMAXIS, 1> vel;
+	Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1> acontact;
+	this->calculateVelocityModelNoSlip(vel, acontact);
+	
+	/** Push the current velocity to the filter **/
+	mysckf.setCurrentVeloModel(vel);
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** UPDATE *****************************\n";
 	#endif
 	
-	/** Calculate the velocity from the model and store it in the array **/
-	Eigen::Matrix<double, NUMAXIS, 1> vel;
-	vel = this->calculateVelocityModelNoSlip();
-	cbVelModelX.push_back(vel(0));
-	cbVelModelY.push_back(vel(1));
-	cbVelModelZ.push_back(vel(2));
-	
-	/** Update the state in the filter **/
-	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
-	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
-	vel = this->getVelocityModel();
- 	mysckf.update(H, Be, vjoints, vel, acc, angular_velocity, mag, delta_t, false);
+	/** Update the state of the filter **/
+ 	mysckf.update(H, Be, vjoints, acontact, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
 // 	/** Least-Square Motion Estimation **/
@@ -410,11 +410,23 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
 	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** To Asguard Body **********\n";
+	#endif
+	
 	/** Body pose to asguard for the vizkit visualization **/
 	this->toAsguardBodyState();
 	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** To Deburg Ports **********\n";
+	#endif
+	
 	/** To bebug ports **/
 	this->toDebugPorts();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** END **********\n";
+	#endif
 	
     }
 
@@ -537,16 +549,16 @@ bool Task::configureHook()
     double delta_bandwidth;/** Delta (bandwidth) time of inertial sensors **/
     double theoretical_g; /** Ideal gravity value **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /**< Measurement noise convariance matrix for acc */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rat; /**< Measurement noise convariance matrix for attitude correction (gravity vector noise) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /**< Measurement noise convariance matrix for velocity (accelerometers integration) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /**< Measurement noise convariance matrix for gyros */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rm; /**< Measurement noise convariance matrix for mag */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /** Measurement noise convariance matrix for acc */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rat; /** Measurement noise convariance matrix for attitude correction (gravity vector noise) */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /** Measurement noise convariance matrix for velocity (accelerometers integration) */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /** Measurement noise convariance matrix for gyros */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rm; /** Measurement noise convariance matrix for mag */
     Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> Ren; /** Measurement noise of encoders **/
-    Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> P_0; /**< Initial covariance matrix **/
-    Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> Qec; /** Process noise of slip vector and contact angle **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qbg;
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qba;
+    Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> P_0; /** Initial covariance matrix **/
+    Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS> Rcontact; /** Measurement noise for contact angle */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qbg; /** Process noise matrix of gyros bias (bias instability) **/
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qba; /** Process noise matric of acc bias (bias instability) **/
     
     if (! TaskBase::configureHook())
         return false;
@@ -587,7 +599,7 @@ bool Task::configureHook()
     numberForceSamples = (1.0/_ground_forces_estimated_period.value())/_filter_frequency.value();
     numberTorqueSamples = (1.0/_torque_estimated_period.value())/_filter_frequency.value();
     
-    /** Filter delta time step in sencods **/
+    /** Filter delta time step in seconds **/
     if (_filter_frequency.value() != 0.00)
 	delta_t = 1.0/_filter_frequency.value();
     
@@ -604,8 +616,6 @@ bool Task::configureHook()
     std::cout<< "[Task configure] Ra:\n"<<Ra<<"\n";
     #endif
     
-    /** Gyroscopes covariance matrix with is std_vel = std_acc * sqrt(integration_step) **/
-    Rv = Ra + (Ra * delta_t);
     
     /** Gravity vector covariance matrix **/
     Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -627,29 +637,21 @@ bool Task::configureHook()
     
     /** Encoders errors **/
     Ren.resize(1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS);
+    Ren = 0.00000000001 * Eigen::Matrix <double,1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS>::Identity();
+    
+    /** Contact angle error **/
+    Rcontact = Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS>::Zero();
     
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
     P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.1 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <sckf::V_STATE_VECTOR_SIZE, sckf::V_STATE_VECTOR_SIZE> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.01 * Eigen::Matrix <double,sckf::V_STATE_VECTOR_SIZE, sckf::V_STATE_VECTOR_SIZE>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
-    /** Process noise matrices **/
-    Qec.resize((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
-    for (int i = 0; i<sckf::NUMBER_OF_WHEELS; i++)
-    {
-	Eigen::Matrix<double, NUMAXIS, 1> cov;
-	cov[0] = asguard::KinematicModel::STD_FOOT_X;
-	cov[1] = asguard::KinematicModel::STD_FOOT_Y;
-	cov[2] = asguard::KinematicModel::STD_FOOT_Z;
-	Qec.block<NUMAXIS, NUMAXIS>(i*NUMAXIS,i*NUMAXIS) = cov.array().square().matrix().asDiagonal() * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    }
-    
-    Qec.block<NUMBER_WHEELS, NUMBER_WHEELS>(NUMBER_WHEELS*NUMAXIS,NUMBER_WHEELS*NUMAXIS) = 
-	(pow(asguard::KinematicModel::STD_FOOT_X,2) + pow(asguard::KinematicModel::STD_FOOT_Z,2)) * Eigen::Matrix <double,NUMBER_WHEELS,NUMBER_WHEELS>::Identity();
-    
+    /** Process noise matrices **/    
     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     Qba = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
@@ -657,20 +659,14 @@ bool Task::configureHook()
     theoretical_g = localization::GravityModel (_latitude.value(), _altitude.value());
     
     /** Initialization of the filter **/
-    mysckf.Init(P_0, Qec, Qbg, Qba, Rv, Rg, Ren, Rat, Rm, theoretical_g, (double)_dip_angle.value());
+    mysckf.Init(P_0, Rg, Qbg, Qba, Ren, Rcontact, Ra, Rat, Rm, theoretical_g, (double)_dip_angle.value());
      
     /** Initialization set the vector state to zero but it can be changed here **/
     x_0.resize(sckf::X_STATE_VECTOR_SIZE,1);
     x_0 = Eigen::Matrix<double,sckf::X_STATE_VECTOR_SIZE,1>::Zero();
-    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+NUMAXIS,0) = _gbiasof.value();
-    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+(2*NUMAXIS),0) = _abiasof.value();
+    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::V_STATE_VECTOR_SIZE + NUMAXIS,0) = _gbiasof.value();
+    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::V_STATE_VECTOR_SIZE + (2*NUMAXIS),0) = _abiasof.value();
     mysckf.setStatex(x_0);
-    
-    /** Resize the circular buffer for the velocities model **/
-    cbVelModelX.resize(sckf::INTEGRATION_XAXIS_WINDOW_SIZE);
-    cbVelModelY.resize(sckf::INTEGRATION_YAXIS_WINDOW_SIZE);
-    cbVelModelZ.resize(sckf::INTEGRATION_ZAXIS_WINDOW_SIZE);
-    
     
     /** Info and Warnings about the Task **/
     if (_calibrated_sensors.connected())
@@ -942,8 +938,8 @@ void Task::compositeMatrices()
 {
     /** Set the proper size of the matrices **/
     E.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS);
-    J.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
-    J = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Zero();
+    J.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::NUMBER_OF_WHEELS);
+    J = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS + sckf::NUMBER_OF_WHEELS)>::Zero();
     H.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
     H = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Zero();
     Be.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::Y_MEASUREMENT_VECTOR_SIZE);
@@ -1031,8 +1027,9 @@ void Task::compositeMatrices()
     
     
     /** Form the matrix Be for the measurement vector of the filter **/
-    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS>(0,0) = - E;
+    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS>(0,0) = -E;
     Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,0);
+    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS+(1 + sckf::NUMBER_OF_WHEELS)) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,1+sckf::NUMBER_OF_WHEELS+(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
     
     #ifdef DEBUG_PRINTS
     std::cout<< "Be is of size "<<Be.rows()<<"x"<<Be.cols()<<"\n";
@@ -1050,14 +1047,14 @@ void Task::compositeMatrices()
     return;
 }
 
-Eigen::Matrix <double, NUMAXIS, 1> Task::calculateVelocityModelNoSlip()
+void Task::calculateVelocityModelNoSlip(Eigen::Matrix <double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::sckf::NUMBER_OF_WHEELS, 1> &acontact)
 {
     /** Sensed and non-sensed matrices **/
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
     Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y and Z
     
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 5> Js; //Sensed is roll, pitch and yaw
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn; //Non-sensed is X, Y and Z
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 5> Js;
+    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn;
     
     /** Navigation matrices Ax = By **/
     Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),7> A; /** Non-Sensed values matrix  **/
@@ -1146,17 +1143,11 @@ Eigen::Matrix <double, NUMAXIS, 1> Task::calculateVelocityModelNoSlip()
     std::cout << "The solution is:\n" << x << std::endl;
     #endif
     
-//     if (!base::isNaN(x(0)+x(1)+x(2)))
-//     {
-// 	/** Prepare the vState variable for the dead reckoning **/
-// 	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
-//     
-// 	/** Fill the vState with the new values for the dead reckoning **/
-// 	vState.block<NUMAXIS,1>(0,0) = x.block<NUMAXIS,1>(0,0); // x,y and z
-// 	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS,1>(0,0);
-//     }  
+
+    velocity = x.block<NUMAXIS,1>(0,0);
+    acontact = x.block<sckf::NUMBER_OF_WHEELS,1>(NUMAXIS,0);
     
-    return x.block<NUMAXIS,1>(0,0);
+    return;
 }
 
 Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
@@ -1191,9 +1182,9 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
 	#endif
     }
     
-    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAngles();//Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1>::Zero();//mysckf.getContactAngles();
+    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAnglesVelocity();//Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1>::Zero();//
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LS] Contact angle vector is:\n"<<mysckf.getContactAngles()<<"\n";
+    std::cout<<"[LS] Contact angle vector is:\n"<<mysckf.getContactAnglesVelocity()<<"\n";
     #endif
     
 	
@@ -1583,20 +1574,20 @@ void Task::toDebugPorts()
     _slipRL.write(mysckf.getSlipVector(0));
     
     /** Port out the contact angle **/
-    _contact_angle.write(mysckf.getContactAngles());
+    _contact_angle.write(mysckf.getContactAnglesVelocity()*this->delta_t);
     
     /** Port out the imu velocities in body frame **/
     rbsIMU.invalidate();
     rbsIMU.time = rbsBC.time;
     rbsIMU.position = mysckf.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
-    rbsIMU.velocity = this->getVelocityModel() + mysckf.getLinearVelocities();
+    rbsIMU.velocity = mysckf.getLinearVelocities();
     rbsIMU.angular_velocity = mysckf.getAngularVelocities();
     _velocities_imu.write(rbsIMU);
     
     /** Port out the velocity computed in the model **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
-    rbsModel.velocity = vState.block<3,1>(0,0);
+    rbsModel.velocity = mysckf.getCurrentVeloModel();
     _velocities_model.write(rbsModel);
     
     /** Port out the info comming from vicon **/
@@ -1612,15 +1603,5 @@ void Task::toDebugPorts()
     
 }
 
-Eigen::Matrix <double, NUMAXIS, 1> Task::getVelocityModel()
-{
-    Eigen::Matrix <double, NUMAXIS, 1> linVelModel;
-    
-    linVelModel[0] = cbVelModelX[0];
-    linVelModel[1] = cbVelModelY[0];
-    linVelModel[2] = cbVelModelZ[0];
-
-    return linVelModel;
-}
 
 
