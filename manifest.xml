@@ -1,6 +1,6 @@
 <package>
-  <description brief="Orogen component for the Asguard localization library">
-  Orogen component running the Asguard localization framework developed within the ESA-NPI project
+  <description brief="Orogen component for mobile robots localization">
+  Orogen component running the rover localization approach developed within the ESA-NPI project
   </description>
   <author>Javier Hidalgo Carrio/javier.hidalgo_carrio@dfki.de</author>
   <license></license>
@@ -20,7 +20,7 @@
   <depend package="asguard/asguard" />
   <depend package="asguard/orogen/asguard" />
   <depend package="asguard/orogen/torque_estimator" />
-  <depend package="asguard/asguard_localization" />
+  <depend package="asguard/rover_localization" />
   <!--
   <tags>Debug</tags>
   -->

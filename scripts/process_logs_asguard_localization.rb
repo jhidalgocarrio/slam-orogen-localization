@@ -20,14 +20,14 @@ Orocos.transformer.load_conf('../config/transforms.rb')
 
 viz = {:ikf_attitude => false, :proprio => false, :vicon => false, :pvicon => true, :ivicon => true}
 
-Orocos.run('asguard_localization_test') do 
+Orocos.run('rover_localization_test') do 
   
     # log all the output ports
     Orocos.log_all_ports
     Orocos.conf.load_dir('../config/')
          
     # get the invidual tasks
-    asguard_localization_task = TaskContext.get 'asguard_localization'
+    asguard_localization_task = TaskContext.get 'rover_localization'
     Orocos.conf.apply(asguard_localization_task, ['default'], :override => true )
     
      # connect the tasks to the logs

@@ -17,7 +17,7 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
-Orocos.run('asguard_localization_test', 'ikf_orientation_estimator', 'lowlevel') do 
+Orocos.run('rover_localization_test', 'ikf_orientation_estimator', 'lowlevel') do 
   
     # log all the output ports
     Orocos.log_all_ports 
@@ -25,7 +25,7 @@ Orocos.run('asguard_localization_test', 'ikf_orientation_estimator', 'lowlevel')
     Orocos.conf.load_dir('../../../../slam/orogen/orientation_estimator/config/')
 	
     # get the invidual tasks
-    localization_task = TaskContext.get 'asguard_localization'
+    localization_task = TaskContext.get 'rover_localization'
     ikf_attitude_task = TaskContext.get 'ikf_orientation_estimator'
     Orocos.conf.apply(ikf_attitude_task, ['stim300'], :override => true )
     ikf_attitude_task.delta_time = (1.0/16.0)

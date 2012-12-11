@@ -1,19 +1,19 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef ASGUARD_LOCALIZATION_TASK_TASK_HPP
-#define ASGUARD_LOCALIZATION_TASK_TASK_HPP
+#ifndef ROVER_LOCALIZATION_TASK_TASK_HPP
+#define ROVER_LOCALIZATION_TASK_TASK_HPP
 
 #include <asguard/KinematicModel.hpp>
 #include <asguard/BodyState.hpp>
-#include <asguard_localization/sckf.hpp>
+#include <rover_localization/sckf.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
 
 
-#include "asguard_localization/TaskBase.hpp"
+#include "rover_localization/TaskBase.hpp"
 
-namespace asguard_localization {
+namespace rover_localization {
     
 //     #ifndef EIGEN_NO_AUTOMATIC_RESIZING
 //     #define EIGEN_NO_AUTOMATIC_RESIZING
@@ -53,7 +53,7 @@ namespace asguard_localization {
      * The name of a TaskContext is primarily defined via:
      \verbatim
      deployment 'deployment_name'
-         task('custom_task_name','asguard_localization::Task')
+         task('custom_task_name','rover_localization::Task')
      end
      \endverbatim
      *  It can be dynamically adapted when the deployment is called with a prefix argument. 
@@ -80,7 +80,7 @@ namespace asguard_localization {
 	
 	/** Dead reckoning variables **/
 	Eigen::Matrix <double, 2*NUMAXIS, 2> vState; /** robot state linear and angular velocities time nT col(0) and (n-1)T col(1) (order is x,y,z,roll, pitch and yaw) **/
-	Eigen::Matrix<double, NUMAXIS,NUMAXIS> U; /** Uncertainty matrix (1/Information matrix) from the least squared solution **/
+	envire::TransformWithUncertainty actualPose; /** robot pose (rbsBC) in transformation with uncertainty form **/
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberIMUSamples; /** number of Ground Force info samples **/
@@ -114,7 +114,10 @@ namespace asguard_localization {
 	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors imuSamples; /** IMU samples **/
 	base::samples::RigidBodyState poseInit; /** Orientation information (init and debug)**/
+	
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact **/
+	std::vector<double> contactAngle; /** Current contact angle for the foot in contact **/
+	
 	
 	/** Input ports timing **/
 	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;
@@ -135,9 +138,13 @@ namespace asguard_localization {
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix (24 x 6) **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> J; /** Sparse Wheels Jacobian matrix (24 x 21) **/
 	
-	/** Matrices for the filter **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Be; /** Measurement matrix **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> H; /** Observation matrix **/
+	/** Matrices for the filter for the slip vector update **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hme; /** Measurement matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> He; /** Observation matrix **/
+	
+	/** Matrices for the filter for the position error vector update **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hmp; /** Measurement matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hp; /** Observation matrix **/
 	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
@@ -188,7 +195,7 @@ namespace asguard_localization {
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Task(std::string const& name = "asguard_localization::Task");
+        Task(std::string const& name = "rover_localization::Task");
 
         /** TaskContext constructor for Task 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 

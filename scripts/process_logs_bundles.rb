@@ -15,10 +15,10 @@ Rock::Bundles.transformer_config = 'sim_vicon_transforms.rb'
 
 Rock::Bundles.initialize
 
-Rock::Bundles.run('asguard_localization_test') do 
+Rock::Bundles.run('rover_localization_test') do 
   
     # get the invidual tasks
-    localization_task = Rock::Bundles.get 'asguard_localization'
+    localization_task = Rock::Bundles.get 'rover_localization'
     
      # connect the tasks to the logs
     log_replay = Orocos::Log::Replay.open( ARGV[0] )

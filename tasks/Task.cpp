@@ -4,7 +4,7 @@
 
 #define DEBUG_PRINTS 1
 
-using namespace asguard_localization;
+using namespace rover_localization;
 using namespace localization;
 
 Task::Task(std::string const& name)
@@ -50,6 +50,10 @@ Task::Task(std::string const& name)
     eccx[2] = base::NaN<double>();
     eccy = eccx;
     eccz = eccx;
+    
+    /** Contact angle to zero **/
+    contactAngle.resize(NUMBER_WHEELS);
+    std::fill(contactAngle.begin(), contactAngle.end(), 0.00);
     
     /** Pose Init **/
     poseInit.invalidate();
@@ -192,6 +196,9 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 		/** Assume very well know initial attitude **/
 		rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
 		rbsBC.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+		
+		/** Set the initial pose in the uncertainty variable **/
+		this->actualPose = rbsBC;
 		
 		/** Set the gravity to the filter to the mean computed **/
 // 		mysckf.setGravity(meanacc.norm());
@@ -347,10 +354,10 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<<"*********** Compute Trans Body to Contact Point **\n";
 	#endif
 	/** Compute the wheel Contact Point **/
-	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);    
-	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
-	wheelFR.Body2ContactPoint(hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
-	wheelFL.Body2ContactPoint(hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[0]);    
+	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[1]);
+	wheelFR.Body2ContactPoint(hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[2]);
+	wheelFL.Body2ContactPoint(hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[3]);
 	
 	/** Compute the wheel Jacobians for the Selected Foot Point **/
 	Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
@@ -395,14 +402,16 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#endif
 	
 	/** Update the state of the filter **/
- 	mysckf.update(H, Be, vjoints, acontact, vel, acc, angular_velocity, mag, delta_t, false);
+ 	mysckf.update(He, Hme, Hp, Hmp, vjoints, acontact, vel, acc, angular_velocity, mag, delta_t, false);
 	
 	
 // 	/** Least-Square Motion Estimation **/
 // 	this->leastSquaresSolutionNoXYSlip();
 
-	/** Compute rover velocity using the navigation equation with new calculated values **/
-	this->leastSquaresSolution();
+// 	/** Compute rover velocity using the navigation equation with new calculated values **/
+// 	this->leastSquaresSolution();
+	
+	
 	
 	/** Dead-reckoning and save into rbsBC **/
 	this->updateDeadReckoning();
@@ -530,6 +539,9 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	    mysckf.setAttitude (attitude);
 	}
 	
+	/** Set the initial pose in the uncertainty variable **/
+	this->actualPose = rbsBC;
+	
 	initPosition = true;
     }
     
@@ -640,16 +652,16 @@ bool Task::configureHook()
     Ren = 0.00000000001 * Eigen::Matrix <double,1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS>::Identity();
     
     /** Contact angle error **/
-    Rcontact = Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS>::Zero();
+    Rcontact = 0.001 * Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS>::Identity();
     
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (0,0) = 0.1 * Eigen::Matrix <double,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Identity();
-    P_0.block <sckf::V_STATE_VECTOR_SIZE, sckf::V_STATE_VECTOR_SIZE> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)) = 0.01 * Eigen::Matrix <double,sckf::V_STATE_VECTOR_SIZE, sckf::V_STATE_VECTOR_SIZE>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+NUMAXIS,(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+(2*NUMAXIS),(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)+sckf::V_STATE_VECTOR_SIZE+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (0, 0) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <sckf::E_STATE_VECTOR_SIZE, sckf::E_STATE_VECTOR_SIZE> (NUMAXIS, NUMAXIS) = 0.1 * Eigen::Matrix <double,sckf::E_STATE_VECTOR_SIZE,sckf::E_STATE_VECTOR_SIZE>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE,NUMAXIS+sckf::E_STATE_VECTOR_SIZE) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE+NUMAXIS,NUMAXIS+sckf::E_STATE_VECTOR_SIZE+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE+(2*NUMAXIS),NUMAXIS+sckf::E_STATE_VECTOR_SIZE+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Process noise matrices **/    
     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -664,8 +676,8 @@ bool Task::configureHook()
     /** Initialization set the vector state to zero but it can be changed here **/
     x_0.resize(sckf::X_STATE_VECTOR_SIZE,1);
     x_0 = Eigen::Matrix<double,sckf::X_STATE_VECTOR_SIZE,1>::Zero();
-    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::V_STATE_VECTOR_SIZE + NUMAXIS,0) = _gbiasof.value();
-    x_0.block<NUMAXIS, 1> ((sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::V_STATE_VECTOR_SIZE + (2*NUMAXIS),0) = _abiasof.value();
+    x_0.block<NUMAXIS, 1> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE + NUMAXIS,0) = _gbiasof.value();
+    x_0.block<NUMAXIS, 1> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE + (2*NUMAXIS),0) = _abiasof.value();
     mysckf.setStatex(x_0);
     
     /** Info and Warnings about the Task **/
@@ -938,12 +950,12 @@ void Task::compositeMatrices()
 {
     /** Set the proper size of the matrices **/
     E.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS);
-    J.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS) + sckf::NUMBER_OF_WHEELS);
-    J = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS + sckf::NUMBER_OF_WHEELS)>::Zero();
-    H.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
-    H = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>::Zero();
-    Be.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::Y_MEASUREMENT_VECTOR_SIZE);
-    Be = Eigen::Matrix <double, sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::Y_MEASUREMENT_VECTOR_SIZE>::Zero();
+    J.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE + sckf::NUMBER_OF_WHEELS);
+    He.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE);
+    Hme.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_MEASUREMENT_VECTOR_SIZE);
+    Hp.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS);
+    Hmp.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::P_MEASUREMENT_VECTOR_SIZE);
+    J.setZero(); He.setZero(); Hme.setZero(); Hp.setZero(); Hmp.setZero();
     
     /** Compute the composite rover equation matrix E **/
     E.block<2*NUMAXIS, 2*NUMAXIS>(0,0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
@@ -1026,22 +1038,30 @@ void Task::compositeMatrices()
     #endif
     
     
-    /** Form the matrix Be for the measurement vector of the filter **/
-    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS>(0,0) = -E;
-    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,0);
-    Be.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS+(1 + sckf::NUMBER_OF_WHEELS)) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,1+sckf::NUMBER_OF_WHEELS+(sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS));
-    
-    #ifdef DEBUG_PRINTS
-    std::cout<< "Be is of size "<<Be.rows()<<"x"<<Be.cols()<<"\n";
-    std::cout << "The Be matrix \n" << Be << std::endl;
-    #endif
+    /** Form the matrix Hme for the measurement vector of the filter **/
+    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS>(0,0) = -E;
+    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,0);
+    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS+(1 + sckf::NUMBER_OF_WHEELS)) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,1+sckf::NUMBER_OF_WHEELS+sckf::E_STATE_VECTOR_SIZE);
     
     /** Form the matrix H for the observation of the filter **/
-    H = -J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>(0,1+sckf::NUMBER_OF_WHEELS);
+    He = -J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,1+sckf::NUMBER_OF_WHEELS);
+    
+    /** Form the matrix Hmp for the measurement vector of the filter **/
+    Hmp.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = E.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,NUMAXIS);
+    Hmp.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,1 + sckf::NUMBER_OF_WHEELS);
+    
+    /** Form the matrix H for the observation of the filter **/
+    Hp = E.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0);
     
     #ifdef DEBUG_PRINTS
-    std::cout<< "H is of size "<<H.rows()<<"x"<<H.cols()<<"\n";
-    std::cout << "The H matrix \n" << H << std::endl;
+    std::cout<< "Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
+    std::cout<< "The Hme matrix \n" << Hme << std::endl;
+    std::cout<< "He is of size "<<He.rows()<<"x"<<He.cols()<<"\n";
+    std::cout<< "The He matrix \n" << He << std::endl;
+    std::cout<< "Hmp is of size "<<Hmp.rows()<<"x"<<Hmp.cols()<<"\n";
+    std::cout<< "The Hmp matrix \n" << Hmp << std::endl;
+    std::cout<< "Hp is of size "<<Hp.rows()<<"x"<<Hp.cols()<<"\n";
+    std::cout<< "The Hp matrix \n" << Hp << std::endl;
     #endif
     
     return;
@@ -1237,8 +1257,8 @@ Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
     
     /** Form the weigth matrix **/
 //     W.block<sckf::A_STATE_VECTOR_SIZE, NUMAXIS> (0,0) = mysckf.getCovarianceAttitude().inverse();
-//     W.block<1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)> (sckf::A_STATE_VECTOR_SIZE,NUMAXIS) = 
-//     mysckf.getCovariancex().block<1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS), 1 + sckf::NUMBER_OF_WHEELS + (sckf::E_STATE_VECTOR_SIZE*sckf::NUMBER_OF_WHEELS)>(0,0).inverse();
+//     W.block<1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE, 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE> (sckf::A_STATE_VECTOR_SIZE,NUMAXIS) = 
+//     mysckf.getCovariancex().block<1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE, 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE>(0,0).inverse();
     
     M = A;
     x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
@@ -1398,16 +1418,13 @@ void Task::updateDeadReckoning ()
 {    
     Eigen::Matrix <double, NUMAXIS, 1> attitude; /** in roll, pitch and yaw **/
     base::samples::RigidBodyState rbsDeltaPose;
-    envire::TransformWithUncertainty actualPose;
     envire::TransformWithUncertainty deltaPose;
     
     /** Calculate the delta position from velocity (dead reckoning) asuming constant acceleration **/
     rbsDeltaPose.position = ((this->delta_t/2.0) * (vState.block<3,1>(0,1) + vState.block<3,1>(0,0)));
-    rbsDeltaPose.cov_position = this->U;
-    rbsDeltaPose.velocity = vState.block<3,1>(0,0);
+//     rbsDeltaPose.cov_position = 
     
     /** Create the transformation from the delta position and the actual position **/
-    actualPose = rbsBC;
     deltaPose = rbsDeltaPose;
     
     #ifdef DEBUG_PRINTS
@@ -1420,9 +1437,9 @@ void Task::updateDeadReckoning ()
     /** Fill the rigid body state **/
     rbsBC.time = hbridgeStatus.time;
     actualPose.copyToRigidBodyState(rbsBC);
-    rbsBC.orientation = mysckf.getAttitude();//poseInit.orientation;
+    rbsBC.orientation = mysckf.getAttitude();
     rbsBC.cov_orientation = mysckf.getCovarianceAttitude().block<NUMAXIS, NUMAXIS>(0,0);
-    rbsBC.velocity = rbsDeltaPose.velocity;
+    rbsBC.velocity = vState.block<3,1>(0,0);
     
     #ifdef DEBUG_PRINTS
     std::cout<<"Delta_t"<<this->delta_t<< "\n";
