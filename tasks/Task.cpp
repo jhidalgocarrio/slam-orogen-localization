@@ -114,7 +114,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	eccz = tf.translation() + tf.rotation() *_eccz.value();
 	
 	/** Set the eccentricity to the filter **/
-	mysckf.setEccentricity(eccx, eccy, eccz);
+	mysckf.mymeasurement.setEccentricity(eccx, eccy, eccz);
     }
     
     /** If the initial attitude is not defined and the orientation port is not connected **/
@@ -379,7 +379,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	
 	/** Substract Earth rotation from gyros **/
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
-	localization::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
+	measurement::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
 	
 	#ifdef DEBUG_PRINTS
 	mysckf.getEuler();
@@ -389,20 +389,27 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Predict the state of the filter **/
 	mysckf.predict(angular_velocity, acc, delta_t);
 	
-	/** Calculate the velocity from the model **/
-	Eigen::Matrix<double, NUMAXIS, 1> vel;
-	Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1> acontact;
-	this->calculateVelocityModelNoSlip(vel, acontact);
+	mysckf.getEuler();
+	
+	mysckf.mymeasurement.calculateNavigationKinematics(Anav, Bnav);
+	
+// 	/** Calculate the velocity from the model **/
+// 	Eigen::Matrix<double, NUMAXIS, 1> vel;
+// 	Eigen::Matrix<double, localization::NUMBER_OF_WHEELS, 1> acontact;
+// 	this->calculateVelocityModelNoSlip(vel, acontact);
 	
 	/** Push the current velocity to the filter **/
-	mysckf.setCurrentVeloModel(vel);
+// 	mysckf.setCurrentVeloModel(vel);
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** UPDATE *****************************\n";
 	#endif
 	
 	/** Update the state of the filter **/
- 	mysckf.update(He, Hme, Hp, Hmp, vjoints, acontact, vel, acc, angular_velocity, mag, delta_t, false);
+//  	mysckf.update(He, Hme, Hp, Hmp, vjoints, acontact, vel, acc, angular_velocity, mag, delta_t, false);
+
+	/** Reset the state vector **/
+	mysckf.resetStateVector();
 	
 	
 // 	/** Least-Square Motion Estimation **/
@@ -431,7 +438,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#endif
 	
 	/** To bebug ports **/
-	this->toDebugPorts();
+// 	this->toDebugPorts();
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** END **********\n";
@@ -566,9 +573,9 @@ bool Task::configureHook()
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /** Measurement noise convariance matrix for velocity (accelerometers integration) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /** Measurement noise convariance matrix for gyros */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rm; /** Measurement noise convariance matrix for mag */
-    Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> Ren; /** Measurement noise of encoders **/
+    Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE,localization::ENCODERS_VECTOR_SIZE> Ren; /** Measurement noise of encoders **/
     Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> P_0; /** Initial covariance matrix **/
-    Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS> Rcontact; /** Measurement noise for contact angle */
+    Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS> Rcontact; /** Measurement noise for contact angle */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qbg; /** Process noise matrix of gyros bias (bias instability) **/
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qba; /** Process noise matric of acc bias (bias instability) **/
     
@@ -648,36 +655,37 @@ bool Task::configureHook()
     Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Encoders errors **/
-    Ren.resize(1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS);
-    Ren = 0.00000000001 * Eigen::Matrix <double,1+sckf::NUMBER_OF_WHEELS, 1+sckf::NUMBER_OF_WHEELS>::Identity();
+    Ren = 0.00000000001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
     
     /** Contact angle error **/
-    Rcontact = 0.001 * Eigen::Matrix <double,sckf::NUMBER_OF_WHEELS,sckf::NUMBER_OF_WHEELS>::Identity();
+    Rcontact = 0.001 * Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS>::Identity();
     
     /** Initial error covariance **/
     P_0.resize(sckf::X_STATE_VECTOR_SIZE, sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,sckf::X_STATE_VECTOR_SIZE,sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <NUMAXIS, NUMAXIS> (0, 0) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <sckf::E_STATE_VECTOR_SIZE, sckf::E_STATE_VECTOR_SIZE> (NUMAXIS, NUMAXIS) = 0.1 * Eigen::Matrix <double,sckf::E_STATE_VECTOR_SIZE,sckf::E_STATE_VECTOR_SIZE>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE,NUMAXIS+sckf::E_STATE_VECTOR_SIZE) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE+NUMAXIS,NUMAXIS+sckf::E_STATE_VECTOR_SIZE+NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE+(2*NUMAXIS),NUMAXIS+sckf::E_STATE_VECTOR_SIZE+(2*NUMAXIS)) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 0.001 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Process noise matrices **/    
     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     Qba = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Gravitational value according to the location **/
-    theoretical_g = localization::GravityModel (_latitude.value(), _altitude.value());
+    theoretical_g = measurement::GravityModel (_latitude.value(), _altitude.value());
     
     /** Initialization of the filter **/
-    mysckf.Init(P_0, Rg, Qbg, Qba, Ren, Rcontact, Ra, Rat, Rm, theoretical_g, (double)_dip_angle.value());
+    mysckf.Init(P_0, Rg, Qbg, Qba, Ra, Rat, Rm, theoretical_g, (double)_dip_angle.value());
+    
+    /** Initialization of the measurement generation **/
+    mysckf.mymeasurement.Init(Ra, Rg, Ren, Rcontact);
      
     /** Initialization set the vector state to zero but it can be changed here **/
     x_0.resize(sckf::X_STATE_VECTOR_SIZE,1);
     x_0 = Eigen::Matrix<double,sckf::X_STATE_VECTOR_SIZE,1>::Zero();
-    x_0.block<NUMAXIS, 1> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE + NUMAXIS,0) = _gbiasof.value();
-    x_0.block<NUMAXIS, 1> (NUMAXIS+sckf::E_STATE_VECTOR_SIZE + (2*NUMAXIS),0) = _abiasof.value();
+    x_0.block<NUMAXIS, 1> (3*NUMAXIS,0) = _gbiasof.value();
+    x_0.block<NUMAXIS, 1> (4*NUMAXIS,0) = _abiasof.value();
     mysckf.setStatex(x_0);
     
     /** Info and Warnings about the Task **/
@@ -949,13 +957,14 @@ void Task::calculateVelocities()
 void Task::compositeMatrices()
 {
     /** Set the proper size of the matrices **/
-    E.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS);
-    J.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE + sckf::NUMBER_OF_WHEELS);
-    He.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE);
-    Hme.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_MEASUREMENT_VECTOR_SIZE);
-    Hp.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS);
-    Hmp.resize(sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::P_MEASUREMENT_VECTOR_SIZE);
-    J.setZero(); He.setZero(); Hme.setZero(); Hp.setZero(); Hmp.setZero();
+    E.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS);
+    J.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE + localization::SLIP_VECTOR_SIZE + localization::NUMBER_OF_WHEELS);
+    
+    Anav.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS+2*localization::NUMBER_OF_WHEELS);
+    Bnav.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS+localization::ENCODERS_VECTOR_SIZE);
+    Aslip.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE);
+    Bslip.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS + ENCODERS_VECTOR_SIZE + NUMBER_OF_WHEELS);
+    J.setZero(); Anav.setZero(); Bnav.setZero(); Aslip.setZero(); Bslip.setZero();
     
     /** Compute the composite rover equation matrix E **/
     E.block<2*NUMAXIS, 2*NUMAXIS>(0,0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
@@ -1038,380 +1047,37 @@ void Task::compositeMatrices()
     #endif
     
     
-    /** Form the matrix Hme for the measurement vector of the filter **/
-    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS>(0,0) = -E;
-    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), 1 + sckf::NUMBER_OF_WHEELS>(0,0);
-    Hme.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,2*NUMAXIS+(1 + sckf::NUMBER_OF_WHEELS)) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::NUMBER_OF_WHEELS>(0,1+sckf::NUMBER_OF_WHEELS+sckf::E_STATE_VECTOR_SIZE);
+    /** Form the matrices for the Navigation Kinematics **/
+    Anav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = E.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0);
+    Anav.col(3) = -J.col(7); Anav.col(4) = -J.col(10); Anav.col(5) = -J.col(13); Anav.col(6) = -J.col(16);
+    Anav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS>(0,NUMAXIS+localization::NUMBER_OF_WHEELS) =
+	-J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS>(0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
+    Bnav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0) = -E.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,NUMAXIS);
+    Bnav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,NUMAXIS) = J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
     
-    /** Form the matrix H for the observation of the filter **/
-    He = -J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,1+sckf::NUMBER_OF_WHEELS);
-    
-    /** Form the matrix Hmp for the measurement vector of the filter **/
-    Hmp.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = E.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,NUMAXIS);
-    Hmp.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,NUMAXIS) = J.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), sckf::E_STATE_VECTOR_SIZE>(0,1 + sckf::NUMBER_OF_WHEELS);
-    
-    /** Form the matrix H for the observation of the filter **/
-    Hp = E.block<sckf::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0);
-    
+    /** Form the matrix for the slip kinematics **/
+    Aslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,0) =
+	-J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,localization::ENCODERS_VECTOR_SIZE);
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS> (0,0) = -E;
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,2*NUMAXIS) =
+	J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS> (0,(2*NUMAXIS)+localization::ENCODERS_VECTOR_SIZE) =
+	J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS> (0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
+
+
     #ifdef DEBUG_PRINTS
-    std::cout<< "Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
-    std::cout<< "The Hme matrix \n" << Hme << std::endl;
-    std::cout<< "He is of size "<<He.rows()<<"x"<<He.cols()<<"\n";
-    std::cout<< "The He matrix \n" << He << std::endl;
-    std::cout<< "Hmp is of size "<<Hmp.rows()<<"x"<<Hmp.cols()<<"\n";
-    std::cout<< "The Hmp matrix \n" << Hmp << std::endl;
-    std::cout<< "Hp is of size "<<Hp.rows()<<"x"<<Hp.cols()<<"\n";
-    std::cout<< "The Hp matrix \n" << Hp << std::endl;
+    std::cout<< "Anav is of size "<<Anav.rows()<<"x"<<Anav.cols()<<"\n";
+    std::cout<< "The Anav matrix \n" << Anav << std::endl;
+    std::cout<< "Bnav is of size "<<Bnav.rows()<<"x"<<Bnav.cols()<<"\n";
+    std::cout<< "The Bnav matrix \n" << Bnav << std::endl;
+    std::cout<< "Aslip is of size "<<Aslip.rows()<<"x"<<Aslip.cols()<<"\n";
+    std::cout<< "The Aslip matrix \n" << Aslip << std::endl;
+    std::cout<< "Bslip is of size "<<Bslip.rows()<<"x"<<Bslip.cols()<<"\n";
+    std::cout<< "The Bslip matrix \n" << Bslip << std::endl;
     #endif
     
     return;
 }
-
-void Task::calculateVelocityModelNoSlip(Eigen::Matrix <double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::sckf::NUMBER_OF_WHEELS, 1> &acontact)
-{
-    /** Sensed and non-sensed matrices **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y and Z
-    
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 5> Js;
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn;
-    
-    /** Navigation matrices Ax = By **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),7> A; /** Non-Sensed values matrix  **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),8> B; /** Sensed values matrix **/
-    
-    /** Navigation Vectors **/
-    Eigen::Matrix <double, 7, 1> x; /** non-sensed velocity vector **/
-    Eigen::Matrix <double, 8, 1> y; /** sensed velocity vector **/
-    
-    /** Vector b **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
-    
-    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
-    
-    /** Form the sensed vector **/
-    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
-    y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
-    
-    /** Form the Es and En **/
-    Es.col(0) = E.col(3); //roll
-    Es.col(1) = E.col(4); //pitch
-    Es.col(2) = E.col(5); //yaw
-    
-    En.col(0) = E.col(0); //x
-    En.col(1) = E.col(1); //y
-    En.col(2) = E.col(2); //z
-    
-    /** Form the Jacobian matrices **/
-    Jn.col(0) = J.col(17);
-    Jn.col(1) = J.col(18);
-    Jn.col(2) = J.col(19);
-    Jn.col(3) = J.col(20);
-    
-    Js.col(0) = J.col(0);
-    Js.col(1) = J.col(1);
-    Js.col(2) = J.col(2);
-    Js.col(3) = J.col(3);
-    Js.col(4) = J.col(4);
-    
-    /** A and B matrices to solve by least-squares technique **/
-    A.block<NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = En;
-    A.block<NUMBER_WHEELS*(2*NUMAXIS), 4>(0,NUMAXIS) = -Jn;
-    
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = -Es;
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),5>(0,NUMAXIS) = Js;
-    
-    #ifdef DEBUG_PRINTS
-    std::cout<<"[VM] A is of size "<<A.rows()<<"x"<<A.cols()<<"\n";
-    std::cout<<"[VM] A:\n" << A << std::endl;
-    std::cout<<"[VM] B is of size "<<B.rows()<<"x"<<B.cols()<<"\n";
-    std::cout<<"[VM] B:\n" << B << std::endl;
-    std::cout<<"[VM] The sensed vector y\n"<<y<<"\n";
-    #endif
-    
-    b = B*y;
-    
-    /** DEBUG OUTPUT **/
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 7> matrixAType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixBType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixConjType; // columns are columns of A + 1
-    
-    matrixConjType Conj;
-    
-    #ifdef DEBUG_PRINTS
-    Eigen::FullPivLU<matrixAType> lu_decompA(A);
-    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
-	    
-    Eigen::FullPivLU<matrixBType> lu_decompB(B);
-    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
-    
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),7>(0,0) = A;
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,7) = b;
-    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
-    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
-    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
-    #endif
-    /** **/
-    
-    M = A;
-    x = (A.transpose() * A).inverse() * A.transpose() * b;
-//     x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-    
-    leastSquaresError = (A*x - b).norm() / b.norm();
-    #ifdef DEBUG_PRINTS
-    std::cout << "The relative error is:\n" << leastSquaresError << std::endl;
-    std::cout << "The solution is:\n" << x << std::endl;
-    #endif
-    
-
-    velocity = x.block<NUMAXIS,1>(0,0);
-    acontact = x.block<sckf::NUMBER_OF_WHEELS,1>(NUMAXIS,0);
-    
-    return;
-}
-
-Eigen::Matrix< double, 3 , 1  > Task::leastSquaresSolution()
-{
-    /** Sensed and non-sensed matrices **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> Es; //Sensed is roll, pitch and yaw
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> En; //Non-sensed is X, Y and Z
-    
-    /** Navigation matrices Ax = By **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS> A; /** Non-Sensed values matrix  **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 24> B; /** Sensed values matrix **/
-    
-    /** Navigation Vectors **/
-    Eigen::Matrix <double, NUMAXIS, 1> x; /** non-sensed velocity vector **/
-    Eigen::Matrix <double, 24, 1> y; /** sensed velocity vector **/
-    
-    /** Vector b **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
-    
-    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
-    
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS*(2*NUMAXIS)> W;
-    
-    /** Form the sensed vector **/
-    y.block<NUMAXIS, 1> (0,0) = mysckf.getAngularVelocities();
-    y.block<1 + sckf::NUMBER_OF_WHEELS, 1> (NUMAXIS,0) = vjoints;
-    for (int i = 0; i<sckf::NUMBER_OF_WHEELS; i++)
-    {
-	y.block<NUMAXIS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*i),0) = mysckf.getSlipVector(i);//Eigen::Matrix<double, NUMAXIS, 1>::Zero();//
-	#ifdef DEBUG_PRINTS
-	std::cout<<"[LS] Slip vector("<<i<<") is:\n"<<mysckf.getSlipVector(i)<<"\n";
-	#endif
-    }
-    
-    y.block<sckf::NUMBER_OF_WHEELS, 1> ((NUMAXIS + 1 + sckf::NUMBER_OF_WHEELS)+(NUMAXIS*sckf::NUMBER_OF_WHEELS),0) = mysckf.getContactAnglesVelocity();//Eigen::Matrix<double, sckf::NUMBER_OF_WHEELS, 1>::Zero();//
-    #ifdef DEBUG_PRINTS
-    std::cout<<"[LS] Contact angle vector is:\n"<<mysckf.getContactAnglesVelocity()<<"\n";
-    #endif
-    
-	
-    /** Form the Es and En **/
-    Es.col(0) = E.col(3); //roll
-    Es.col(1) = E.col(4); //pitch
-    Es.col(2) = E.col(5); //yaw
-    
-    En.col(0) = E.col(0); //x
-    En.col(1) = E.col(1); //y
-    En.col(2) = E.col(2); //z
-    
-    /** A and B matrices to solve by least-squares technique **/
-    A = En;
-    
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = -Es;
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),21>(0,NUMAXIS) = J;
-    
-    #ifdef DEBUG_PRINTS
-    std::cout<<"[LS] A is of size "<<A.rows()<<"x"<<A.cols()<<"\n";
-    std::cout<<"[LS] A:\n" << A << std::endl;
-    std::cout<<"[LS] B is of size "<<B.rows()<<"x"<<B.cols()<<"\n";
-    std::cout<<"[LS] B:\n" << B << std::endl;
-    std::cout<<"[LS] The sensed vector y\n"<<y<<"\n";
-    #endif
-    
-    b = B*y;
-    
-    /** DEBUG OUTPUT **/
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), NUMAXIS> matrixAType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  24> matrixBType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  4> matrixConjType; // columns are columns of A + 1
-    
-    matrixConjType Conj;
-    
-    #ifdef DEBUG_PRINTS
-    Eigen::FullPivLU<matrixAType> lu_decompA(A);
-    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
-	    
-    Eigen::FullPivLU<matrixBType> lu_decompB(B);
-    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
-    
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),NUMAXIS>(0,0) = A;
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,NUMAXIS) = b;
-    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
-    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
-    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
-    #endif
-    /** **/
-    
-    /** Form the weigth matrix **/
-//     W.block<sckf::A_STATE_VECTOR_SIZE, NUMAXIS> (0,0) = mysckf.getCovarianceAttitude().inverse();
-//     W.block<1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE, 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE> (sckf::A_STATE_VECTOR_SIZE,NUMAXIS) = 
-//     mysckf.getCovariancex().block<1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE, 1 + sckf::NUMBER_OF_WHEELS + sckf::E_STATE_VECTOR_SIZE>(0,0).inverse();
-    
-    M = A;
-    x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-//     U = (A.transpose() * W * A).inverse();
-//     x =  U * A.transpose() * W * b;
-    
-    leastSquaresError = (A*x - b).norm() / b.norm();
-    #ifdef DEBUG_PRINTS
-    std::cout << "The relative error is:\n" << leastSquaresError << std::endl;
-    std::cout << "The solution is:\n" << x << std::endl;
-    #endif
-    
-    if (!base::isNaN(x(0)+x(1)+x(2)))
-    {
-	/** Prepare the vState variable for the dead reckoning **/
-	vState.block<2*NUMAXIS,1>(0,1) = vState.block<2*NUMAXIS,1>(0,0); // move the previous state to the col(1)
-    
-	/** Fill the vState with the new values for the dead reckoning **/
-	vState.block<NUMAXIS,1>(0,0) = x; // x,y and z
-	vState.block<NUMAXIS,1>(3,0) = y.block<NUMAXIS, 1> (0,0);
-    }  
-    
-    return x;
-}
-
-
-Eigen::Matrix <double, 8, 1> Task::leastSquaresSolutionNoXYSlip()
-{
-    
-    /** Sensed and non-sensed matrices **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 2> Es; //Sensed is pitch and roll
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> En; //Non-sensed is X, Y, Z and Yaw
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 17> Js; //Sensed is wheel_rotation, passive joint,  slip x and y and contact angle, 
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 4> Jn; //Non-sensed is slip z
-    
-    /** Navigation matrices Ax = By **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),8> A; /** Non-Sensed values matrix  **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 19> B; /** Sensed values matrix **/
-    
-    /** Navigation Vectors **/
-    Eigen::Matrix <double, 8, 1> x; /** non-sensed velocity vector **/
-    Eigen::Matrix <double, 19, 1> y; /** sensed velocity vector **/
-    
-    
-    /** vector b **/
-    Eigen::Matrix<double, NUMBER_WHEELS*(2*NUMAXIS), 1> b; /** 24 x 1 **/
-    
-    Eigen::MatrixXd M; /** dynamic memory matrix for the solution **/
-    
-    /** Form the sensed vector **/
-    y <<imuSamples.gyro[0], imuSamples.gyro[1], vjoints[0], vjoints[1], vjoints[2], vjoints[3], vjoints[4], 0.00, 0.00, 0.00,
-    0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00;
-    
-    
-    
-    /** Form the Es and En **/
-    Es.col(0) = E.col(3); //roll
-    Es.col(1) = E.col(4); //pitch
-    
-    En.col(0) = E.col(0); //x
-    En.col(1) = E.col(1); //y
-    En.col(2) = E.col(2); //z
-    En.col(3) = E.col(5); //yaw
-    
-    /** Form the Js and Jn **/
-    Jn.col(0) = J.col(7);
-    Jn.col(1) = J.col(10);
-    Jn.col(2) = J.col(13);
-    Jn.col(3) = J.col(16);
-    
-    Js.col(0) = J.col(0);
-    Js.col(1) = J.col(1);
-    Js.col(2) = J.col(2);
-    Js.col(3) = J.col(3);
-    Js.col(4) = J.col(4);
-    Js.col(5) = J.col(5);
-    Js.col(6) = J.col(6);
-    Js.col(7) = J.col(8);
-    Js.col(8) = J.col(9);
-    Js.col(9) = J.col(11);
-    Js.col(10) = J.col(12);
-    Js.col(11) = J.col(14);
-    Js.col(12) = J.col(15);
-    Js.col(13) = J.col(17);
-    Js.col(14) = J.col(18);
-    Js.col(15) = J.col(19);
-    Js.col(16) = J.col(20);
-    
-    
-    /** A and B matrices to solve by least-square technique **/
-    A.block<NUMBER_WHEELS*(2*NUMAXIS),4>(0,0) = En;
-    A.block<NUMBER_WHEELS*(2*NUMAXIS),4>(0,4) = -Jn;
-    
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),2>(0,0) = -Es;
-    B.block<NUMBER_WHEELS*(2*NUMAXIS),17>(0,2) = Js;
-    
-    #ifdef DEBUG_PRINTS
-    std::cout<<"The A matrix \n" << A << std::endl;
-    std::cout<<"The B matrix \n" << B << std::endl;
-    std::cout<<"The sensed vector y\n"<<y<<"\n";
-    #endif
-    
-    b = B*y;
-    
-    /** DEBUG OUTPUT **/
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), 8> matrixAType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  19> matrixBType;
-    typedef Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS),  9> matrixConjType; // columns are columns of A + 1
-    
-    matrixConjType Conj;
-    
-    #ifdef DEBUG_PRINTS
-    Eigen::FullPivLU<matrixAType> lu_decompA(A);
-    std::cout << "The rank of A is " << lu_decompA.rank() << std::endl;
-	    
-    Eigen::FullPivLU<matrixBType> lu_decompB(B);
-    std::cout << "The rank of B is " << lu_decompB.rank() << std::endl;
-    
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS),8>(0,0) = A;
-    Conj.block<NUMBER_WHEELS*(2*NUMAXIS), 1>(0,8) = b;
-    Eigen::FullPivLU<matrixConjType> lu_decompConj(Conj);
-    std::cout << "The rank of A|B*y is " << lu_decompConj.rank() << std::endl;
-    std::cout << "Pseudoinverse of A\n" << (A.transpose() * A).inverse() << std::endl;
-    #endif
-    /** **/
-    
-    M = A;
-//     x = M.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-    x =  (A.transpose() * A).inverse() * A.transpose() * b;
-    
-    double relative_error = (A*x - b).norm() / b.norm();
-    #ifdef DEBUG_PRINTS
-    std::cout << "The relative error is:\n" << relative_error << std::endl;
-    std::cout << "The solution is:\n" << x << std::endl;
-    #endif
-    
-    if (!base::isNaN(x(0)+x(1)+x(2)+x(3)+x(4)+x(5)+x(6)+x(7)))
-    {
-	/** Prepare the vState variable for the dead reckoning **/
-	vState.block<6,1>(0,1) = vState.block<6,1>(0,0); // move the previous state to the col(1)
-    
-	/** Fill the vState with the new values for the dead reckoning **/
-	vState.block<3,1>(0,0) = x.block<3,1>(0,0); // x,y and z
-	vState(3,0) = imuSamples.gyro[0]; //roll
-	vState(4,0) = imuSamples.gyro[1]; //pitch
-	vState(5,0) = x(3); //yaw
-    }
-    
-    
-    
-    return x;
-}
-
 
 
 void Task::updateDeadReckoning ()
@@ -1585,26 +1251,26 @@ void Task::toDebugPorts()
     base::samples::RigidBodyState rbsVicon;
 
     /** Port out the slip vectors **/
-    _slipFL.write(mysckf.getSlipVector(3));
-    _slipFR.write(mysckf.getSlipVector(2));
-    _slipRR.write(mysckf.getSlipVector(1));
-    _slipRL.write(mysckf.getSlipVector(0));
+    _slipFL.write(mysckf.mymeasurement.getSlipVector(3));
+    _slipFR.write(mysckf.mymeasurement.getSlipVector(2));
+    _slipRR.write(mysckf.mymeasurement.getSlipVector(1));
+    _slipRL.write(mysckf.mymeasurement.getSlipVector(0));
     
     /** Port out the contact angle **/
-    _contact_angle.write(mysckf.getContactAnglesVelocity()*this->delta_t);
+    _contact_angle.write(mysckf.mymeasurement.getContactAnglesVelocity()*this->delta_t);
     
     /** Port out the imu velocities in body frame **/
     rbsIMU.invalidate();
     rbsIMU.time = rbsBC.time;
-    rbsIMU.position = mysckf.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
-    rbsIMU.velocity = mysckf.getLinearVelocities();
-    rbsIMU.angular_velocity = mysckf.getAngularVelocities();
+    rbsIMU.position = mysckf.mymeasurement.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
+    rbsIMU.velocity = mysckf.mymeasurement.getLinearVelocities();
+    rbsIMU.angular_velocity = mysckf.mymeasurement.getAngularVelocities();
     _velocities_imu.write(rbsIMU);
     
     /** Port out the velocity computed in the model **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
-    rbsModel.velocity = mysckf.getCurrentVeloModel();
+    rbsModel.velocity = mysckf.mymeasurement.getCurrentVeloModel();
     _velocities_model.write(rbsModel);
     
     /** Port out the info comming from vicon **/

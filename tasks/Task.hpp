@@ -138,13 +138,13 @@ namespace rover_localization {
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix (24 x 6) **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> J; /** Sparse Wheels Jacobian matrix (24 x 21) **/
 	
-	/** Matrices for the filter for the slip vector update **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hme; /** Measurement matrix **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> He; /** Observation matrix **/
+	/** Matrices for the navigation kinematics **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Anav; /** Not-sensed matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Bnav; /** Sensed matrix **/
 	
-	/** Matrices for the filter for the position error vector update **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hmp; /** Measurement matrix **/
-	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Hp; /** Observation matrix **/
+	/** Matrices for the slip kinematics **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Aslip; /** Not-sensed matrix **/
+	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> Bslip; /** Sensed matrix **/
 	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
@@ -287,7 +287,7 @@ namespace rover_localization {
 	 * 
 	 * @return void
 	 */
-	void calculateVelocityModelNoSlip (Eigen::Matrix<double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::sckf::NUMBER_OF_WHEELS, 1> &acontact);
+	void calculateVelocityModelNoSlip (Eigen::Matrix<double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::NUMBER_OF_WHEELS, 1> &acontact);
 	
 	/** \brief It solves the position update
 	 * 
