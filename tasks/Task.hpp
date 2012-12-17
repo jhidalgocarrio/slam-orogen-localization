@@ -5,7 +5,8 @@
 
 #include <asguard/KinematicModel.hpp>
 #include <asguard/BodyState.hpp>
-#include <rover_localization/sckf.hpp>
+#include <rover_localization/Sckf.hpp>
+#include <rover_localization/DeadReckon.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
@@ -64,12 +65,12 @@ namespace rover_localization {
     protected:
 	
 	/** SCKF structure **/
-	localization::sckf mysckf;
+	localization::Sckf mysckf;
 	
 	/** Init pose **/
 	bool initPosition, initAttitude;
 	
-	/** index for acc mean value for init attitude **/
+	/** index for acc mean value for init attitude (Pose init process) **/
 	int accidx; 	
 	
 	/** Integration step for the filter in seconds **/
@@ -77,10 +78,6 @@ namespace rover_localization {
 	
 	/** Error in the Least-Squares computation **/
 	double leastSquaresError;
-	
-	/** Dead reckoning variables **/
-	Eigen::Matrix <double, 2*NUMAXIS, 2> vState; /** robot state linear and angular velocities time nT col(0) and (n-1)T col(1) (order is x,y,z,roll, pitch and yaw) **/
-	envire::TransformWithUncertainty actualPose; /** robot pose (rbsBC) in transformation with uncertainty form **/
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberIMUSamples; /** number of Ground Force info samples **/
@@ -96,7 +93,6 @@ namespace rover_localization {
  	unsigned int counterForceSamples; /** number of Ground Force info samples **/
  	unsigned int counterIMUSamples; /** number of Ground Force info samples **/
  	
-	
 	/** Wheel kinematics structures **/
 	asguard::KinematicModel wheelFL;
 	asguard::KinematicModel wheelFR;
@@ -115,18 +111,17 @@ namespace rover_localization {
 	base::samples::IMUSensors imuSamples; /** IMU samples **/
 	base::samples::RigidBodyState poseInit; /** Orientation information (init and debug)**/
 	
-	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact **/
-	std::vector<double> contactAngle; /** Current contact angle for the foot in contact **/
-	
-	
-	/** Input ports timing **/
-	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;
-	
 	/** Status information replica to compute the velocity **/
 	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
 	base::samples::RigidBodyState prevPoseInit; /** Orientation information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
+	
+	/** Input ports timing **/
+	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;
+	
+	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact (identification) **/
+	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/
 	
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
 	Eigen::Matrix <double,NUMAXIS, NUMBER_INIT_ACC> init_acc;
@@ -148,6 +143,9 @@ namespace rover_localization {
 	
 	/** Body Center w.r.t the World Coordinate system **/
 	base::samples::RigidBodyState rbsBC;
+	
+	/** Variable to perform the dead-reckoning process **/
+	localization::DeadReckon drPose;
 	
 	/** Feet for FL wheel **/
 	base::samples::RigidBodyState rbsC0FL2body;
@@ -276,35 +274,12 @@ namespace rover_localization {
 	
 	/** \brief Compute Joint velocities 
 	 */
-	void calculateVelocities ();
+	void calculateEncodersVelocities ();
 	
 	/** \brief It forms the composite matrices for the
 	 * slip kinematics and the filter observation.
 	 */
-	void compositeMatrices ();
-	
-	/** \Brief Calculate the rover velocity and contact angles from the odometry model
-	 * 
-	 * @return void
-	 */
-	void calculateVelocityModelNoSlip (Eigen::Matrix<double, NUMAXIS, 1> &velocity, Eigen::Matrix <double, localization::NUMBER_OF_WHEELS, 1> &acontact);
-	
-	/** \brief It solves the position update
-	 * 
-	 */
-	Eigen::Matrix< double, NUMAXIS , 1  > leastSquaresSolution();
-	
-	/** \Brief Least-Square Motion Estimation
-	 * 
-	 * @return the vector solution.
-	 */
-	Eigen::Matrix <double, 8, 1> leastSquaresSolutionNoXYSlip ();
-	
-	/** \Brief Performs the time integration of the Least-Squares solution
-	 * 
-	 * @return void
-	 */
-	void updateDeadReckoning ();
+	void compositeMotionJacobians ();
 	
 	/** \Brief Fill the Asguard BodyState structure
 	 * 

@@ -4,7 +4,7 @@ name "rover_localization"
 
 # If new data types need to be defined, they have to be put in a separate C++
 # header, and this header will be loaded here
-# import_types_from ""
+# import_types_from "asguard_localizationType.hpp"
 using_library "asguard"
 using_library "rover_localization"
 
