@@ -14,6 +14,7 @@ import_types_from "base"
 import_types_from 'sysmon'
 import_types_from "asguard"
 import_types_from "torque_estimator"
+import_types_from "rover_localization/DataTypes.hpp"
 
 # Declare a new task context (i.e., a component)
 #
@@ -213,32 +214,14 @@ task_context "Task" do
     #******************************
     #******* DebugOut Ports *******
     #******************************
-    output_port('slipFL', '/base/Vector3d').
-	doc 'Slip vector for FL wheel'
+    output_port('slip_vector', '/localization/SlipInfo').
+	doc 'Timestamnped slip vector for the rover (all the wheels)'
 
-    output_port('slipFR', '/base/Vector3d').
-	doc 'Slip vector for FR wheel'
-
-    output_port('slipRR', '/base/Vector3d').
-	doc 'Slip vector for RR wheel'
-
-    output_port('slipRL', '/base/Vector3d').
-	doc 'Slip vector for RL wheel'
+    output_port('filter_debug', '/localization/FilterInfo').
+	doc 'Timestamped filter information for debug'
 
     output_port('contact_angle', '/base/VectorXd').
 	doc 'Contact angle vector of the wheels'
-
-    output_port('zki', '/base/VectorXd').
-	doc 'Measurement vector'
-
-    output_port('innovation_ki', '/base/VectorXd').
-	doc 'Innovation of measurement step'
-
-    output_port('K', '/base/MatrixXd').
-	doc 'Kalman matrix of the sckf'
-
-    output_port('Pki_k', '/base/MatrixXd').
-	doc 'Process covariance matrix'
 
     output_port('velocities_imu', 'base/samples/RigidBodyState').
 	doc 'Linear velocities computed by the inertial sensors'

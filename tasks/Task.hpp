@@ -7,6 +7,7 @@
 #include <asguard/BodyState.hpp>
 #include <rover_localization/Sckf.hpp>
 #include <rover_localization/DeadReckon.hpp>
+#include <rover_localization/DataTypes.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
@@ -66,6 +67,9 @@ namespace rover_localization {
 	
 	/** SCKF structure **/
 	localization::Sckf mysckf;
+	
+	/** Measurement Generation pointer **/
+	localization::Measurement *mymeasure;
 	
 	/** Init pose **/
 	bool initPosition, initAttitude;

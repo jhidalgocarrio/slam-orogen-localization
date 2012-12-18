@@ -71,6 +71,9 @@ Task::Task(std::string const& name)
     outTimeStatus.fromMilliseconds(0.00);
     outTimeTorque.fromMilliseconds(0.00);
     
+    /** Point the measurement to the one in the filter object **/
+    mymeasure = &(mysckf.filtermeasurement);
+    
 }
 
 Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
@@ -80,6 +83,8 @@ Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
 
 Task::~Task()
 {
+    /** Measurement pointer to null **/
+    mymeasure = NULL;
 }
 
 void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &calibrated_sensors_sample)
@@ -390,18 +395,35 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Predict the state of the filter **/
 	mysckf.predict(angular_velocity, acc, delta_t);
 		
+	/** Measurement local variables **/
+	Eigen::Matrix<double,NUMAXIS,SLIP_VECTOR_SIZE> Hme; //!Slip observation matrix
+	Eigen::Matrix<double,SLIP_VECTOR_SIZE,SLIP_VECTOR_SIZE> Rme; //! Slip covariance matrix
+	Eigen::Matrix<double,NUMAXIS,localization::NUMBER_OF_WHEELS*(2*NUMAXIS)> Eme; //!Observation of the slip
+	Eigen::Matrix<double,SLIP_VECTOR_SIZE,1> slip_error; //! Slip error vectors
+	
 	/** Measurement Generation **/
-	mysckf.measurementGeneration (Anav, Bnav, Aslip, Bslip, vjoints, delta_t);
+	mysckf.measurementGeneration (Anav, Bnav, Aslip, Bslip, vjoints, slip_error, Rme, delta_t);
+	
+	/** Preparation to call filter update **/
+	Eme.setZero();
+	for (unsigned int i=0; i<NUMBER_OF_WHEELS; i++)
+	    Eme.block<NUMAXIS, NUMAXIS>(0,i*(2*NUMAXIS)) = (1.0/(double)NUMBER_OF_WHEELS)*Eigen::Matrix <double, NUMAXIS, NUMAXIS>::Identity();
+	
+	Hme = Eme * Aslip;
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
+	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
+	std::cout<< "[Measurement] slip_error:\n"<<slip_error<<"\n";
+	std::cout<< "[Measurement] Aslip*slip_error:\n"<<Aslip*slip_error<<"\n";
+	std::cout<< "[Measurement] Hme*slip_error:\n"<<Hme*slip_error<<"\n";
+	#endif
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** UPDATE *****************************\n";
 	#endif
 	
-	Eigen::Matrix<double, NUMAXIS,SLIP_VECTOR_SIZE> Hme; //!Slip observation matrix
-	Eigen::Matrix <double,SLIP_VECTOR_SIZE,SLIP_VECTOR_SIZE> Rme; //! Slip covariance matrix
-	Eigen::Matrix <double,SLIP_VECTOR_SIZE,1> slip_error; //! Slip error vector
-	
-	Hme.setIdentity(); Rme.setZero(); slip_error.setZero();
+// 	Hme.setIdentity(); Rme.setZero(); slip_error.setZero();
 	
 	/** Update the state of the filter **/
  	mysckf.update(Hme, Rme, slip_error, acc, mag, delta_t, false);
@@ -650,11 +672,11 @@ bool Task::configureHook()
     Rm(1,1) = pow(_magrw.get()[1]/sqrt(delta_bandwidth),2);
     Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
     
-    /** Encoders errors **/
-    Ren = 0.00000000001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
+    /** Encoders velocity errors **/
+    Ren = 0.01 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
     
     /** Contact angle error **/
-    Rcontact = 0.001 * Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS>::Identity();
+    Rcontact = 0.01 * Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS>::Identity();
     
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
@@ -1211,12 +1233,13 @@ void Task::toDebugPorts()
     base::samples::RigidBodyState rbsIMU;
     base::samples::RigidBodyState rbsModel;
     base::samples::RigidBodyState rbsVicon;
+    localization::FilterInfo finfo;
+    localization::SlipInfo sinfo;
 
     /** Port out the slip vectors **/
-    _slipFL.write(mysckf.filtermeasurement.getSlipVector(3));
-    _slipFR.write(mysckf.filtermeasurement.getSlipVector(2));
-    _slipRR.write(mysckf.filtermeasurement.getSlipVector(1));
-    _slipRL.write(mysckf.filtermeasurement.getSlipVector(0));
+    mymeasure->toSlipInfo(sinfo);
+    sinfo.time = rbsBC.time;
+    _slip_vector.write(sinfo);
     
     /** Port out the contact angle **/
     _contact_angle.write(mysckf.filtermeasurement.getContactAnglesVelocity()*this->delta_t);
@@ -1240,10 +1263,11 @@ void Task::toDebugPorts()
     rbsVicon.time = rbsBC.time;
     _rbsVicon.write(rbsVicon);
     
-     /** Port out filter vector and matrices **/
-     _K.write(mysckf.getKalmanGain());
-     _innovation_ki.write(mysckf.getInnovation());
-     _Pki_k.write(mysckf.getCovariancex());
+    /** Port out filter info **/
+    mysckf.toFilterInfo(finfo);
+    finfo.time = rbsBC.time;
+    _filter_debug.write(finfo);
+     
      _least_squares_error.write(leastSquaresError);
     
 }
