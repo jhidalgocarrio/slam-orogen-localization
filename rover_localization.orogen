@@ -220,8 +220,8 @@ task_context "Task" do
     output_port('filter_debug', '/localization/FilterInfo').
 	doc 'Timestamped filter information for debug'
 
-    output_port('contact_angle', '/base/VectorXd').
-	doc 'Contact angle vector of the wheels'
+    output_port('velocities_error', 'base/samples/RigidBodyState').
+	doc 'Velocity error in body frame'
 
     output_port('velocities_imu', 'base/samples/RigidBodyState').
 	doc 'Linear velocities computed by the inertial sensors'

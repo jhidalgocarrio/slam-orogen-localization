@@ -325,19 +325,19 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     }
     
     /** Implementation of the filter **/
-//     #ifdef DEBUG_PRINTS
+    #ifdef DEBUG_PRINTS
     std::cout<<"In Filter Implementation\n";
     std::cout<<"imuCounter ("<<counterIMUSamples<<") asguardCounter("<<counterAsguardStatusSamples<<") hbridgeCounter("<<counterHbridgeSamples<<")\n";
     std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
-//     #endif
+    #endif
     
     /** Start the filter if all the values arrived to the ports in the correct order **/
     if (imuValues && asguardValues && hbridgeValues)
     {
 	
-// 	#ifdef DEBUG_PRINTS
+	#ifdef DEBUG_PRINTS
 	std::cout<<"****************** ("<<hbridgeStatus.time.toMicroseconds()<<") ******************************\n";
-// 	#endif
+	#endif
     
 	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
 	this->calculateFootPoints();
@@ -396,40 +396,57 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	mysckf.predict(angular_velocity, acc, delta_t);
 		
 	/** Measurement local variables **/
-	Eigen::Matrix<double,NUMAXIS,SLIP_VECTOR_SIZE> Hme; //!Slip observation matrix
+// 	Eigen::Matrix<double,NUMAXIS,SLIP_VECTOR_SIZE> Hme; //!Slip observation matrix
 	Eigen::Matrix<double,SLIP_VECTOR_SIZE,SLIP_VECTOR_SIZE> Rme; //! Slip covariance matrix
-	Eigen::Matrix<double,NUMAXIS,localization::NUMBER_OF_WHEELS*(2*NUMAXIS)> Eme; //!Observation of the slip
+// 	Eigen::Matrix<double,NUMAXIS,localization::NUMBER_OF_WHEELS*(2*NUMAXIS)> Eme; //!Observation of the slip
 	Eigen::Matrix<double,SLIP_VECTOR_SIZE,1> slip_error; //! Slip error vectors
 	
 	/** Measurement Generation **/
 	mysckf.measurementGeneration (Anav, Bnav, Aslip, Bslip, vjoints, slip_error, Rme, delta_t);
 	
 	/** Preparation to call filter update **/
-	Eme.setZero();
-	for (unsigned int i=0; i<NUMBER_OF_WHEELS; i++)
-	    Eme.block<NUMAXIS, NUMAXIS>(0,i*(2*NUMAXIS)) = (1.0/(double)NUMBER_OF_WHEELS)*Eigen::Matrix <double, NUMAXIS, NUMAXIS>::Identity();
+// 	Eme.setZero();
+// 	for (unsigned int i=0; i<NUMBER_OF_WHEELS; i++)
+// 	    Eme.block<NUMAXIS, NUMAXIS>(0,i*(2*NUMAXIS)) = (1.0/(double)NUMBER_OF_WHEELS)*Eigen::Matrix <double, NUMAXIS, NUMAXIS>::Identity();
+// 	
+// 	Hme = Eme * Aslip;
 	
-	Hme = Eme * Aslip;
+// 	Hme.setIdentity(); Rme.setZero(); slip_error.setZero();
+	
+	/** Using the vicon system as measurement (DEBUG) **/
+	Eigen::Matrix<double,NUMAXIS,NUMAXIS> Hme;
+ 	Eigen::Matrix<double,NUMAXIS,NUMAXIS> RmeVicon;
+	Eigen::Matrix<double,NUMAXIS,1> vel_error;
+	
+	vel_error.setZero();// = (mysckf.getAttitude() * poseInit.velocity) -  mysckf.filtermeasurement.getCurrentVeloModel(); 
+	Hme.setIdentity();
+	RmeVicon.setIdentity(); RmeVicon = 0.006 * RmeVicon;
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
 	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
 	std::cout<< "[Measurement] slip_error:\n"<<slip_error<<"\n";
+	std::cout<< "[Measurement] vel_vicon(quat):\n"<<(mysckf.getAttitude() * poseInit.velocity)<<"\n";
+	std::cout<< "[Measurement] vel_vicon(Rota):\n"<<(mysckf.getAttitude().toRotationMatrix() * poseInit.velocity)<<"\n";
+	std::cout<< "[Measurement] vel_model:\n"<<mysckf.filtermeasurement.getCurrentVeloModel()<<"\n";
+	std::cout<< "[Measurement] vel_error:\n"<<vel_error<<"\n";
+	
+	base::samples::RigidBodyState rbsVelError;
+	rbsVelError.time = rbsBC.time;
+	rbsVelError.velocity = vel_error;
+	_velocities_error.write(rbsVelError);
+	
 	std::cout<< "[Measurement] Aslip*slip_error:\n"<<Aslip*slip_error<<"\n";
-	std::cout<< "[Measurement] Hme*slip_error:\n"<<Hme*slip_error<<"\n";
+// 	std::cout<< "[Measurement] Hme*slip_error:\n"<<Hme*slip_error<<"\n";
 	#endif
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** UPDATE *****************************\n";
 	#endif
 	
-// 	Hme.setIdentity(); Rme.setZero(); slip_error.setZero();
-	
 	/** Update the state of the filter **/
- 	mysckf.update(Hme, Rme, slip_error, acc, mag, delta_t, false);
+ 	mysckf.update(Hme, RmeVicon, vel_error, acc, mag, delta_t, false);
 
-	/** Reset the state vector **/
-	mysckf.resetStateVector();
 	
 	/** Set the variables to perform the dead-reckoning **/
 	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.filtermeasurement.getCurrentVeloModel();
@@ -456,6 +473,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	
 	/** To bebug ports **/
 	this->toDebugPorts();
+	
+	/** Reset the state vector **/
+	mysckf.resetStateVector();
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** END **********\n";
@@ -673,7 +693,7 @@ bool Task::configureHook()
     Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Encoders velocity errors **/
-    Ren = 0.01 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
+    Ren = 0.001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
     
     /** Contact angle error **/
     Rcontact = 0.01 * Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS>::Identity();
@@ -1242,7 +1262,7 @@ void Task::toDebugPorts()
     _slip_vector.write(sinfo);
     
     /** Port out the contact angle **/
-    _contact_angle.write(mysckf.filtermeasurement.getContactAnglesVelocity()*this->delta_t);
+//     _contact_angle.write(mysckf.filtermeasurement.getContactAnglesVelocity()*this->delta_t);
     
     /** Port out the imu velocities in body frame **/
     rbsIMU.invalidate();
@@ -1252,7 +1272,7 @@ void Task::toDebugPorts()
     rbsIMU.angular_velocity = mysckf.filtermeasurement.getAngularVelocities();
     _velocities_imu.write(rbsIMU);
     
-    /** Port out the velocity computed in the model **/
+    /** Port out the velocity computed in the model (body frame) **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
     rbsModel.velocity = mysckf.filtermeasurement.getCurrentVeloModel();
@@ -1260,6 +1280,7 @@ void Task::toDebugPorts()
     
     /** Port out the info comming from vicon **/
     rbsVicon = poseInit;
+    rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
     rbsVicon.time = rbsBC.time;
     _rbsVicon.write(rbsVicon);
     
@@ -1268,7 +1289,7 @@ void Task::toDebugPorts()
     finfo.time = rbsBC.time;
     _filter_debug.write(finfo);
      
-     _least_squares_error.write(leastSquaresError);
+    _least_squares_error.write(leastSquaresError);
     
 }
 
