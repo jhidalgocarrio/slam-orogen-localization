@@ -18,7 +18,7 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
-viz = {:ikf_attitude => false, :proprio => false, :vicon => false, :pvicon => true, :ivicon => true}
+viz = {:proprio => false, :vicon => false, :pvicon => false, :ivicon => true}
 
 Orocos.run('rover_localization_test') do 
   
@@ -44,24 +44,29 @@ Orocos.run('rover_localization_test') do
 	log_replay.stim300.calibrated_sensors.connect_to(asguard_localization_task.calibrated_sensors, :type => :buffer, :size => 100 )
     end
     
-    if viz[:ikf_attitude]
-	log_replay.ikf_orientation_estimator.attitude_b_g.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
-#     else
-# 	log_replay.xsens_imu.orientation_samples.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 10 )
-     end
-	
     if viz[:vicon]
 	log_replay.vicon.pose_samples.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
-    elsif viz[:pvicon]
+    elsif (viz[:pvicon] || viz[:ivicon])
 	log_replay.propriocessing.pose_samples_out.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
     end
 
     asguard_localization_task.calibrated_sensors.frame = "stim300"
-    asguard_localization_task.pose_init.frame = "stim300"
+    
+    if viz[:ivicon]
+	asguard_localization_task.pose_init.frame = "vicon_head"
+    else
+	asguard_localization_task.pose_init.frame = "vicon_body"
+    end
 
     # Transformer configuration names
     asguard_localization_task.imu_frame = "stim300"
     asguard_localization_task.body_frame = "body"
+    
+    if viz[:ivicon]
+	asguard_localization_task.vicon_frame = "vicon_head"
+    else
+	asguard_localization_task.vicon_frame = "vicon_body"
+    end
     
     # Finalize transformer configuration (see below for explanations)
     Orocos.transformer.setup(asguard_localization_task)
@@ -231,7 +236,7 @@ Orocos.run('rover_localization_test') do
     asguard_localization_task.C3RR2body_out.connect_to c3RR
     asguard_localization_task.C4RR2body_out.connect_to c4RR
     
-    if viz[:vicon]
+    if (viz[:vicon] || viz[:pvicon] || viz[:ivicon])
 	# True Body and true trajectory
 	truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
 	truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green
@@ -240,41 +245,10 @@ Orocos.run('rover_localization_test') do
 	rbsTruth.resetModel(0.4)
 	
 	#Connect to the ground truth output port of the navigation kinematics task
-	log_replay.vicon.pose_samples.connect_to rbsTruth
+	asguard_localization_task.rbsVicon.connect_to rbsTruth
 
-	log_replay.vicon.pose_samples.connect_to do|vicon,_|    
+	asguard_localization_task.rbsVicon.connect_to do|vicon,_|    
 	    truthTrajectory.updateTrajectory(vicon.position)
-	end
-    end
-    
-    if viz[:pvicon]
-	# True Body and true trajectory
-	truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
-	truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green
-	rbsTruth = Vizkit.default_loader.RigidBodyStateVisualization
-	rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))
-	rbsTruth.resetModel(0.4)
-	
-	#Connect to the ground truth output port of the navigation kinematics task
-	log_replay.propriocessing.pose_samples_out.connect_to rbsTruth
-
-	log_replay.propriocessing.pose_samples_out.connect_to do|vicon,_|    
-	    truthTrajectory.updateTrajectory(vicon.position)
-	end
-    end
-    
-    if viz[:ivicon]
-	imuTruthTrajectory = Vizkit.default_loader.TrajectoryVisualization
-	imuTruthTrajectory.setColor(Eigen::Vector3.new(255, 255, 0)) #Yellow
-	rbsIMUTruth = Vizkit.default_loader.RigidBodyStateVisualization
-	rbsIMUTruth.setColor(Eigen::Vector3.new(255, 255, 0))
-	rbsIMUTruth.resetModel(0.2)
-	
-	#Connect to the ground truth output port of the navigation kinematics task
-	log_replay.Task.pose_samples.connect_to rbsIMUTruth
-	
-	log_replay.Task.pose_samples.connect_to  do|imu_vicon,_|    
-	    imuTruthTrajectory.updateTrajectory(imu_vicon.position)
 	end
     end
     

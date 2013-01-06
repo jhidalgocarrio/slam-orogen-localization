@@ -74,7 +74,7 @@ namespace rover_localization {
 	/** Init pose **/
 	bool initPosition, initAttitude;
 	
-	/** index for acc mean value for init attitude (Pose init process) **/
+	/** Index for acc mean value for init attitude (Pose init process) **/
 	int accidx; 	
 	
 	/** Integration step for the filter in seconds **/

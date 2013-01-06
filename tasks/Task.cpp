@@ -169,7 +169,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    if (_pose_init.connected() && initPosition)
 	    {
 		/** Get the initial Yaw from the initialPose **/
-		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0] + (_heading_misalignment.value()*D2R);//YAW
+		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 		euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 		euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 		
@@ -234,6 +234,8 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	#ifdef DEBUG_PRINTS
 	std::cout<<"** Received IMU Samples **\n";
 	std::cout<<"acc:\n"<<calibrated_sensors_sample.acc<<"\n";
+	std::cout<<"acc(quat):\n"<<qtf * calibrated_sensors_sample.acc<<"\n";
+	std::cout<<"acc(Rot):\n"<< tf.rotation() * calibrated_sensors_sample.acc<<"\n";
 	std::cout<<"gyro:\n"<<calibrated_sensors_sample.gyro<<"\n";
 	std::cout<<"mag:\n"<<calibrated_sensors_sample.mag<<"\n";
 	#endif
@@ -332,7 +334,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     #endif
     
     /** Start the filter if all the values arrived to the ports in the correct order **/
-    if (imuValues && asguardValues && hbridgeValues)
+    if (initAttitude && initPosition && imuValues && asguardValues && hbridgeValues)
     {
 	
 	#ifdef DEBUG_PRINTS
@@ -394,50 +396,26 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	
 	/** Predict the state of the filter **/
 	mysckf.predict(angular_velocity, acc, delta_t);
-		
-	/** Measurement local variables **/
-// 	Eigen::Matrix<double,NUMAXIS,SLIP_VECTOR_SIZE> Hme; //!Slip observation matrix
-	Eigen::Matrix<double,SLIP_VECTOR_SIZE,SLIP_VECTOR_SIZE> Rme; //! Slip covariance matrix
-// 	Eigen::Matrix<double,NUMAXIS,localization::NUMBER_OF_WHEELS*(2*NUMAXIS)> Eme; //!Observation of the slip
-	Eigen::Matrix<double,SLIP_VECTOR_SIZE,1> slip_error; //! Slip error vectors
 	
-	/** Measurement Generation **/
-	mysckf.measurementGeneration (Anav, Bnav, Aslip, Bslip, vjoints, slip_error, Rme, delta_t);
-	
-	/** Preparation to call filter update **/
-// 	Eme.setZero();
-// 	for (unsigned int i=0; i<NUMBER_OF_WHEELS; i++)
-// 	    Eme.block<NUMAXIS, NUMAXIS>(0,i*(2*NUMAXIS)) = (1.0/(double)NUMBER_OF_WHEELS)*Eigen::Matrix <double, NUMAXIS, NUMAXIS>::Identity();
-// 	
-// 	Hme = Eme * Aslip;
-	
-// 	Hme.setIdentity(); Rme.setZero(); slip_error.setZero();
-	
-	/** Using the vicon system as measurement (DEBUG) **/
+	/** Using the incremental velocity as measurement **/
 	Eigen::Matrix<double,NUMAXIS,NUMAXIS> Hme;
- 	Eigen::Matrix<double,NUMAXIS,NUMAXIS> RmeVicon;
+ 	Eigen::Matrix<double,NUMAXIS,NUMAXIS> Rme;
 	Eigen::Matrix<double,NUMAXIS,1> vel_error;
 	
-	vel_error.setZero();// = (mysckf.getAttitude() * poseInit.velocity) -  mysckf.filtermeasurement.getCurrentVeloModel(); 
+	/** Measurement Generation **/
+	mysckf.measurementGeneration (Anav, Bnav, vjoints, vel_error, Rme, delta_t);
+	
 	Hme.setIdentity();
-	RmeVicon.setIdentity(); RmeVicon = 0.006 * RmeVicon;
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
 	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
-	std::cout<< "[Measurement] slip_error:\n"<<slip_error<<"\n";
-	std::cout<< "[Measurement] vel_vicon(quat):\n"<<(mysckf.getAttitude() * poseInit.velocity)<<"\n";
-	std::cout<< "[Measurement] vel_vicon(Rota):\n"<<(mysckf.getAttitude().toRotationMatrix() * poseInit.velocity)<<"\n";
-	std::cout<< "[Measurement] vel_model:\n"<<mysckf.filtermeasurement.getCurrentVeloModel()<<"\n";
-	std::cout<< "[Measurement] vel_error:\n"<<vel_error<<"\n";
-	
-	base::samples::RigidBodyState rbsVelError;
-	rbsVelError.time = rbsBC.time;
-	rbsVelError.velocity = vel_error;
-	_velocities_error.write(rbsVelError);
-	
-	std::cout<< "[Measurement] Aslip*slip_error:\n"<<Aslip*slip_error<<"\n";
-// 	std::cout<< "[Measurement] Hme*slip_error:\n"<<Hme*slip_error<<"\n";
+	std::cout<< "[Measurement] incre_vel_imu:\n"<<mysckf.filtermeasurement.getLinearVelocities()<<"\n";
+	std::cout<< "[Measurement] incre_vel_model:\n"<<mysckf.filtermeasurement.getIncrementalVeloModel()<<"\n";
+	std::cout<< "[Measurement] incre_vel_error:\n"<<vel_error<<"\n";
+	std::cout<< "[Measurement] incre_vel_error_cov(Rme):\n"<<Rme<<"\n";
+	if (mysckf.filtermeasurement.getCurrentVeloModel()[0] > 0.5)
+	    std::cout<< "[Measurement] AQUI ES MAYOR DE 0.5 at "<<hbridgeStatus.time.toMicroseconds()<<"\n";
 	#endif
 	
 	#ifdef DEBUG_PRINTS
@@ -445,17 +423,19 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#endif
 	
 	/** Update the state of the filter **/
- 	mysckf.update(Hme, RmeVicon, vel_error, acc, mag, delta_t, false);
+ 	mysckf.update(Hme, Rme, vel_error, acc, mag, delta_t, false);
 
-	
 	/** Set the variables to perform the dead-reckoning **/
 	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.filtermeasurement.getCurrentVeloModel();
 	Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
+	Eigen::Matrix<double, NUMAXIS, 1> linvelo_error = mysckf.getStatex().block<NUMAXIS,1> (3,0);
+	
+	std::cout<< "[Measurement] linvelo_error:\n"<<linvelo_error<<"\n";
 	
 	/** Dead-reckoning and save into rbsBC **/
-	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, linvelo, delta_q, covlinvelo, covdelta_q, hbridgeStatus.time, delta_t);
+	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, linvelo_error, delta_q, covlinvelo, covdelta_q, hbridgeStatus.time, delta_t);
 	
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
@@ -539,13 +519,28 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
     
     poseInit = pose_init_sample;
     
+    Eigen::Affine3d tf; /** Transformer transformation **/
+    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
+    
+    /** Get the transformation **/
+    if (!_vicon2body.get(ts, tf, false))
+	return;
+    
+    qtf = Eigen::Quaternion <double> (tf.rotation());
+    
     #ifdef DEBUG_PRINTS
     std::cout<<"** received poseInit sample at("<<pose_init_sample.time.toMicroseconds()<<") **\n";
     #endif
     
+    /** Apply the transformer pose offset **/
+    poseInit.position -= tf.translation();
+    poseInit.orientation = poseInit.orientation * qtf;
+//     poseInit.velocity = qtf * poseInit.velocity;
+//     poseInit.cov_velocity = tf.rotation() * poseInit.cov_velocity;
+//     poseInit.cov_angular_velocity = tf.rotation() * poseInit.cov_angular_velocity;
+    
     if (!initPosition)
     {
-	
 	rbsBC.position = poseInit.position;
 	rbsBC.velocity.setZero();
 	
@@ -559,8 +554,10 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	euler[1] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
 	euler[0] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
  	std::cout<<"** poseInit at ("<<poseInit.time.toMicroseconds()<< ")**\n";
+	std::cout<<"** position offset\n"<<tf.translation()<<"\n";
+	std::cout<<"** rotation offset\n"<<tf.rotation()<<"\n";
 	std::cout<<"** position\n"<< poseInit.position<<"\n";
-	std::cout<<"** Roll: "<<euler[0]*R2D<<"Pitch: "<<euler[1]*R2D<<"Yaw: "<<euler[2]*R2D<<"\n";
+	std::cout<<"** Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
 	#endif
 
 	/** Initial attitude from IMU acceleration has been already calculated **/
@@ -570,7 +567,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	    Eigen::Quaternion <double> attitude = mysckf.getAttitude(); /** Initial attitude in case no port in orientation is connected **/
 	    
 	    /** Get the initial Yaw from the initialPose **/
-	    euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0] + (_heading_misalignment.value()*D2R);//YAW
+	    euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 	    
@@ -581,8 +578,24 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	    
 	    /** Set the initial attitude quaternion of the filter **/
 	    mysckf.setAttitude (attitude);
+	    
+	    /**Store the value as the initial one for the rbsBC **/
+	    rbsBC.orientation = attitude;
+	    
+	    #ifdef DEBUG_PRINTS
+	    euler = mysckf.getEuler();
+	    std::cout<< "******** Initial Attitude in poseInit *******"<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
+	    #endif
 	}
 	
+	/** Initial angular velocity **/
+	rbsBC.angular_velocity.setZero();
+	
+	/** Assume very well know initial attitude **/
+	rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+	rbsBC.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+		
 	/** Set the initial pose in the uncertainty variable **/
 	drPose.setInitPose(rbsBC);
 // 	this->actualPose = rbsBC;
@@ -633,6 +646,11 @@ bool Task::configureHook()
 	/** set zero position **/
 	rbsBC.position.setZero();
 	rbsBC.velocity.setZero();
+	rbsBC.angular_velocity.setZero();
+	
+	/** Assume very well know initial attitude **/
+	rbsBC.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+	rbsBC.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 	
 	/** Assume well known starting position **/
 	rbsBC.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
@@ -701,10 +719,10 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,Sckf::X_STATE_VECTOR_SIZE,Sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 0.001 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 0.001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 0.00001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-06 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 1e-06 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Process noise matrices **/    
     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -1252,6 +1270,7 @@ void Task::toDebugPorts()
 {
     base::samples::RigidBodyState rbsIMU;
     base::samples::RigidBodyState rbsModel;
+    base::samples::RigidBodyState rbsCorrected;
     base::samples::RigidBodyState rbsVicon;
     localization::FilterInfo finfo;
     localization::SlipInfo sinfo;
@@ -1270,17 +1289,32 @@ void Task::toDebugPorts()
     rbsIMU.position = mysckf.filtermeasurement.getLinearAcceleration();//imuSamples.acc;//store in position the acceleration on body frame (for debugging)
     rbsIMU.velocity = mysckf.filtermeasurement.getLinearVelocities();
     rbsIMU.angular_velocity = mysckf.filtermeasurement.getAngularVelocities();
-    _velocities_imu.write(rbsIMU);
+    _incre_velocities_imu.write(rbsIMU);
     
-    /** Port out the velocity computed in the model (body frame) **/
+    /** Port out the incremental velocity computed in the model (body frame) **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
+    rbsModel.velocity = mysckf.filtermeasurement.getIncrementalVeloModel();
+    _incre_velocities_model.write(rbsModel);
+    
+    /** Port out the velocity computed in the model (body frame) **/
     rbsModel.velocity = mysckf.filtermeasurement.getCurrentVeloModel();
     _velocities_model.write(rbsModel);
     
+    rbsCorrected.invalidate();
+    rbsCorrected.time = rbsBC.time;
+    rbsCorrected.velocity =  mysckf.filtermeasurement.getCurrentVeloModel() + mysckf.getStatex().block<NUMAXIS,1> (3,0);//truth = estimated + error
+    _velocities_corrected.write(rbsCorrected);
+    
+    /** Port out the incremental velocity error **/
+    base::samples::RigidBodyState rbsVelError;
+    rbsVelError.time = rbsBC.time;
+    rbsVelError.velocity = rbsIMU.velocity - mysckf.filtermeasurement.getIncrementalVeloModel(); //error = truth - estimated (IMU as truth)
+    _incre_velocities_error.write(rbsVelError);
+    
     /** Port out the info comming from vicon **/
     rbsVicon = poseInit;
-    rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
+//     rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
     rbsVicon.time = rbsBC.time;
     _rbsVicon.write(rbsVicon);
     

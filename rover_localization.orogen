@@ -80,21 +80,14 @@ task_context "Task" do
 
 
     #**** Magnetometers ****
-
     property("magrw", "/base/Vector3d").
 	doc "random walk for magnetometers"
-
-    #**** Misalignment ****
-    property("heading_misalignment", "double").
-	doc "Misalignment between the heading set in the tructh system (i.e.: vicon) and the real one. Units in degrees."
-
 
     #******************************
     #**** Filter Properties *******
     #******************************
     property('filter_frequency', 'double', 100).
 	doc 'Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (trasnformer)'
-
 
     #******************************
     #******* Input ports  *********
@@ -129,6 +122,7 @@ task_context "Task" do
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_estimated", 0.01)
 	align_port("ground_forces_estimated", 0.01)
+	transform "vicon", "body"
 	align_port("pose_init", 0.01)
 	max_latency(0.1)
     end
@@ -220,14 +214,20 @@ task_context "Task" do
     output_port('filter_debug', '/localization/FilterInfo').
 	doc 'Timestamped filter information for debug'
 
-    output_port('velocities_error', 'base/samples/RigidBodyState').
-	doc 'Velocity error in body frame'
-
-    output_port('velocities_imu', 'base/samples/RigidBodyState').
-	doc 'Linear velocities computed by the inertial sensors'
-
     output_port('velocities_model', 'base/samples/RigidBodyState').
 	doc 'Linear velocities computed by the model'
+
+    output_port('velocities_corrected', 'base/samples/RigidBodyState').
+	doc 'Corrected rover linear velocities'
+
+    output_port('incre_velocities_imu', 'base/samples/RigidBodyState').
+	doc 'Linear velocities computed by the inertial sensors'
+
+    output_port('incre_velocities_model', 'base/samples/RigidBodyState').
+	doc 'Incremental linear velocities computed by the model'
+
+    output_port('incre_velocities_error', 'base/samples/RigidBodyState').
+	doc 'Incremental velocity error in body frame'
 
     output_port('rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the vicon system'
