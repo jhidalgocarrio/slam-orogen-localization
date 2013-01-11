@@ -410,10 +410,6 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#ifdef DEBUG_PRINTS
 	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
 	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
-	std::cout<< "[Measurement] incre_vel_imu:\n"<<mysckf.filtermeasurement.getLinearVelocities()<<"\n";
-	std::cout<< "[Measurement] incre_vel_model:\n"<<mysckf.filtermeasurement.getIncrementalVeloModel()<<"\n";
-	std::cout<< "[Measurement] incre_vel_error:\n"<<vel_error<<"\n";
-	std::cout<< "[Measurement] incre_vel_error_cov(Rme):\n"<<Rme<<"\n";
 	if (mysckf.filtermeasurement.getCurrentVeloModel()[0] > 0.5)
 	    std::cout<< "[Measurement] AQUI ES MAYOR DE 0.5 at "<<hbridgeStatus.time.toMicroseconds()<<"\n";
 	#endif
@@ -616,7 +612,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 
 bool Task::configureHook()
 {
-    double delta_bandwidth;/** Delta (bandwidth) time of inertial sensors **/
+    double delta_bandwidth = 0.00;/** Delta (bandwidth) time of inertial sensors **/
     double theoretical_g; /** Ideal gravity value **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /** Measurement noise convariance matrix for acc */
@@ -719,7 +715,7 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,Sckf::X_STATE_VECTOR_SIZE,Sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-06 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
+    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-20 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 1e-06 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -735,7 +731,7 @@ bool Task::configureHook()
     mysckf.Init(P_0, Rg, Qbg, Qba, Ra, Rat, Rm, theoretical_g, (double)_dip_angle.value());
     
     /** Initialization of the measurement generation **/
-    mysckf.filtermeasurement.Init(Ren, Rcontact);
+    mysckf.filtermeasurement.Init(Ren, Rcontact, _q_weight_distribution.value());
      
     /** Initialization set the vector state and bias offset to zero but they can be changed here **/
     x_0.resize(Sckf::X_STATE_VECTOR_SIZE,1);
@@ -1303,13 +1299,16 @@ void Task::toDebugPorts()
     
     rbsCorrected.invalidate();
     rbsCorrected.time = rbsBC.time;
-    rbsCorrected.velocity =  mysckf.filtermeasurement.getCurrentVeloModel() + mysckf.getStatex().block<NUMAXIS,1> (3,0);//truth = estimated + error
+    rbsCorrected.velocity =  mysckf.getVeloTruth().data;//truth = estimated + error
     _velocities_corrected.write(rbsCorrected);
     
     /** Port out the incremental velocity error **/
     base::samples::RigidBodyState rbsVelError;
     rbsVelError.time = rbsBC.time;
-    rbsVelError.velocity = rbsIMU.velocity - mysckf.filtermeasurement.getIncrementalVeloModel(); //error = truth - estimated (IMU as truth)
+    rbsVelError.velocity = mysckf.getVeloError().data; //error = truth - estimated
+    _velocities_error.write(rbsVelError);
+    
+    rbsVelError.velocity = mysckf.getIncreVeloError().data;
     _incre_velocities_error.write(rbsVelError);
     
     /** Port out the info comming from vicon **/
@@ -1317,6 +1316,16 @@ void Task::toDebugPorts()
 //     rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
     rbsVicon.time = rbsBC.time;
     _rbsVicon.write(rbsVicon);
+    
+    /** Port out the delta info comming from vicon **/
+    rbsVicon.position = poseInit.position - prevPoseInit.position;
+    rbsVicon.cov_position = poseInit.cov_position - prevPoseInit.cov_position;
+    rbsVicon.velocity = poseInit.velocity - prevPoseInit.velocity;
+    rbsVicon.cov_velocity = poseInit.cov_velocity - prevPoseInit.cov_velocity;
+    _incre_rbsVicon.write(rbsVicon);
+    
+    /** For the next export of the incremental value from Vicon data **/
+    prevPoseInit = poseInit;
     
     /** Port out filter info **/
     mysckf.toFilterInfo(finfo);

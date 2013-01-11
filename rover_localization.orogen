@@ -84,10 +84,17 @@ task_context "Task" do
 	doc "random walk for magnetometers"
 
     #******************************
+    #**** Rover Properties ********
+    #******************************
+    property('q_weight_distribution', '/base/Quaterniond').
+	doc 'Quaternion to specify the projection of the center of mass to the rover X-Y plane (center of gravity).' +
+	    'Identity quaternion if the weight is equally distributed.'
+
+    #******************************
     #**** Filter Properties *******
     #******************************
     property('filter_frequency', 'double', 100).
-	doc 'Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (trasnformer)'
+	doc 'Desired frequency in Hertz to run the filter. It cannnot be higher that the sensor values of the aggregator (transformer)'
 
     #******************************
     #******* Input ports  *********
@@ -229,8 +236,14 @@ task_context "Task" do
     output_port('incre_velocities_error', 'base/samples/RigidBodyState').
 	doc 'Incremental velocity error in body frame'
 
+    output_port('velocities_error', 'base/samples/RigidBodyState').
+	doc 'Velocity error in body frame'
+
     output_port('rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the vicon system'
+
+    output_port('incre_rbsVicon', 'base/samples/RigidBodyState').
+	doc 'Delta pose and velocities computed from the vicon system'
 
     output_port('least_squares_error', 'double').
 	doc 'Relative error in the least-squares computation.'

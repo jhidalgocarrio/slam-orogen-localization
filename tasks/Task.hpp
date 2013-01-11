@@ -113,11 +113,11 @@ namespace rover_localization {
 	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
 	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors imuSamples; /** IMU samples **/
-	base::samples::RigidBodyState poseInit; /** Orientation information (init and debug)**/
+	base::samples::RigidBodyState poseInit; /** Pose information (init and debug)**/
 	
 	/** Status information replica to compute the velocity **/
 	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
-	base::samples::RigidBodyState prevPoseInit; /** Orientation information (init and debug)**/
+	base::samples::RigidBodyState prevPoseInit; /** Pose information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
 	

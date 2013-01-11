@@ -18,7 +18,7 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
-viz = {:proprio => false, :vicon => false, :pvicon => false, :ivicon => true}
+viz = {:proprio => false, :vicon => false, :pvicon => true, :ivicon => false}
 
 Orocos.run('rover_localization_test') do 
   
