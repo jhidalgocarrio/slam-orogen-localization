@@ -51,7 +51,7 @@ q_weight_distribution:
   - 0.0
   - 0.158675
   - 0.0
-# Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (trasnformer)
+# Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (transformer)
 filter_frequency: 100.0
 # bias offset in static regimen for the Gyroscopes
 gbiasof: 
