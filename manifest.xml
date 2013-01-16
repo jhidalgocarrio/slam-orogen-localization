@@ -14,6 +14,7 @@
   <depend package="dummy-dependency-n" />
   -->
   <depend package="base/types" />
+  <depend package="base/orogen/types" />
   <depend package="asguard/orogen/sysmon"/>
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
@@ -21,7 +22,11 @@
   <depend package="asguard/orogen/asguard" />
   <depend package="asguard/orogen/torque_estimator" />
   <depend package="asguard/rover_localization" />
-  <!--
+  <depend package="slam/envire" />
+  <depend package="slam/orogen/envire"/>
+  <depend package="gui/vizkit" />
+
+<!--
   <tags>Debug</tags>
-  -->
+-->
 </package>
