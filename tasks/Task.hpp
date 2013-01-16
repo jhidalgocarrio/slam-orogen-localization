@@ -3,6 +3,8 @@
 #ifndef ROVER_LOCALIZATION_TASK_TASK_HPP
 #define ROVER_LOCALIZATION_TASK_TASK_HPP
 
+#include "rover_localization/TaskBase.hpp"
+
 #include <asguard/KinematicModel.hpp>
 #include <asguard/BodyState.hpp>
 #include <rover_localization/Sckf.hpp>
@@ -12,8 +14,12 @@
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
 
-
-#include "rover_localization/TaskBase.hpp"
+/** Envire **/
+#include <base/logging.h>
+#include <envire/Core.hpp>
+#include <envire/maps/MLSGrid.hpp>
+#include <envire/operators/MLSProjection.hpp>
+#include <envire/Orocos.hpp>
 
 namespace rover_localization {
     
@@ -26,8 +32,8 @@ namespace rover_localization {
     #define OK	0  /** Integer value in order to return when everything is all right. */
     #endif
     
-    #ifndef ERROR
-    #define ERROR -1  /** Integer value in order to return when an error occured. */
+    #ifndef ERROR_OUT
+    #define ERROR_OUT -1  /** Integer value in order to return when an error occured. */
     #endif
     
     #ifndef D2R
@@ -65,6 +71,7 @@ namespace rover_localization {
 	friend class TaskBase;
     protected:
 	
+	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	/** SCKF structure **/
 	localization::Sckf mysckf;
 	
@@ -184,6 +191,11 @@ namespace rover_localization {
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFR;
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRL;
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRR;
+	
+	/** Envire **/
+	envire::Environment mEnv;
+	envire::MLSGrid *mpSlip;
+	envire::OrocosEmitter* mEmitter;
 
         virtual void calibrated_sensorsTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &calibrated_sensors_sample);
         virtual void ground_forces_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::GroundForces &ground_forces_estimated_sample);
@@ -299,6 +311,12 @@ namespace rover_localization {
 	 * @return void
 	 */
 	void toDebugPorts();
+	
+	/** \Brief Write the environment to the port
+	 * 
+	 * @return boolean
+	 */
+	bool sendEnvireEnvironment();
 	
     };
 }

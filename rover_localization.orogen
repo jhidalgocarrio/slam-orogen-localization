@@ -7,6 +7,7 @@ name "rover_localization"
 # import_types_from "asguard_localizationType.hpp"
 using_library "asguard"
 using_library "rover_localization"
+using_library 'envire'
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
@@ -15,6 +16,7 @@ import_types_from 'sysmon'
 import_types_from "asguard"
 import_types_from "torque_estimator"
 import_types_from "rover_localization/DataTypes.hpp"
+import_types_from 'envire'
 
 # Declare a new task context (i.e., a component)
 #
@@ -89,6 +91,26 @@ task_context "Task" do
     property('q_weight_distribution', '/base/Quaterniond').
 	doc 'Quaternion to specify the projection of the center of mass to the rover X-Y plane (center of gravity).' +
 	    'Identity quaternion if the weight is equally distributed.'
+
+    #******************************
+    #**** Envire Properties *******
+    #******************************    
+    property("envire_output_interval_ms", "int", 400).
+        doc("Define the envire-environment-update-interval for visualization. If < 1 the environment will not be updated")
+
+    # MLS-Grid
+    property("grid_resolution", "int", 100).
+        doc("Defines the number of patches in x and y.")
+
+    property("patch_size", "double", 0.05).
+        doc("Size of each patch (meters)")
+
+    property("grid_center_x", "double", -5.0).
+        doc("Offset of the grid coordinate system in x (meters), describes the transformation WORLD2MLS")
+
+    property("grid_center_y", "double", -5.0).
+        doc("Offset of the grid coordinate system in y (meters), describes the transformation WORLD2MLS")
+
 
     #******************************
     #**** Filter Properties *******
@@ -247,6 +269,13 @@ task_context "Task" do
 
     output_port('least_squares_error', 'double').
 	doc 'Relative error in the least-squares computation.'
+
+    #******************************
+    #******* Envioment Ports ******
+    #******************************
+    output_port('envire_environment_out', ro_ptr('std/vector</envire/BinaryEvent>')).
+            doc('envire-environment containing the slip map.').
+            keep_last_written_value(false)
 
     port_driven "hbridge_samples"
 

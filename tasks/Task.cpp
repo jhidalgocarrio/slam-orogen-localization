@@ -529,7 +529,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
     #endif
     
     /** Apply the transformer pose offset **/
-    poseInit.position -= tf.translation();
+    poseInit.position += qtf * tf.translation();
     poseInit.orientation = poseInit.orientation * qtf;
 //     poseInit.velocity = qtf * poseInit.velocity;
 //     poseInit.cov_velocity = tf.rotation() * poseInit.cov_velocity;
@@ -814,6 +814,27 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[Info] numberForceSamples: "<<numberForceSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] numberTorqueSamples: "<<numberTorqueSamples<<RTT::endlog();
     
+    
+    /** envire **/
+    mpSlip = new envire::MultiLevelSurfaceGrid(_grid_resolution.get(), _grid_resolution.get(), _patch_size.get(), _patch_size.get(),
+            _grid_center_x.get(), _grid_center_y.get());
+   
+    mEnv.attachItem(mpSlip);
+   
+    /** Create envire components. **/
+    envire::FrameNode* p_fn = NULL;
+   
+    p_fn = new envire::FrameNode();
+    mEnv.getRootNode()->addChild(p_fn);
+    mpSlip->setFrameNode(p_fn);
+    
+    /** Emitter **/
+    mEmitter = new envire::OrocosEmitter(_envire_environment_out);
+    mEmitter->useContextUpdates(&mEnv); // Without this line the parents are not set(?)
+    mEmitter->useEventQueue( true );
+    mEmitter->attach(&mEnv);
+
+
     
     
     return true;
@@ -1336,5 +1357,12 @@ void Task::toDebugPorts()
     
 }
 
+bool Task::sendEnvireEnvironment()
+{
+    mEmitter->setTime(rbsBC.time);
+    mEmitter->flush();
+
+    return true;
+}
 
 
