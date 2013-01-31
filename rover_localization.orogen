@@ -105,10 +105,10 @@ task_context "Task" do
     property("patch_size", "double", 0.05).
         doc("Size of each patch (meters)")
 
-    property("grid_center_x", "double", -5.0).
+    property("grid_center_x", "double", 0.0).
         doc("Offset of the grid coordinate system in x (meters), describes the transformation WORLD2MLS")
 
-    property("grid_center_y", "double", -5.0).
+    property("grid_center_y", "double", 0.0).
         doc("Offset of the grid coordinate system in y (meters), describes the transformation WORLD2MLS")
 
 
@@ -235,7 +235,7 @@ task_context "Task" do
 
 
     #******************************
-    #******* DebugOut Ports *******
+    #******* Debug OutPorts *******
     #******************************
     output_port('slip_vector', '/localization/SlipInfo').
 	doc 'Timestamnped slip vector for the rover (all the wheels)'
@@ -264,6 +264,9 @@ task_context "Task" do
     output_port('rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the vicon system'
 
+    output_port('imu_sensors_out', '/base/samples/IMUSensors').
+	doc 'Inertial sensor outport processed by the callback function of the transformer'
+
     output_port('incre_rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Delta pose and velocities computed from the vicon system'
 
@@ -275,9 +278,9 @@ task_context "Task" do
     #******************************
     output_port('envire_environment_out', ro_ptr('std/vector</envire/BinaryEvent>')).
             doc('envire-environment containing the slip map.').
-            keep_last_written_value(false)
+            keep_last_written_value(true)
 
-    port_driven "hbridge_samples"
+    port_driven
 
 end
 
