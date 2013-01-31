@@ -93,24 +93,25 @@ namespace rover_localization {
 	double leastSquaresError;
 	
 	/** Number of samples to process in the callback function **/
-	unsigned int numberIMUSamples; /** number of Ground Force info samples **/
 	unsigned int numberHbridgeSamples; /** number of Hbridge samples for the resampling**/
  	unsigned int numberAsguardStatusSamples; /** number of  Asguard status samples for the resampling **/
+ 	unsigned int numberIMUSamples; /** number of inertial sensors samples **/
  	unsigned int numberTorqueSamples; /** number of  Torque info samples for the resampling **/
  	unsigned int numberForceSamples; /** number of Ground Force info samples for the resampling **/
+ 	unsigned int numberPose; /** number of pose information comming from external measurement **/
  	
  	/** Current counter of samples arrived to each port **/
  	unsigned int counterHbridgeSamples; /** counter for Hbridge samples**/
  	unsigned int counterAsguardStatusSamples; /** counter for Asguard status samples  **/
+ 	unsigned int counterIMUSamples; /** counter of inertial sensors samples **/
  	unsigned int counterTorqueSamples; /** counter for  Torque info samples **/
- 	unsigned int counterForceSamples; /** number of Ground Force info samples **/
- 	unsigned int counterIMUSamples; /** number of Ground Force info samples **/
+ 	unsigned int counterForceSamples; /** conter of Ground Force info samples for the resampling **/
+ 	unsigned int counterPose; /** counter of pose information comming from external measurement **/
  	
  	/** Buffer for inputs port samples **/
  	boost::circular_buffer<base::actuators::Status> cbHbridges;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;
-	boost::circular_buffer<base::samples::IMUSensors> cbimu;
-	boost::circular_buffer<base::samples::RigidBodyState> cbPose;
+	boost::circular_buffer<base::samples::IMUSensors> cbIMU;
 	
  	/** Inputs port samples **/
 	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
@@ -120,9 +121,9 @@ namespace rover_localization {
 	
 	/** Status information replica to compute the velocity **/
 	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
-	base::samples::RigidBodyState prevPoseInit; /** Pose information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
+	base::samples::RigidBodyState prevPoseInit; /** Pose information (init and debug)**/
  	
 	/** Wheel kinematics structures **/
 	asguard::KinematicModel wheelFL;
@@ -297,6 +298,10 @@ namespace rover_localization {
 	/** \brief Select the Foot in contact among all the Foot Points
 	 */
 	void selectContactPoints (std::vector<int> &contactPoints);
+	
+	/** \brief Get the correct value from teh buffer
+	 */
+	void getInputPortValues();
 	
 	/** \brief Select the Foot in contact among all the Foot Points
 	 */

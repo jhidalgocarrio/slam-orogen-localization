@@ -22,23 +22,16 @@ Task::Task(std::string const& name)
     /** Default size for the circular_buffer **/
     cbHbridges = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbAsguard = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
-    cbimu = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
-    cbPose = boost::circular_buffer<base::samples::RigidBodyState>(DEFAULT_CIRCULAR_BUFFER_SIZE);
-    
-    std::cout<<"cbHbridges size: "<<cbHbridges.capacity()<<"\n";
-    
+    cbIMU = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     
     /** Sizing hbridgeStatus **/
     hbridgeStatus.resize(NUMBER_WHEELS);
-    prevHbridgeStatus.resize(NUMBER_WHEELS);
     
     /** Set to a NaN index **/
     hbridgeStatus.index = base::NaN<unsigned int>();
-    prevHbridgeStatus.index = base::NaN<unsigned int>();
     
     /** Set to NaN passiveJoint **/
     asguardStatus.asguardJointEncoder = base::NaN<double>();
-    prevAsguardStatus.asguardJointEncoder = base::NaN<double>();
     
     wheelFL = asguard::KinematicModel(3,2);
     wheelFR = asguard::KinematicModel(2,2);
@@ -51,7 +44,6 @@ Task::Task(std::string const& name)
     imuSamples.acc[2] = base::NaN<double>();
     imuSamples.gyro = imuSamples.acc;
     imuSamples.mag = imuSamples.acc;
-    prevImuSamples = imuSamples;
     
     /** Set eccentricity to NaN **/
     eccx[0] = base::NaN<double>();
@@ -66,7 +58,6 @@ Task::Task(std::string const& name)
     
     /** Pose Init **/
     poseInit.invalidate();
-    prevPoseInit = poseInit;
     
     /** Set also here the default Foot in Contact **/
     contactPoints.resize(4);
@@ -75,9 +66,9 @@ Task::Task(std::string const& name)
     
     /** Set output times **/
     outTimeHbridge.fromMilliseconds(0.00);
+    outTimeStatus.fromMilliseconds(0.00);
     outTimeForce.fromMilliseconds(0.00);
     outTimeIMU.fromMilliseconds(0.00);
-    outTimeStatus.fromMilliseconds(0.00);
     outTimeTorque.fromMilliseconds(0.00);
     
     /** Point the measurement to the one in the filter object **/
@@ -229,16 +220,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
     }
     else
     {
-	/** It starts again the sampling **/
-	if (counterIMUSamples == 0)
-	{
-	    prevImuSamples = imuSamples;
-	    outTimeIMU =  calibrated_sensors_sample.time;
-	    imuSamples.acc.setZero();
-	    imuSamples.gyro.setZero();
-	    imuSamples.mag.setZero();
-	    imuValues = false;
-	}
+	/** A new sample arrived to the port**/
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"** Received IMU Samples **\n";
@@ -251,104 +233,45 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	
 	/** Convert the IMU values in the body orientation **/
 	imuSamples.time = calibrated_sensors_sample.time;
-	imuSamples.acc += qtf * calibrated_sensors_sample.acc;
-	imuSamples.gyro += qtf * calibrated_sensors_sample.gyro;
-	imuSamples.mag += qtf * calibrated_sensors_sample.mag;
+	imuSamples.acc = qtf * calibrated_sensors_sample.acc;
+	imuSamples.gyro = qtf * calibrated_sensors_sample.gyro;
+	imuSamples.mag = qtf * calibrated_sensors_sample.mag;
+	
+	/** Push the IMU sensor into the buffer **/
+	cbIMU.push_back(imuSamples);
 	
 	counterIMUSamples++;
-	
-	if (counterIMUSamples == numberIMUSamples)
-	{
-	    imuSamples.time = (outTimeIMU + calibrated_sensors_sample.time)/2.0;
-	    imuSamples.acc = imuSamples.acc/numberIMUSamples;
-	    imuSamples.gyro = imuSamples.gyro/numberIMUSamples;
-	    imuSamples.mag = imuSamples.mag/numberIMUSamples;
-	    
-	    #ifdef DEBUG_PRINTS
-	    std::cout<<"** counterIMUSamples ("<<counterIMUSamples<<") at ("<<imuSamples.time.toMicroseconds()<<")**\n";
-	    std::cout<<"acc:\n"<<imuSamples.acc<<"\n";
-	    std::cout<<"gyro:\n"<<imuSamples.gyro<<"\n";
-	    std::cout<<"mag:\n"<<imuSamples.mag<<"\n";
-	    #endif
-	    
-	    counterIMUSamples = 0;
-	    outTimeIMU.fromMicroseconds(0.00);
-	    
-	    imuValues = true;
-			
-	    if (prevImuSamples.acc[0] == base::NaN<double>() && prevImuSamples.acc[1] == base::NaN<double>() && prevImuSamples.acc[2] == base::NaN<double>())
-		prevImuSamples = imuSamples;
-	}
     }
 }
 
 void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &hbridge_samples_sample)
 {
-    if (counterHbridgeSamples == 0)
-    {
-	prevHbridgeStatus = hbridgeStatus;
-	outTimeHbridge = hbridge_samples_sample.time;
-	for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
-	{
-	    hbridgeStatus.states[i].current = 0.0;
-	    hbridgeStatus.states[i].position = 0.0;
-	    hbridgeStatus.states[i].positionExtern = 0.0;
-	    hbridgeStatus.states[i].pwm = 0.0;
-	}
-	hbridgeValues = false;
-    }
-    
-    for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
-    {
-	#ifdef DEBUG_PRINTS
- 	std::cout<<"** counterHbridgeSamples("<<counterHbridgeSamples<<") received ("<<hbridge_samples_sample.states[i].positionExtern<<")**\n";
-	#endif
-	hbridgeStatus.states[i].current += hbridge_samples_sample.states[i].current;
-	hbridgeStatus.states[i].position = hbridge_samples_sample.states[i].position;
-	hbridgeStatus.states[i].positionExtern = hbridge_samples_sample.states[i].positionExtern;
-	hbridgeStatus.states[i].pwm += hbridge_samples_sample.states[i].pwm;
-    }
+    /** A new sample arrived to the inport **/
+    cbHbridges.push_back(hbridge_samples_sample);
     
     counterHbridgeSamples++;
     
-    if (counterHbridgeSamples == numberHbridgeSamples)
-    {
-	hbridgeStatus.time = ((outTimeHbridge + hbridge_samples_sample.time)/2.0);
-	hbridgeStatus.index = hbridge_samples_sample.index;
-	
-	for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
-	{
-	    hbridgeStatus.states[i].current = hbridgeStatus.states[i].current/numberHbridgeSamples; //the mean current in mA
-	    hbridgeStatus.states[i].pwm = hbridgeStatus.states[i].pwm/numberHbridgeSamples; //the mean PWM signal duty cicle [-1,1]
-	}
-	
-	#ifdef DEBUG_PRINTS
- 	std::cout<<"** counterHbridgeSamples("<<counterHbridgeSamples<<") at ("<<hbridgeStatus.time.toMicroseconds()<<")**\n";
-	#endif
-	
-	counterHbridgeSamples = 0;
-	outTimeHbridge.fromMicroseconds(0.00);
-	
-	hbridgeValues = true;
-	
-	if (prevHbridgeStatus.index == base::NaN<unsigned int>())
-	    prevHbridgeStatus = hbridgeStatus;
-    }
-    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"** counterHbridgeSamples("<<counterHbridgeSamples<<") at ("<<hbridge_samples_sample.time.toMicroseconds()
+	<<") received FR ("<<hbridge_samples_sample.states[0].positionExtern<<")**\n";
+    #endif
+       
     /** Implementation of the filter **/
     #ifdef DEBUG_PRINTS
     std::cout<<"In Filter Implementation\n";
-    std::cout<<"imuCounter ("<<counterIMUSamples<<") asguardCounter("<<counterAsguardStatusSamples<<") hbridgeCounter("<<counterHbridgeSamples<<")\n";
-    std::cout<<"imuValues ("<<imuValues<<") asguardValues("<<asguardValues<<") hbridgeValues("<<hbridgeValues<<")\n";
+    std::cout<<"hbridgeCounter ("<<counterHbridgeSamples<<") asguardCounter("<<counterAsguardStatusSamples<<") imuCounter("<<counterIMUSamples<<")\n";
     #endif
     
-    /** Start the filter if all the values arrived to the ports in the correct order **/
-    if (initAttitude && initPosition && imuValues && asguardValues && hbridgeValues)
+    /** Start the filter if everything is alrigth **/
+    if (initAttitude && initPosition && (counterHbridgeSamples == numberHbridgeSamples))
     {
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"****************** ("<<hbridgeStatus.time.toMicroseconds()<<") ******************************\n";
 	#endif
+	
+	/** Get the correct values from the input ports buffers **/
+	this->getInputPortValues();
     
 	/** Calculate the position and orientation of all asguard feets with the new encoders information **/
 	this->calculateFootPoints();
@@ -456,7 +379,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<<"********** To Deburg Ports **********\n";
 	#endif
 	
-	/** To bebug ports **/
+	/** To Debug ports **/
 	this->toDebugPorts();
 	
 	/** Reset the state vector **/
@@ -474,42 +397,15 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 }
 void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample)
 {
-    if (counterAsguardStatusSamples == 0)
-    {
-	prevAsguardStatus = asguardStatus;
-	outTimeStatus = systemstate_samples_sample.time;
-	asguardStatus.asguardVoltage = 0.00;
-	asguardValues = false;
-    }
-    
-    asguardStatus.time = systemstate_samples_sample.time;
-    asguardStatus.asguardVoltage += systemstate_samples_sample.asguardVoltage;
-    asguardStatus.asguardJointEncoder = systemstate_samples_sample.asguardJointEncoder;
-    asguardStatus.systemState = systemstate_samples_sample.systemState;
-    asguardStatus.packetsPerSec = systemstate_samples_sample.packetsPerSec;
-    asguardStatus.controlPacketsPerSec = systemstate_samples_sample.controlPacketsPerSec;
+    /** A new sample arrived to the port **/
+    cbAsguard.push_back(systemstate_samples_sample);
     
     counterAsguardStatusSamples ++;
     
-    if (counterAsguardStatusSamples == numberAsguardStatusSamples)
-    {
-	asguardStatus.time = (outTimeStatus + systemstate_samples_sample.time)/2.0;
-	asguardStatus.asguardVoltage = asguardStatus.asguardVoltage/numberAsguardStatusSamples; //the mean voltage
-	
-	#ifdef DEBUG_PRINTS
- 	std::cout<<"** counterAsguardStatusSamples("<<counterAsguardStatusSamples<<") at ("<<asguardStatus.time.toMicroseconds()<< ")**\n";
-	std::cout<<"** passive joint value: "<< asguardStatus.asguardJointEncoder<<"\n";
-	#endif
-	
-	counterAsguardStatusSamples = 0;
-	outTimeStatus.fromMicroseconds(0.00);
-	
-	asguardValues = true;
-	
-	if (base::isNaN(prevAsguardStatus.asguardJointEncoder))
-	    prevAsguardStatus = asguardStatus;
-    }
-    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"** counterAsguardStatusSamples("<<counterAsguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
+    std::cout<<"** passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
+    #endif
 }
 
 void Task::torque_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_estimated_sample)
@@ -674,18 +570,40 @@ bool Task::configureHook()
     counterTorqueSamples = 0;
     counterForceSamples = 0;
     counterIMUSamples = 0;
+    counterPose = 0;
     
     /** Set the number of samples between each sensor input (if there are not comming at the same sampling rate) */
-    numberIMUSamples = (1.0/_calibrated_sensors_period.value())/_filter_frequency.value();
-    numberHbridgeSamples = (1.0/_hbridge_samples_period.value())/_filter_frequency.value();
-    numberAsguardStatusSamples = (1.0/_systemstate_samples_period.value())/_filter_frequency.value();
-    numberForceSamples = (1.0/_ground_forces_estimated_period.value())/_filter_frequency.value();
-    numberTorqueSamples = (1.0/_torque_estimated_period.value())/_filter_frequency.value();
+    if (_filter_frequency.value() != 0.00)
+    {
+	numberIMUSamples = (1.0/_calibrated_sensors_period.value())/_filter_frequency.value();
+	numberHbridgeSamples = (1.0/_hbridge_samples_period.value())/_filter_frequency.value();
+	numberAsguardStatusSamples = (1.0/_systemstate_samples_period.value())/_filter_frequency.value();
+	numberForceSamples = (1.0/_ground_forces_estimated_period.value())/_filter_frequency.value();
+	numberTorqueSamples = (1.0/_torque_estimated_period.value())/_filter_frequency.value();
+	numberPose = (1.0/_pose_init_period.value())/_filter_frequency.value();
+    }
+    
+    
+    /** Set the capacity of the circular_buffer according to the sampling rate **/
+    cbHbridges.set_capacity(numberHbridgeSamples);
+    cbAsguard.set_capacity(numberAsguardStatusSamples);
+    cbIMU.set_capacity(numberIMUSamples);
+    
+    for(register unsigned int i=0;i<cbHbridges.size();i++)
+    {
+	cbHbridges[i].resize(NUMBER_WHEELS);
+    }
+    
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[Task configure] cbHbridges has capacity "<<cbHbridges.capacity()<<" and size "<<cbHbridges.size()<<"\n";
+    std::cout<<"[Task configure] cbAsguard has capacity "<<cbAsguard.capacity()<<" and size "<<cbAsguard.size()<<"\n";
+    std::cout<<"[Task configure] cbIMU has capacity "<<cbIMU.capacity()<<" and size "<<cbIMU.size()<<"\n";
+    #endif
     
     /** Filter delta time step in seconds **/
     if (_filter_frequency.value() != 0.00)
-	delta_t = 1.0/_filter_frequency.value();
-    
+	delta_t = 1.0/_filter_frequency.value();    
     
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
@@ -887,6 +805,107 @@ void Task::cleanupHook()
     TaskBase::cleanupHook();
 }
 
+void Task::getInputPortValues()
+{
+    unsigned int cbHbridgesize = cbHbridges.size();
+    unsigned int cbAsguardsize = cbAsguard.size();
+    unsigned int cbIMUsize = cbIMU.size();
+    
+    /** ********* **/
+    /** Hbridges **/
+    for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
+    {
+	hbridgeStatus.states[i].current = 0.0;
+	hbridgeStatus.states[i].position = 0.0;
+	hbridgeStatus.states[i].positionExtern = 0.0;
+	hbridgeStatus.states[i].pwm = 0.0;
+    }
+	
+    /** Process the buffer **/
+    for (register unsigned int i = 0; i<cbHbridgesize; i++)
+    {
+	for (register unsigned int j = 0; j<asguard::NUMBER_OF_WHEELS; j++)
+	{
+	    hbridgeStatus.states[j].current += cbHbridges[i].states[j].current;
+	    hbridgeStatus.states[j].pwm += cbHbridges[i].states[j].pwm;
+	}
+    }
+    
+    /** Set the time **/
+    hbridgeStatus.time = (cbHbridges[0].time + cbHbridges[cbHbridgesize-1].time)/2.0;
+    
+    hbridgeStatus.index = cbHbridges[cbHbridgesize-1].index;
+    
+    for (register unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
+    {
+	hbridgeStatus.states[i].current /= cbHbridgesize; //the mean current in mA
+	hbridgeStatus.states[i].position = cbHbridges[cbHbridgesize-1].states[i].position;
+	hbridgeStatus.states[i].positionExtern = cbHbridges[cbHbridgesize-1].states[i].positionExtern;
+	hbridgeStatus.states[i].pwm /= cbHbridgesize; //the mean PWM signal duty cicle [-1,1]
+    }
+	
+    /** ************** **/
+    /** Asguard status **/
+    asguardStatus.asguardVoltage = 0.00;
+    
+    /** Process the buffer **/
+    for (register unsigned int i=0; i<cbAsguardsize; i++)
+    {
+	asguardStatus.asguardVoltage += cbAsguard[i].asguardVoltage;
+    }
+    
+    asguardStatus.asguardJointEncoder = cbAsguard[cbAsguardsize-1].asguardJointEncoder;
+    asguardStatus.systemState = cbAsguard[cbAsguardsize-1].systemState;
+    asguardStatus.packetsPerSec = cbAsguard[cbAsguardsize-1].packetsPerSec;
+    asguardStatus.controlPacketsPerSec = cbAsguard[cbAsguardsize-1].controlPacketsPerSec;
+    
+    /** Set the time **/
+    asguardStatus.time = (cbAsguard[0].time + cbAsguard[cbAsguardsize-1].time)/2.0;
+    
+    asguardStatus.asguardVoltage = asguardStatus.asguardVoltage/cbAsguardsize; //the mean voltage
+    
+    /** ************ **/
+    /** IMU samples **/
+    imuSamples.acc.setZero();
+    imuSamples.gyro.setZero();
+    imuSamples.mag.setZero();
+    
+    /** Process the buffer **/
+    for (register unsigned int i=0; i<cbIMUsize; i++)
+    {
+	imuSamples.acc += cbIMU[i].acc;
+	imuSamples.gyro += cbIMU[i].gyro;
+	imuSamples.mag += cbIMU[i].mag;
+    }
+    
+    /** Set the time **/
+    imuSamples.time = (cbIMU[0].time + cbIMU[cbIMUsize-1].time)/2.0;
+    
+    /** Set the mean of this time interval **/
+    imuSamples.acc /= cbIMUsize;
+    imuSamples.gyro /= cbIMUsize;
+    imuSamples.mag /= cbIMUsize;
+    
+    /** Set all counters to zero **/
+    counterHbridgeSamples = 0;
+    counterAsguardStatusSamples = 0;
+    counterIMUSamples = 0;
+    counterTorqueSamples = 0;
+    counterForceSamples = 0;
+    
+    /** Set the previous values to the current in case of NaN values **/
+    if (prevImuSamples.acc[0] == base::NaN<double>() && prevImuSamples.acc[1] == base::NaN<double>() && prevImuSamples.acc[2] == base::NaN<double>())
+	prevImuSamples = imuSamples;
+    
+    if (prevHbridgeStatus.index == base::NaN<unsigned int>())
+	prevHbridgeStatus = hbridgeStatus;
+    
+    if (base::isNaN(prevAsguardStatus.asguardJointEncoder))
+	prevAsguardStatus = asguardStatus;
+    
+    return;
+}
+
 void Task::calculateFootPoints()
 {
     /** For the Wheel 0 Rear Left **/
@@ -1048,6 +1067,11 @@ void Task::calculateEncodersVelocities()
     #ifdef DEBUG_PRINTS
     std::cout<<"Encoders velocities:\n"<<vjoints<<"\n";
     #endif
+    
+    /** Set the previous values for the velocities **/
+    prevHbridgeStatus = hbridgeStatus;
+    prevAsguardStatus = asguardStatus;
+    prevImuSamples = imuSamples;
     
     return;
 }
