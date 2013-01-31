@@ -14,6 +14,9 @@
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
 
+/** Boost **/
+#include <boost/circular_buffer.hpp> /** For circular_buffer **/
+
 /** Envire **/
 #include <base/logging.h>
 #include <envire/Core.hpp>
@@ -28,8 +31,8 @@ namespace rover_localization {
 //     #endif
     
      /** General defines **/
-    #ifndef OK
-    #define OK	0  /** Integer value in order to return when everything is all right. */
+    #ifndef OK_TASK
+    #define OK_TASK	0  /** Integer value in order to return when everything is all right. */
     #endif
     
     #ifndef ERROR_OUT
@@ -50,6 +53,10 @@ namespace rover_localization {
     
     #ifndef NUMBER_INIT_ACC
     #define NUMBER_INIT_ACC 1000 /** Number acc samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
+    #endif
+    
+    #ifndef DEFAULT_CIRCULAR_BUFFER_SIZE
+    #define DEFAULT_CIRCULAR_BUFFER_SIZE 10 /** Number object regarding the inport **/
     #endif
 
     /*! \class Task 
@@ -72,11 +79,6 @@ namespace rover_localization {
     protected:
 	
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-	/** SCKF structure **/
-	localization::Sckf mysckf;
-	
-	/** Measurement Generation pointer **/
-	localization::Measurement *mymeasure;
 	
 	/** Init pose **/
 	bool initPosition, initAttitude;
@@ -104,19 +106,13 @@ namespace rover_localization {
  	unsigned int counterForceSamples; /** number of Ground Force info samples **/
  	unsigned int counterIMUSamples; /** number of Ground Force info samples **/
  	
-	/** Wheel kinematics structures **/
-	asguard::KinematicModel wheelFL;
-	asguard::KinematicModel wheelFR;
-	asguard::KinematicModel wheelRL;
-	asguard::KinematicModel wheelRR;
+ 	/** Buffer for inputs port samples **/
+ 	boost::circular_buffer<base::actuators::Status> cbHbridges;
+	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;
+	boost::circular_buffer<base::samples::IMUSensors> cbimu;
+	boost::circular_buffer<base::samples::RigidBodyState> cbPose;
 	
-	/** Data arrived **/
-	bool imuValues, hbridgeValues, asguardValues, poseInitValues;
-	
-	/** Accelerometers eccentricity **/
-	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
-	
-	/** Inputs port samples **/
+ 	/** Inputs port samples **/
 	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
 	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors imuSamples; /** IMU samples **/
@@ -127,6 +123,24 @@ namespace rover_localization {
 	base::samples::RigidBodyState prevPoseInit; /** Pose information (init and debug)**/
 	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
 	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
+ 	
+	/** Wheel kinematics structures **/
+	asguard::KinematicModel wheelFL;
+	asguard::KinematicModel wheelFR;
+	asguard::KinematicModel wheelRL;
+	asguard::KinematicModel wheelRR;
+	
+	/** SCKF structure **/
+	localization::Sckf mysckf;
+	
+	/** Measurement Generation pointer **/
+	localization::Measurement *mymeasure;
+	
+	/** Data arrived **/
+	bool imuValues, hbridgeValues, asguardValues, poseInitValues;
+	
+	/** Accelerometers eccentricity **/
+	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
 	
 	/** Input ports timing **/
 	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;

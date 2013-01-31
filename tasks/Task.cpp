@@ -19,6 +19,15 @@ Task::Task(std::string const& name)
     initPosition = false;
     initAttitude = false;
     
+    /** Default size for the circular_buffer **/
+    cbHbridges = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
+    cbAsguard = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    cbimu = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    cbPose = boost::circular_buffer<base::samples::RigidBodyState>(DEFAULT_CIRCULAR_BUFFER_SIZE);
+    
+    std::cout<<"cbHbridges size: "<<cbHbridges.capacity()<<"\n";
+    
+    
     /** Sizing hbridgeStatus **/
     hbridgeStatus.resize(NUMBER_WHEELS);
     prevHbridgeStatus.resize(NUMBER_WHEELS);
@@ -453,6 +462,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	/** Reset the state vector **/
 	mysckf.resetStateVector();
 	
+	/** Envire outport **/
+	this->sendEnvireEnvironment();
+	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** END **********\n";
 	#endif
@@ -816,7 +828,7 @@ bool Task::configureHook()
     
     
     /** envire **/
-    mpSlip = new envire::MultiLevelSurfaceGrid(_grid_resolution.get(), _grid_resolution.get(), _patch_size.get(), _patch_size.get(),
+    mpSlip = new envire::MLSGrid(_grid_resolution.get(), _grid_resolution.get(), _patch_size.get(), _patch_size.get(),
             _grid_center_x.get(), _grid_center_y.get());
    
     mEnv.attachItem(mpSlip);
@@ -833,10 +845,22 @@ bool Task::configureHook()
     mEmitter->useContextUpdates(&mEnv); // Without this line the parents are not set(?)
     mEmitter->useEventQueue( true );
     mEmitter->attach(&mEnv);
+    
+    /** Set a flat surface **/
+    for(register int i=0; i<100; i++ )
+    {
+	for(register int j=0; j<100; j++ )
+	{
+	    double h = 0.0;
+	    mpSlip->insertTail( i, j, envire::MLSGrid::SurfacePatch( h, 0.05 ) );
+	}
+    }
+    mpSlip->itemModified();
+
+    /** Envire outport **/
+    this->sendEnvireEnvironment();
 
 
-    
-    
     return true;
 }
 bool Task::startHook()
@@ -1344,6 +1368,9 @@ void Task::toDebugPorts()
     rbsVicon.velocity = poseInit.velocity - prevPoseInit.velocity;
     rbsVicon.cov_velocity = poseInit.cov_velocity - prevPoseInit.cov_velocity;
     _incre_rbsVicon.write(rbsVicon);
+    
+    /** IMU outport **/
+    _imu_sensors_out.write(imuSamples);
     
     /** For the next export of the incremental value from Vicon data **/
     prevPoseInit = poseInit;
