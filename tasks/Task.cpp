@@ -71,7 +71,7 @@ Task::Task(std::string const& name)
     outTimeIMU.fromMilliseconds(0.00);
     outTimeTorque.fromMilliseconds(0.00);
     
-    /** Point the measurement to the one in the filter object **/
+    /** Point the measurement pointer to the one in the filter object **/
     mymeasure = &(mysckf.filtermeasurement);
     
 }
@@ -191,7 +191,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 		initAttitude = true;
 	    }
     	    
-	   
+	    /** Set the initial attitude to the rover rbs **/
 	    if (initAttitude)
 	    {
 		/**Store the value as the initial one for the rbsBC **/
@@ -240,6 +240,10 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	/** Push the IMU sensor into the buffer **/
 	cbIMU.push_back(imuSamples);
 	
+	/** Set the flag of IMU values valid to true **/
+	if (!imuValues && (cbIMU.size() > 0))
+	    imuValues = true;
+	
 	counterIMUSamples++;
     }
 }
@@ -250,6 +254,17 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     cbHbridges.push_back(hbridge_samples_sample);
     
     counterHbridgeSamples++;
+    
+    if (counterHbridgeSamples == numberHbridgeSamples)
+    {
+	hbridgeValues = true;
+	counterHbridgeSamples = 0;
+    }
+    else
+    {
+	hbridgeValues = false;
+    }
+	
     
     #ifdef DEBUG_PRINTS
     std::cout<<"** counterHbridgeSamples("<<counterHbridgeSamples<<") at ("<<hbridge_samples_sample.time.toMicroseconds()
@@ -263,7 +278,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     #endif
     
     /** Start the filter if everything is alrigth **/
-    if (initAttitude && initPosition && (counterHbridgeSamples == numberHbridgeSamples))
+    if (initAttitude && initPosition && hbridgeValues && imuValues && asguardValues)
     {
 	
 	#ifdef DEBUG_PRINTS
@@ -399,6 +414,10 @@ void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::
 {
     /** A new sample arrived to the port **/
     cbAsguard.push_back(systemstate_samples_sample);
+    
+    /** Set the flag of Asguard Status values valid to true **/
+    if (!asguardValues && (cbAsguard.size() > 0))
+	asguardValues = true;
     
     counterAsguardStatusSamples ++;
     
@@ -583,6 +602,11 @@ bool Task::configureHook()
 	numberPose = (1.0/_pose_init_period.value())/_filter_frequency.value();
     }
     
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[Task configure] cbHbridges has capacity "<<cbHbridges.capacity()<<" and size "<<cbHbridges.size()<<"\n";
+    std::cout<<"[Task configure] cbAsguard has capacity "<<cbAsguard.capacity()<<" and size "<<cbAsguard.size()<<"\n";
+    std::cout<<"[Task configure] cbIMU has capacity "<<cbIMU.capacity()<<" and size "<<cbIMU.size()<<"\n";
+    #endif
     
     /** Set the capacity of the circular_buffer according to the sampling rate **/
     cbHbridges.set_capacity(numberHbridgeSamples);
@@ -666,8 +690,6 @@ bool Task::configureHook()
     /** Initialization set the vector state and bias offset to zero but they can be changed here **/
     x_0.resize(Sckf::X_STATE_VECTOR_SIZE,1);
     x_0 = Eigen::Matrix<double,Sckf::X_STATE_VECTOR_SIZE,1>::Zero();
-//     x_0.block<NUMAXIS, 1> (3*NUMAXIS,0) = _gbiasof.value();
-//     x_0.block<NUMAXIS, 1> (4*NUMAXIS,0) = _abiasof.value();
     mysckf.setStatex(x_0);
     mysckf.setBiasOffset(_gbiasof.value(), _abiasof.value());
     
@@ -810,6 +832,12 @@ void Task::getInputPortValues()
     unsigned int cbHbridgesize = cbHbridges.size();
     unsigned int cbAsguardsize = cbAsguard.size();
     unsigned int cbIMUsize = cbIMU.size();
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[GetInportValue] cbHbridges has capacity "<<cbHbridges.capacity()<<" and size "<<cbHbridges.size()<<"\n";
+    std::cout<<"[GetInportValue] cbAsguard has capacity "<<cbAsguard.capacity()<<" and size "<<cbAsguard.size()<<"\n";
+    std::cout<<"[GetInportValue] cbIMU has capacity "<<cbIMU.capacity()<<" and size "<<cbIMU.size()<<"\n";
+    #endif
     
     /** ********* **/
     /** Hbridges **/
