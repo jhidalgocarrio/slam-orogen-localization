@@ -56,7 +56,7 @@ namespace rover_localization {
     #endif
     
     #ifndef DEFAULT_CIRCULAR_BUFFER_SIZE
-    #define DEFAULT_CIRCULAR_BUFFER_SIZE 10 /** Number object regarding the inport **/
+    #define DEFAULT_CIRCULAR_BUFFER_SIZE 2 /** Number object regarding the inport **/
     #endif
 
     /*! \class Task 
@@ -84,13 +84,13 @@ namespace rover_localization {
 	bool initPosition, initAttitude;
 	
 	/** Index for acc mean value for init attitude (Pose init process) **/
-	int accidx; 	
+	int accidx;
+	
+	/** Index for processed samples in teh buffer **/
+	int samplesidx;
 	
 	/** Integration step for the filter in seconds **/
 	double delta_t;
-	
-	/** Error in the Least-Squares computation **/
-	double leastSquaresError;
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberHbridgeSamples; /** number of Hbridge samples for the resampling**/
@@ -108,23 +108,17 @@ namespace rover_localization {
  	unsigned int counterForceSamples; /** conter of Ground Force info samples for the resampling **/
  	unsigned int counterPose; /** counter of pose information comming from external measurement **/
  	
- 	/** Buffer for inputs port samples **/
+ 	/** Buffer for inputs port samples (filter to the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbHbridges;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;
 	boost::circular_buffer<base::samples::IMUSensors> cbIMU;
 	
- 	/** Inputs port samples **/
-	base::actuators::Status hbridgeStatus; /** Hbridge Status information  **/
-	sysmon::SystemStatus asguardStatus; /** Asguard status information **/
-	base::samples::IMUSensors imuSamples; /** IMU samples **/
-	base::samples::RigidBodyState poseInit; /** Pose information (init and debug)**/
+ 	/** Buffer for filtered Inputs port samples **/
+	boost::circular_buffer<base::actuators::Status> hbridgeStatus; /** Hbridge Status information  **/
+	boost::circular_buffer<sysmon::SystemStatus> asguardStatus; /** Asguard status information **/
+	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
+	boost::circular_buffer<base::samples::RigidBodyState> poseInit; /** Pose information (init and debug)**/
 	
-	/** Status information replica to compute the velocity **/
-	base::actuators::Status prevHbridgeStatus; /** Hbridge Status information **/
-	sysmon::SystemStatus prevAsguardStatus; /** Asguard status information **/
-	base::samples::IMUSensors prevImuSamples; /** IMU samples **/
-	base::samples::RigidBodyState prevPoseInit; /** Pose information (init and debug)**/
- 	
 	/** Wheel kinematics structures **/
 	asguard::KinematicModel wheelFL;
 	asguard::KinematicModel wheelFR;
@@ -142,9 +136,6 @@ namespace rover_localization {
 	
 	/** Accelerometers eccentricity **/
 	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
-	
-	/** Input ports timing **/
-	base::Time outTimeHbridge, outTimeStatus, outTimeTorque, outTimeForce, outTimeIMU, outTimeOrientation;
 	
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact (identification) **/
 	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/

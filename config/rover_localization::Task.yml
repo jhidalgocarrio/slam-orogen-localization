@@ -11,6 +11,13 @@ accrrw:
   - 0.0
   - 0.0
   - 0.0
+# acc bias instability (m/s^2)
+abiasins: 
+  data: 
+  - 0.0005639343
+  - 0.0006412585
+  - 0.0005866994
+
 # velocity random walk for accelerometers (m/s/sqrt(s))
 accrw: 
   data: 
@@ -22,7 +29,7 @@ altitude: 12.0
 # the global name that should be used for the internal body frame
 body_frame: body
 # Time in s between calibrated_sensors readings
-calibrated_sensors_period: 0.008
+calibrated_sensors_period: 0.002
 # Dip angle of Bremen in radians (equivalent to 68.05 degrees ).
 dip_angle: 1.187696556
 # Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame).
@@ -73,6 +80,13 @@ gyrorw:
   - 7.0e-05 #4.320343e-05
   - 7.0e-05 #4.175001e-05
   - 7.0e-05 #4.060973e-05
+# gyros bias instability (rad/s)
+gbiasins:
+  data: 
+  - 6.882191e-06
+  - 8.479295e-06
+  - 5.591609e-06
+
 # Time in s between hbridge_samples readings
 hbridge_samples_period: 0.001
 # the global name that should be used for the internal imu frame
@@ -94,7 +108,7 @@ magrw:
 # Time in s between orientation_init readings
 pose_init_period: 0.01
 # Inertial sensors bandwidth in Hertz. This is characteristic of the sensor and should be equal or smaller than the sampling rate.
-sensors_bandwidth: 16.0
+sensors_bandwidth: 131.0
 # list of static transformations
 static_transformations: []
 # Time in s between systemstate_samples readings

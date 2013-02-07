@@ -63,6 +63,8 @@ task_context "Task" do
 	doc "angle random walk for gyroscopes (rad/sqrt(s))"
     property("gyrorrw", "/base/Vector3d").
 	doc "rate random walk for gyroscopes (rad/s/sqrt(s))"
+    property("gbiasins", "/base/Vector3d").
+	doc "gyros bias instability (rad/s)"
 
     #**** For Accelerometers ****
     
@@ -72,6 +74,8 @@ task_context "Task" do
 	doc "velocity random walk for accelerometers (m/s/sqrt(s))"
     property("accrrw", "/base/Vector3d").
 	doc "acceleration random walk for accelerometers (m/s^2/sqrt(s))"
+    property("abiasins", "/base/Vector3d").
+	doc 'acc bias instability (m/s^2)'
 
     property("eccx", "/base/Vector3d").
 	doc "Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame)."
@@ -272,6 +276,15 @@ task_context "Task" do
 
     output_port('least_squares_error', 'double').
 	doc 'Relative error in the least-squares computation.'
+
+    output_port('angular_position', 'double').
+	doc 'Angular position of the FL wheel'
+
+    output_port('angular_rate', 'double').
+	doc 'Angular velocity of the FL wheel'
+
+    output_port('angular_rate_old', 'double').
+	doc 'Angular velocity of the FL wheel(using 2nd order)'
 
     #******************************
     #******* Envioment Ports ******

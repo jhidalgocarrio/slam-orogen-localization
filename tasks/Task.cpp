@@ -19,31 +19,26 @@ Task::Task(std::string const& name)
     initPosition = false;
     initAttitude = false;
     
+    /** Set index values **/
+    accidx = 0;
+    samplesidx = 0;
+    
     /** Default size for the circular_buffer **/
     cbHbridges = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbAsguard = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbIMU = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     
-    /** Sizing hbridgeStatus **/
-    hbridgeStatus.resize(NUMBER_WHEELS);
+    /** Default size for the circular_bufferfor the filtered samples **/
+    hbridgeStatus = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
+    asguardStatus = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    poseInit = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     
-    /** Set to a NaN index **/
-    hbridgeStatus.index = base::NaN<unsigned int>();
-    
-    /** Set to NaN passiveJoint **/
-    asguardStatus.asguardJointEncoder = base::NaN<double>();
-    
+    /** Wheel kinematics model objects **/
     wheelFL = asguard::KinematicModel(3,2);
     wheelFR = asguard::KinematicModel(2,2);
     wheelRR = asguard::KinematicModel(1,2);
     wheelRL = asguard::KinematicModel(0,2);
-    
-    /** Imu Samples **/
-    imuSamples.acc[0] = base::NaN<double>();
-    imuSamples.acc[1] = base::NaN<double>();
-    imuSamples.acc[2] = base::NaN<double>();
-    imuSamples.gyro = imuSamples.acc;
-    imuSamples.mag = imuSamples.acc;
     
     /** Set eccentricity to NaN **/
     eccx[0] = base::NaN<double>();
@@ -52,24 +47,17 @@ Task::Task(std::string const& name)
     eccy = eccx;
     eccz = eccx;
     
+    /** Set the correct size for the joint velocities vector **/
+    vjoints.resize (1 + NUMBER_WHEELS, 1);
+    
     /** Contact angle to zero **/
     contactAngle.resize(NUMBER_WHEELS);
     std::fill(contactAngle.begin(), contactAngle.end(), 0.00);
-    
-    /** Pose Init **/
-    poseInit.invalidate();
     
     /** Set also here the default Foot in Contact **/
     contactPoints.resize(4);
     contactPoints[0] = 2; contactPoints[1] = 2;
     contactPoints[2] = 2; contactPoints[3] = 2;
-    
-    /** Set output times **/
-    outTimeHbridge.fromMilliseconds(0.00);
-    outTimeStatus.fromMilliseconds(0.00);
-    outTimeForce.fromMilliseconds(0.00);
-    outTimeIMU.fromMilliseconds(0.00);
-    outTimeTorque.fromMilliseconds(0.00);
     
     /** Point the measurement pointer to the one in the filter object **/
     mymeasure = &(mysckf.filtermeasurement);
@@ -169,7 +157,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    if (_pose_init.connected() && initPosition)
 	    {
 		/** Get the initial Yaw from the initialPose **/
-		euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+		euler[2] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 		euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 		euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 		
@@ -220,6 +208,8 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
     }
     else
     {
+	base::samples::IMUSensors imusample;
+	
 	/** A new sample arrived to the port**/
 	
 	#ifdef DEBUG_PRINTS
@@ -232,13 +222,13 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	#endif
 	
 	/** Convert the IMU values in the body orientation **/
-	imuSamples.time = calibrated_sensors_sample.time;
-	imuSamples.acc = qtf * calibrated_sensors_sample.acc;
-	imuSamples.gyro = qtf * calibrated_sensors_sample.gyro;
-	imuSamples.mag = qtf * calibrated_sensors_sample.mag;
+	imusample.time = calibrated_sensors_sample.time;
+	imusample.acc = qtf * calibrated_sensors_sample.acc;
+	imusample.gyro = qtf * calibrated_sensors_sample.gyro;
+	imusample.mag = qtf * calibrated_sensors_sample.mag;
 	
 	/** Push the IMU sensor into the buffer **/
-	cbIMU.push_back(imuSamples);
+	cbIMU.push_front(imusample);
 	
 	/** Set the flag of IMU values valid to true **/
 	if (!imuValues && (cbIMU.size() > 0))
@@ -251,7 +241,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &hbridge_samples_sample)
 {
     /** A new sample arrived to the inport **/
-    cbHbridges.push_back(hbridge_samples_sample);
+    cbHbridges.push_front(hbridge_samples_sample);
     
     counterHbridgeSamples++;
     
@@ -282,7 +272,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
     {
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"****************** ("<<hbridgeStatus.time.toMicroseconds()<<") ******************************\n";
+	std::cout<<"****************** ("<<hbridgeStatus[0].time.toMicroseconds()<<") ******************************\n";
 	#endif
 	
 	/** Get the correct values from the input ports buffers **/
@@ -309,10 +299,10 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<<"*********** Compute Trans Body to Contact Point **\n";
 	#endif
 	/** Compute the wheel Contact Point **/
-	wheelRL.Body2ContactPoint(hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[0]);    
-	wheelRR.Body2ContactPoint(hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[1]);
-	wheelFR.Body2ContactPoint(hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[2]);
-	wheelFL.Body2ContactPoint(hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, contactAngle[3]);
+	wheelRL.Body2ContactPoint(hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[0]);    
+	wheelRR.Body2ContactPoint(hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[1]);
+	wheelFR.Body2ContactPoint(hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[2]);
+	wheelFL.Body2ContactPoint(hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[3]);
 	
 	/** Compute the wheel Jacobians for the Selected Foot Point **/
 	Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
@@ -328,9 +318,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	this->compositeMotionJacobians();
 	
 	/** Inertial sensor information **/
-	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples.gyro;
-	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples.acc;
-	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples.mag;
+	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples[0].gyro;
+	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples[0].acc;
+	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples[0].mag;
 	
 	/** Substract Earth rotation from gyros **/
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
@@ -358,7 +348,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
 	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
 	if (mysckf.filtermeasurement.getCurrentVeloModel()[0] > 0.5)
-	    std::cout<< "[Measurement] AQUI ES MAYOR DE 0.5 at "<<hbridgeStatus.time.toMicroseconds()<<"\n";
+	    std::cout<< "[Measurement] AQUI ES MAYOR DE 0.5 at "<<hbridgeStatus[0].time.toMicroseconds()<<"\n";
 	#endif
 	
 	#ifdef DEBUG_PRINTS
@@ -378,7 +368,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<< "[Measurement] linvelo_error:\n"<<linvelo_error<<"\n";
 	
 	/** Dead-reckoning and save into rbsBC **/
-	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, linvelo_error, delta_q, covlinvelo, covdelta_q, hbridgeStatus.time, delta_t);
+	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, linvelo_error, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, delta_t);
 	
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
@@ -413,7 +403,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 void Task::systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample)
 {
     /** A new sample arrived to the port **/
-    cbAsguard.push_back(systemstate_samples_sample);
+    cbAsguard.push_front(systemstate_samples_sample);
     
     /** Set the flag of Asguard Status values valid to true **/
     if (!asguardValues && (cbAsguard.size() > 0))
@@ -440,7 +430,7 @@ void Task::ground_forces_estimatedTransformerCallback(const base::Time &ts, cons
 void Task::pose_initTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& pose_init_sample)
 {
     
-    poseInit = pose_init_sample;
+    poseInit.push_front(pose_init_sample);
     
     Eigen::Affine3d tf; /** Transformer transformation **/
     Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
@@ -456,15 +446,15 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
     #endif
     
     /** Apply the transformer pose offset **/
-    poseInit.position += qtf * tf.translation();
-    poseInit.orientation = poseInit.orientation * qtf;
+    poseInit[0].position += qtf * tf.translation();
+    poseInit[0].orientation = poseInit[0].orientation * qtf;
 //     poseInit.velocity = qtf * poseInit.velocity;
 //     poseInit.cov_velocity = tf.rotation() * poseInit.cov_velocity;
 //     poseInit.cov_angular_velocity = tf.rotation() * poseInit.cov_angular_velocity;
     
     if (!initPosition)
     {
-	rbsBC.position = poseInit.position;
+	rbsBC.position = poseInit[0].position;
 	rbsBC.velocity.setZero();
 	
 	/** Assume well known starting position **/
@@ -473,13 +463,13 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	
 	#ifdef DEBUG_PRINTS
 	Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
-	euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-	euler[1] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-	euler[0] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
- 	std::cout<<"** poseInit at ("<<poseInit.time.toMicroseconds()<< ")**\n";
+	euler[2] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+	euler[1] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+	euler[0] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+ 	std::cout<<"** poseInit at ("<<poseInit[0].time.toMicroseconds()<< ")**\n";
 	std::cout<<"** position offset\n"<<tf.translation()<<"\n";
 	std::cout<<"** rotation offset\n"<<tf.rotation()<<"\n";
-	std::cout<<"** position\n"<< poseInit.position<<"\n";
+	std::cout<<"** position\n"<< poseInit[0].position<<"\n";
 	std::cout<<"** Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
 	#endif
 
@@ -490,7 +480,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	    Eigen::Quaternion <double> attitude = mysckf.getAttitude(); /** Initial attitude in case no port in orientation is connected **/
 	    
 	    /** Get the initial Yaw from the initialPose **/
-	    euler[2] = poseInit.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+	    euler[2] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 	    
@@ -527,9 +517,6 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
     }
     
     poseInitValues = true;
-     
-    if (!prevPoseInit.hasValidOrientation())
-	prevPoseInit = poseInit;
 }
 
 
@@ -625,6 +612,42 @@ bool Task::configureHook()
     std::cout<<"[Task configure] cbIMU has capacity "<<cbIMU.capacity()<<" and size "<<cbIMU.size()<<"\n";
     #endif
     
+    /** Initialize the samples for the filtered buffer hbridge values **/
+    for(register unsigned int i=0;i<hbridgeStatus.size();i++)
+    {
+	/** Sizing hbridgeStatus **/
+	hbridgeStatus[i].resize(NUMBER_WHEELS);
+    
+	/** Set to a NaN index **/
+	hbridgeStatus[i].index = base::NaN<unsigned int>();
+    }
+    
+    /** Initialize the samples for the filtered buffer asguardStatus values **/
+    for(register unsigned int i=0;i<asguardStatus.size();i++)
+    {
+	/** Set to NaN passiveJoint **/
+	asguardStatus[i].asguardJointEncoder = base::NaN<double>();
+    }
+    
+    /** Initialize the samples for the filtered buffer imuSamples values **/
+    for(register unsigned int i=0;i<imuSamples.size();i++)
+    {
+	/** IMU Samples **/
+	imuSamples[i].acc[0] = base::NaN<double>();
+	imuSamples[i].acc[1] = base::NaN<double>();
+	imuSamples[i].acc[2] = base::NaN<double>();
+	imuSamples[i].gyro = imuSamples[0].acc;
+	imuSamples[i].mag = imuSamples[0].acc;
+    }
+    
+    /** Initialize the samples for the filtered buffer poseInit values **/
+    for(register unsigned int i=0;i<poseInit.size();i++)
+    {
+	/** Pose Init **/
+	poseInit[i].invalidate();
+    }
+    
+    
     /** Filter delta time step in seconds **/
     if (_filter_frequency.value() != 0.00)
 	delta_t = 1.0/_filter_frequency.value();    
@@ -675,8 +698,18 @@ bool Task::configureHook()
     P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Process noise matrices **/    
-    Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    Qba = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    Qbg.setZero();
+    Qbg(0,0) = pow(_gbiasins.get()[0],2);
+    Qbg(1,1) = pow(_gbiasins.get()[1],2);
+    Qbg(2,2) = pow(_gbiasins.get()[2],2);
+    
+    Qba.setZero();
+    Qba(0,0) = pow(_abiasins.get()[0],2);
+    Qba(1,1) = pow(_abiasins.get()[1],2);
+    Qba(2,2) = pow(_abiasins.get()[2],2);
+    
+//     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+//     Qba = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     
     /** Gravitational value according to the location **/
     theoretical_g = Measurement::GravityModel (_latitude.value(), _altitude.value());
@@ -833,6 +866,14 @@ void Task::getInputPortValues()
     unsigned int cbAsguardsize = cbAsguard.size();
     unsigned int cbIMUsize = cbIMU.size();
     
+    /** Local variable of the ports **/
+    base::actuators::Status hbridge;
+    sysmon::SystemStatus asguardS;
+    base::samples::IMUSensors imu;
+    
+    /** sizing hbridge **/
+    hbridge.resize(NUMBER_WHEELS);
+    
     #ifdef DEBUG_PRINTS
     std::cout<<"[GetInportValue] cbHbridges has capacity "<<cbHbridges.capacity()<<" and size "<<cbHbridges.size()<<"\n";
     std::cout<<"[GetInportValue] cbAsguard has capacity "<<cbAsguard.capacity()<<" and size "<<cbAsguard.size()<<"\n";
@@ -841,12 +882,13 @@ void Task::getInputPortValues()
     
     /** ********* **/
     /** Hbridges **/
+    /** ********* **/
     for (unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
     {
-	hbridgeStatus.states[i].current = 0.0;
-	hbridgeStatus.states[i].position = 0.0;
-	hbridgeStatus.states[i].positionExtern = 0.0;
-	hbridgeStatus.states[i].pwm = 0.0;
+	hbridge.states[i].current = 0.0;
+	hbridge.states[i].position = 0.0;
+	hbridge.states[i].positionExtern = 0.0;
+	hbridge.states[i].pwm = 0.0;
     }
 	
     /** Process the buffer **/
@@ -854,65 +896,81 @@ void Task::getInputPortValues()
     {
 	for (register unsigned int j = 0; j<asguard::NUMBER_OF_WHEELS; j++)
 	{
-	    hbridgeStatus.states[j].current += cbHbridges[i].states[j].current;
-	    hbridgeStatus.states[j].pwm += cbHbridges[i].states[j].pwm;
+	    hbridge.states[j].current += cbHbridges[i].states[j].current;
+	    hbridge.states[j].pwm += cbHbridges[i].states[j].pwm;
 	}
     }
     
     /** Set the time **/
-    hbridgeStatus.time = (cbHbridges[0].time + cbHbridges[cbHbridgesize-1].time)/2.0;
+    hbridge.time = (cbHbridges[cbHbridgesize-1].time + cbHbridges[0].time)/2.0;
     
-    hbridgeStatus.index = cbHbridges[cbHbridgesize-1].index;
+    hbridge.index = cbHbridges[0].index;
     
     for (register unsigned int i = 0; i<asguard::NUMBER_OF_WHEELS; i++)
     {
-	hbridgeStatus.states[i].current /= cbHbridgesize; //the mean current in mA
-	hbridgeStatus.states[i].position = cbHbridges[cbHbridgesize-1].states[i].position;
-	hbridgeStatus.states[i].positionExtern = cbHbridges[cbHbridgesize-1].states[i].positionExtern;
-	hbridgeStatus.states[i].pwm /= cbHbridgesize; //the mean PWM signal duty cicle [-1,1]
+	hbridge.states[i].current /= cbHbridgesize; //the mean current in mA
+	hbridge.states[i].position = cbHbridges[0].states[i].position;
+	hbridge.states[i].positionExtern = cbHbridges[0].states[i].positionExtern;
+	hbridge.states[i].pwm /= cbHbridgesize; //the mean PWM signal duty cicle [-1,1]
     }
+    
+    /** Push the result in the buffer **/
+    hbridgeStatus.push_front(hbridge);
 	
     /** ************** **/
     /** Asguard status **/
-    asguardStatus.asguardVoltage = 0.00;
+    /** ************** **/
+    asguardS.asguardVoltage = 0.00;
     
     /** Process the buffer **/
     for (register unsigned int i=0; i<cbAsguardsize; i++)
     {
-	asguardStatus.asguardVoltage += cbAsguard[i].asguardVoltage;
+	asguardS.asguardVoltage += cbAsguard[i].asguardVoltage;
     }
     
-    asguardStatus.asguardJointEncoder = cbAsguard[cbAsguardsize-1].asguardJointEncoder;
-    asguardStatus.systemState = cbAsguard[cbAsguardsize-1].systemState;
-    asguardStatus.packetsPerSec = cbAsguard[cbAsguardsize-1].packetsPerSec;
-    asguardStatus.controlPacketsPerSec = cbAsguard[cbAsguardsize-1].controlPacketsPerSec;
+    asguardS.asguardJointEncoder = cbAsguard[0].asguardJointEncoder;
+    asguardS.systemState = cbAsguard[0].systemState;
+    asguardS.packetsPerSec = cbAsguard[0].packetsPerSec;
+    asguardS.controlPacketsPerSec = cbAsguard[0].controlPacketsPerSec;
     
     /** Set the time **/
-    asguardStatus.time = (cbAsguard[0].time + cbAsguard[cbAsguardsize-1].time)/2.0;
+    asguardS.time = (cbAsguard[cbAsguardsize-1].time + cbAsguard[0].time)/2.0;
     
-    asguardStatus.asguardVoltage = asguardStatus.asguardVoltage/cbAsguardsize; //the mean voltage
+    /** Set the voltage **/
+    asguardS.asguardVoltage /= cbAsguardsize; //the mean voltage
+    
+    /** Push the result into the buffer **/
+    asguardStatus.push_front(asguardS);
     
     /** ************ **/
     /** IMU samples **/
-    imuSamples.acc.setZero();
-    imuSamples.gyro.setZero();
-    imuSamples.mag.setZero();
+    /** ************ **/
+    imu.acc.setZero();
+    imu.gyro.setZero();
+    imu.mag.setZero();
     
     /** Process the buffer **/
     for (register unsigned int i=0; i<cbIMUsize; i++)
     {
-	imuSamples.acc += cbIMU[i].acc;
-	imuSamples.gyro += cbIMU[i].gyro;
-	imuSamples.mag += cbIMU[i].mag;
+	imu.acc += cbIMU[i].acc;
+	imu.gyro += cbIMU[i].gyro;
+	imu.mag += cbIMU[i].mag;
     }
     
     /** Set the time **/
-    imuSamples.time = (cbIMU[0].time + cbIMU[cbIMUsize-1].time)/2.0;
+    imu.time = (cbIMU[cbIMUsize-1].time + cbIMU[0].time)/2.0;
     
     /** Set the mean of this time interval **/
-    imuSamples.acc /= cbIMUsize;
-    imuSamples.gyro /= cbIMUsize;
-    imuSamples.mag /= cbIMUsize;
+    imu.acc /= cbIMUsize;
+    imu.gyro /= cbIMUsize;
+    imu.mag /= cbIMUsize;
+    
+    /** Push the result into the buffer **/
+    imuSamples.push_front(imu);
+    
+    /** Increase the index = **/
+    if (samplesidx < DEFAULT_CIRCULAR_BUFFER_SIZE)
+	samplesidx++;
     
     /** Set all counters to zero **/
     counterHbridgeSamples = 0;
@@ -921,77 +979,67 @@ void Task::getInputPortValues()
     counterTorqueSamples = 0;
     counterForceSamples = 0;
     
-    /** Set the previous values to the current in case of NaN values **/
-    if (prevImuSamples.acc[0] == base::NaN<double>() && prevImuSamples.acc[1] == base::NaN<double>() && prevImuSamples.acc[2] == base::NaN<double>())
-	prevImuSamples = imuSamples;
-    
-    if (prevHbridgeStatus.index == base::NaN<unsigned int>())
-	prevHbridgeStatus = hbridgeStatus;
-    
-    if (base::isNaN(prevAsguardStatus.asguardJointEncoder))
-	prevAsguardStatus = asguardStatus;
-    
     return;
 }
 
 void Task::calculateFootPoints()
 {
     /** For the Wheel 0 Rear Left **/
-    wheelRL.Body2FootPoint (0, hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRL.Body2FootPoint (0, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC0RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (1, hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRL.Body2FootPoint (1, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC1RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (2, hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRL.Body2FootPoint (2, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC2RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (3, hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRL.Body2FootPoint (3, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC3RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (4, hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRL.Body2FootPoint (4, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC4RL2body = wheelRL.getBody2FootPoint();
     
-//     wheelRL.Body2ContactPoint (hbridgeStatus.states[0].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+//     wheelRL.Body2ContactPoint (hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2RL2body = wheelRL.getBody2ContactPoint();
     
     /** For the Wheel 1 Rear Right **/
-    wheelRR.Body2FootPoint (0, hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRR.Body2FootPoint (0, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC0RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (1, hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRR.Body2FootPoint (1, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC1RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (2, hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRR.Body2FootPoint (2, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC2RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (3, hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRR.Body2FootPoint (3, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC3RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (4, hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelRR.Body2FootPoint (4, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC4RR2body = wheelRR.getBody2FootPoint();
     
-//     wheelRR.Body2ContactPoint (hbridgeStatus.states[1].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+//     wheelRR.Body2ContactPoint (hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2RR2body = wheelRR.getBody2ContactPoint();
     
     /** For the Wheel 2 Forward Right **/
-    wheelFR.Body2FootPoint (0, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFR.Body2FootPoint (0, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC0FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (1, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFR.Body2FootPoint (1, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC1FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (2, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFR.Body2FootPoint (2, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC2FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (3, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFR.Body2FootPoint (3, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC3FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (4, hbridgeStatus.states[2].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFR.Body2FootPoint (4, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC4FR2body = wheelFR.getBody2FootPoint();
     
     	
     /** For the Wheel 3 Forward Left **/
-    wheelFL.Body2FootPoint (0, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFL.Body2FootPoint (0, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC0FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (1, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFL.Body2FootPoint (1, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC1FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (2, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFL.Body2FootPoint (2, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC2FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (3, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFL.Body2FootPoint (3, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC3FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (4, hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+    wheelFL.Body2FootPoint (4, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
     rbsC4FL2body = wheelFL.getBody2FootPoint();
     
-//     wheelFL.Body2ContactPoint (hbridgeStatus.states[3].positionExtern, asguardStatus.asguardJointEncoder, 0.00);
+//     wheelFL.Body2ContactPoint (hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2FL2body = wheelFL.getBody2ContactPoint();
     
     
@@ -1063,44 +1111,94 @@ void Task::selectContactPoints(std::vector<int> &contactPoints)
 
 void Task::calculateEncodersVelocities()
 {
-    base::Time hbridgeDelta_t = hbridgeStatus.time - prevHbridgeStatus.time;
-    base::Time passiveJointDelta_t = asguardStatus.time - prevAsguardStatus.time;
-    base::Time imuDelta_t = imuSamples.time - prevImuSamples.time;
+    base::Time hbridgeDelta_t = hbridgeStatus[0].time - hbridgeStatus[1].time;
+    base::Time passiveJointDelta_t = asguardStatus[0].time - asguardStatus[1].time;
+    base::Time imuDelta_t = imuSamples[0].time - imuSamples[1].time;
+    Eigen::Matrix<double, Eigen::Dynamic, 1> passiveJoint, motorsJoint;
     
-    /** Set the correct size for the joint velocities vector **/
-    vjoints.resize (1 + NUMBER_WHEELS, 1);
-   
-    #ifdef DEBUG_PRINTS
-    std::cout<<"Timestamp New: "<< asguardStatus.time.toMicroseconds() <<" Timestamp Prev: "<<prevAsguardStatus.time.toMicroseconds()<<"\n";
-    std::cout<<"Delta time(passiveJoint): "<< passiveJointDelta_t.toSeconds()<<"\n";
-    std::cout<<"Timestamp New: "<< imuSamples.time.toMicroseconds() <<" Timestamp Prev: "<<prevImuSamples.time.toMicroseconds()<<"\n";
-    std::cout<<"Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
-    std::cout<<"New: "<< asguardStatus.asguardJointEncoder <<" Prev: "<<prevAsguardStatus.asguardJointEncoder<<"\n";
-    #endif
     
-    /** Passive joint velocity **/
-    vjoints(0) = (asguardStatus.asguardJointEncoder - prevAsguardStatus.asguardJointEncoder)/delta_t; //passive joints
-    
-    /** Velocities for the vector **/
-    for (int i = 1; i< (NUMBER_WHEELS + 1); i++)
+    /** At least two values to perform the derivative **/
+    if (samplesidx < 2)
     {
+	vjoints.setZero();
+    }
+    else
+    {
+	/** Set the correct size for the derivative data vectors **/
+	passiveJoint.resize(samplesidx,1);
+	motorsJoint.resize(samplesidx,1);
+	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"Timestamp New: "<< hbridgeStatus.time.toMicroseconds() <<" Timestamp Prev: "<<prevHbridgeStatus.time.toMicroseconds()<<"\n";
-	std::cout<<"Delta time: "<< hbridgeDelta_t.toSeconds()<<"\n";
-	std::cout<<"New: "<< hbridgeStatus.states[i-1].positionExtern <<" Prev: "<<prevHbridgeStatus.states[i-1].positionExtern<<"\n";
+	std::cout<<"samplesidx"<<samplesidx<<"\n";
+	std::cout<<"Timestamp New: "<< asguardStatus[0].time.toMicroseconds() <<" Timestamp Prev: "<<asguardStatus[1].time.toMicroseconds()<<"\n";
+	std::cout<<"Delta time(passiveJoint): "<< passiveJointDelta_t.toSeconds()<<"\n";
+	std::cout<<"Timestamp New: "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
+	std::cout<<"New: "<< asguardStatus[0].asguardJointEncoder <<" Prev: "<<asguardStatus[1].asguardJointEncoder<<"\n";
 	#endif
-	vjoints(i) = (hbridgeStatus.states[i-1].positionExtern - prevHbridgeStatus.states[i-1].positionExtern)/delta_t; //wheel rotation
+	
+	passiveJoint.setZero(); //Set to zero
+
+	/** Fill the derivative vector **/
+	for (register int i=0; i<samplesidx; ++i)
+	{
+	    passiveJoint[i] = asguardStatus[i].asguardJointEncoder; 
+	}
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"PassiveJoint old velocity: "<<(asguardStatus[0].asguardJointEncoder - asguardStatus[1].asguardJointEncoder)/delta_t<<"\n";
+	#endif
+	
+	
+	/** Passive joint velocity **/
+	vjoints(0) = Measurement::finiteDifference (passiveJoint, delta_t); //passive joints speed
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"PassiveJoint new velocity: "<<vjoints(0)<<"\n";
+	#endif
+	
+	/** Velocities for the vector **/
+	for (int i = 1; i< (NUMBER_WHEELS + 1); i++)
+	{
+	    #ifdef DEBUG_PRINTS
+	    std::cout<<"Timestamp New: "<< hbridgeStatus[0].time.toMicroseconds() <<" Timestamp Prev: "<<hbridgeStatus[1].time.toMicroseconds()<<"\n";
+	    std::cout<<"Delta time: "<< hbridgeDelta_t.toSeconds()<<"\n";
+	    std::cout<<"New: "<< hbridgeStatus[0].states[i-1].positionExtern <<" Prev: "<<hbridgeStatus[1].states[i-1].positionExtern<<"\n";
+	    #endif
+	    
+	    motorsJoint.setZero(); //Set to zero
+	    
+	    /** Fill the derivative vector **/
+	    for (register int j=0; j<samplesidx; ++j)
+	    {
+		motorsJoint[j] = hbridgeStatus[j].states[i-1].positionExtern; 
+	    }
+	    
+	    if ((i==4)&&((motorsJoint[0] < 1.25) && (motorsJoint[0]>1.02)))
+		std::cout << "[Difference] Region!!\n";
+	    
+	    #ifdef DEBUG_PRINTS
+	    std::cout<<"MotorJoint old velocity: "<<(hbridgeStatus[0].states[i-1].positionExtern - hbridgeStatus[1].states[i-1].positionExtern)/delta_t<<"\n";
+	    #endif
+	    
+	    /** Motor joint velocity **/
+	    vjoints(i) = Measurement::finiteDifference(motorsJoint, delta_t); //wheel rotation speed
+	    
+	    #ifdef DEBUG_PRINTS
+	    std::cout<<"MotorJoint new velocity: "<<vjoints(i)<<"\n";
+	    #endif
+
+	}
+	
+	_angular_position.write(hbridgeStatus[0].states[3].positionExtern);
+	_angular_rate.write(vjoints(3));
+	_angular_rate_old.write((hbridgeStatus[0].states[3].positionExtern - hbridgeStatus[1].states[3].positionExtern)/delta_t);
     }
     
     #ifdef DEBUG_PRINTS
     std::cout<<"Encoders velocities:\n"<<vjoints<<"\n";
     #endif
-    
-    /** Set the previous values for the velocities **/
-    prevHbridgeStatus = hbridgeStatus;
-    prevAsguardStatus = asguardStatus;
-    prevImuSamples = imuSamples;
-    
+
     return;
 }
 
@@ -1237,8 +1335,8 @@ void Task::toAsguardBodyState()
     /** Asguard BodyState (for visualization) **/
     asguard::BodyState asguardBodyState;
     
-    asguardBodyState.time = hbridgeStatus.time;
-    asguardBodyState.twistAngle = asguardStatus.asguardJointEncoder;
+    asguardBodyState.time = hbridgeStatus[0].time;
+    asguardBodyState.twistAngle = asguardStatus[0].asguardJointEncoder;
     
     /** For wheel FL (index 3) **/
     for (i = 0; i< FEET_PER_WHEEL; i++)
@@ -1252,7 +1350,7 @@ void Task::toAsguardBodyState()
 	    mContact.contact = 0.0;
 	
 	asguardBodyState.setWheelContact(wheelFL.getWheelIdx(), i, mContact);
-	asguardBodyState.setWheelPos(wheelFL.getWheelIdx(), hbridgeStatus.states[3].positionExtern);
+	asguardBodyState.setWheelPos(wheelFL.getWheelIdx(), hbridgeStatus[0].states[3].positionExtern);
     }
     
     
@@ -1268,7 +1366,7 @@ void Task::toAsguardBodyState()
 	    mContact.contact = 0.0;
 	
 	asguardBodyState.setWheelContact(wheelFR.getWheelIdx(), i, mContact);
-	asguardBodyState.setWheelPos(wheelFR.getWheelIdx(), hbridgeStatus.states[2].positionExtern);
+	asguardBodyState.setWheelPos(wheelFR.getWheelIdx(), hbridgeStatus[0].states[2].positionExtern);
     }
     
     /** For wheel RR (index 1) **/
@@ -1283,7 +1381,7 @@ void Task::toAsguardBodyState()
 	    mContact.contact = 0.0;
 	
 	asguardBodyState.setWheelContact(wheelRR.getWheelIdx(), i, mContact);
-	asguardBodyState.setWheelPos(wheelRR.getWheelIdx(), hbridgeStatus.states[1].positionExtern);
+	asguardBodyState.setWheelPos(wheelRR.getWheelIdx(), hbridgeStatus[0].states[1].positionExtern);
     }
     
     /** For wheel RL (index 0) **/
@@ -1298,7 +1396,7 @@ void Task::toAsguardBodyState()
 	    mContact.contact = 0.0;
 	
 	asguardBodyState.setWheelContact(wheelRL.getWheelIdx(), i, mContact);
-	asguardBodyState.setWheelPos(wheelRL.getWheelIdx(), hbridgeStatus.states[0].positionExtern);
+	asguardBodyState.setWheelPos(wheelRL.getWheelIdx(), hbridgeStatus[0].states[0].positionExtern);
     }
     
     _bodystate_samples.write(asguardBodyState);
@@ -1409,30 +1507,26 @@ void Task::toDebugPorts()
     _incre_velocities_error.write(rbsVelError);
     
     /** Port out the info comming from vicon **/
-    rbsVicon = poseInit;
+    rbsVicon = poseInit[0];
 //     rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
     rbsVicon.time = rbsBC.time;
     _rbsVicon.write(rbsVicon);
     
     /** Port out the delta info comming from vicon **/
-    rbsVicon.position = poseInit.position - prevPoseInit.position;
-    rbsVicon.cov_position = poseInit.cov_position - prevPoseInit.cov_position;
-    rbsVicon.velocity = poseInit.velocity - prevPoseInit.velocity;
-    rbsVicon.cov_velocity = poseInit.cov_velocity - prevPoseInit.cov_velocity;
+    rbsVicon.position = poseInit[0].position - poseInit[1].position;
+    rbsVicon.cov_position = poseInit[0].cov_position - poseInit[1].cov_position;
+    rbsVicon.velocity = poseInit[0].velocity - poseInit[1].velocity;
+    rbsVicon.cov_velocity = poseInit[0].cov_velocity - poseInit[1].cov_velocity;
     _incre_rbsVicon.write(rbsVicon);
     
     /** IMU outport **/
-    _imu_sensors_out.write(imuSamples);
-    
-    /** For the next export of the incremental value from Vicon data **/
-    prevPoseInit = poseInit;
+    _imu_sensors_out.write(imuSamples[0]);
     
     /** Port out filter info **/
     mysckf.toFilterInfo(finfo);
     finfo.time = rbsBC.time;
     _filter_debug.write(finfo);
      
-    _least_squares_error.write(leastSquaresError);
     
 }
 
