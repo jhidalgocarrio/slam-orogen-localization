@@ -526,7 +526,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 
 bool Task::configureHook()
 {
-    double delta_bandwidth = 0.00;/** Delta (bandwidth) time of inertial sensors **/
+    double delta_bandwidth = std::numeric_limits<double>::quiet_NaN();/** Delta (bandwidth) time of inertial sensors **/
     double theoretical_g; /** Ideal gravity value **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /** Measurement noise convariance matrix for acc */
@@ -542,9 +542,6 @@ bool Task::configureHook()
     
     if (! TaskBase::configureHook())
         return false;
-    
-    if (_sensors_bandwidth.value() != 0.00)
-	delta_bandwidth = 1.0/_sensors_bandwidth.value();
     
     /** Set the initial BC to the Geographic frame **/
     rbsBC.invalidate();
@@ -652,6 +649,14 @@ bool Task::configureHook()
     if (_filter_frequency.value() != 0.00)
 	delta_t = 1.0/_filter_frequency.value();    
     
+    /** Bandwidth delta time **/
+    if (_sensors_bandwidth.value() != 0.00)
+	delta_bandwidth = 1.0/_sensors_bandwidth.value();
+    
+    /** Check if the filter is running at lower frequency than inertial sensor bandwidth **/
+    if (delta_bandwidth < delta_t)
+	delta_bandwidth = delta_t;
+    
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
     Ra = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -684,7 +689,7 @@ bool Task::configureHook()
     Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Encoders velocity errors **/
-    Ren = 0.001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
+    Ren = 0.000001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
     
     /** Contact angle error **/
     Rcontact = 0.01 * Eigen::Matrix <double,localization::NUMBER_OF_WHEELS,localization::NUMBER_OF_WHEELS>::Identity();
@@ -707,10 +712,7 @@ bool Task::configureHook()
     Qba(0,0) = pow(_abiasins.get()[0],2);
     Qba(1,1) = pow(_abiasins.get()[1],2);
     Qba(2,2) = pow(_abiasins.get()[2],2);
-    
-//     Qbg = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-//     Qba = 0.00000000001 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    
+        
     /** Gravitational value according to the location **/
     theoretical_g = Measurement::GravityModel (_latitude.value(), _altitude.value());
     
@@ -1494,17 +1496,17 @@ void Task::toDebugPorts()
     
     rbsCorrected.invalidate();
     rbsCorrected.time = rbsBC.time;
-    rbsCorrected.velocity =  mysckf.getVeloTruth().data;//truth = estimated + error
+    rbsCorrected.velocity =  mysckf.getVelocity();//truth = estimated + error
     _velocities_corrected.write(rbsCorrected);
     
     /** Port out the incremental velocity error **/
     base::samples::RigidBodyState rbsVelError;
     rbsVelError.time = rbsBC.time;
-    rbsVelError.velocity = mysckf.getVeloError().data; //error = truth - estimated
+    rbsVelError.velocity = mysckf.getVeloError(); //error = truth - estimated
     _velocities_error.write(rbsVelError);
     
-    rbsVelError.velocity = mysckf.getIncreVeloError().data;
-    _incre_velocities_error.write(rbsVelError);
+//     rbsVelError.velocity = mysckf.getIncreVeloError();
+//     _incre_velocities_error.write(rbsVelError);
     
     /** Port out the info comming from vicon **/
     rbsVicon = poseInit[0];
