@@ -18,7 +18,7 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
-viz = {:proprio => false, :vicon => false, :pvicon => true, :ivicon => false}
+viz = {:proprio => false, :vicon => false, :pvicon => false, :ivicon => true, :envire => false}
 
 Orocos.run 'rover_localization::Task' => 'rover_localization' do 
   
@@ -264,6 +264,11 @@ Orocos.run 'rover_localization::Task' => 'rover_localization' do
     
     asguard_localization_task.bodystate_samples.connect_to do |asguard_state,_|
 	asguardViz.updateBodyState(asguard_state)
+    end
+    
+    if viz[:envire]
+	envire_viz = Vizkit.default_loader.EnvireVisualization
+	asguard_localization_task.envire_environment_out.connect_to envire_viz
     end
     
     #2D plor the instantaneous velocity information
