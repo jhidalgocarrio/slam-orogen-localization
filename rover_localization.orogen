@@ -99,7 +99,7 @@ task_context "Task" do
     #******************************
     #**** Envire Properties *******
     #******************************    
-    property("envire_output_interval_ms", "int", 400).
+    property("envire_output_interval_seconds", "double", 0.4).
         doc("Define the envire-environment-update-interval for visualization. If < 1 the environment will not be updated")
 
     # MLS-Grid
@@ -244,7 +244,7 @@ task_context "Task" do
     output_port('slip_vector', '/localization/SlipInfo').
 	doc 'Timestamnped slip vector for the rover (all the wheels)'
 
-    output_port('filter_debug', '/localization/FilterInfo').
+    output_port('filter_info', '/localization/FilterInfo').
 	doc 'Timestamped filter information for debug'
 
     output_port('velocities_model', 'base/samples/RigidBodyState').

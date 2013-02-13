@@ -137,6 +137,8 @@ namespace rover_localization {
 	/** Accelerometers eccentricity **/
 	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
 	
+	Eigen::Quaternion <double> q_world2imu;
+	
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact (identification) **/
 	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/
 	

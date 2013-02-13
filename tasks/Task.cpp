@@ -84,7 +84,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
     if (!_imu2body.get(ts, tf, false))
 	return;
     
-    qtf = Eigen::Quaternion <double> (tf.rotation());
+    qtf = Eigen::Quaternion <double> (tf.rotation());//!Quaternion from IMU to Body
     
     #ifdef DEBUG_PRINTS
     std::cout<<"Transformer:\n"<<tf.matrix()<<"\n";
@@ -138,7 +138,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    
 	    euler[0] = (double) asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
 	    euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
-	    euler[2] = M_PI;
+	    euler[2] = - M_PI;
 	    
 	    /** Set the initial attitude when no initial IMU orientation is provided **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
@@ -147,24 +147,32 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	    
 	    #ifdef DEBUG_PRINTS
 	    std::cout<< "******** Initial Attitude (STIM300 frame)  *******"<<"\n";
-	    std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
 	    
+	    /** Set the quaternion world to imu frame **/
+	    q_world2imu = attitude;
+	    
 	    /** This attitude is in the IMU frame. It needs to be expressed in body with the help of the transformer **/
-	    attitude = attitude * qtf;
+	    attitude = attitude * qtf; //! world2body = world2imu * imu2body
+	    
+	    #ifdef DEBUG_PRINTS
+	    euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+	    std::cout<< "******** Initial Attitude (after applying qtf)  *******"<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
+	    #endif
+	    
+	    attitude.normalize();
 	    
 	    /** Check if there is initial pose connected **/
 	    if (_pose_init.connected() && initPosition)
 	    {
-		/** Get the initial Yaw from the initialPose **/
-		euler[2] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
-		euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
-		euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+		/** Alternative method **/
+		attitude = attitude * Eigen::Quaternion <double>(Eigen::AngleAxisd(poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0], Eigen::Vector3d::UnitZ()));
 		
-		/** Set the initial attitude with the Yaw provided from the initial pose **/
-		attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
-		Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
-		Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
+		attitude.normalize();
 		
 		/** Set the initial attitude quaternion of the filter **/
 		mysckf.setAttitude (attitude);
@@ -197,10 +205,35 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 		/** Set the gravity to the filter to the mean computed **/
 // 		mysckf.setGravity(meanacc.norm());
 		
+		/** Gravity error between theoretical gravity and estimated **/
+		Eigen::Matrix <double,NUMAXIS,1> g_error;
+		g_error << 0.00, 0.00, (mysckf.getGravity()-meanacc.norm());
+		
+		#ifdef DEBUG_PRINTS
+		std::cout<< "G_error in world\n"<<g_error <<"\n";
+		#endif
+		
+		g_error = q_world2imu.inverse() * g_error;
+		
+		#ifdef DEBUG_PRINTS
+		std::cout<< "G_error in imu\n"<<g_error <<"\n";
+		#endif
+		
+		g_error << 0.00, 0.00, (mysckf.getGravity()-meanacc.norm());
+		
+		g_error = attitude.inverse() * g_error;
+		
+		#ifdef DEBUG_PRINTS
+		std::cout<< "G_error in body\n"<<g_error <<"\n";
+		#endif
+		
+// 		/** Update Bias offset **/
+//  		mysckf.setBiasOffset(_gbiasof.value(), _abiasof.value()+g_error);
+		
 		#ifdef DEBUG_PRINTS
 		euler = mysckf.getEuler();
 		std::cout<< "******** Initial Attitude *******"<<"\n";
-		std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
+		std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 		#endif
 	    }
 	    
@@ -644,6 +677,13 @@ bool Task::configureHook()
 	poseInit[i].invalidate();
     }
     
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[Task configure] hbridgeStatus has capacity "<<hbridgeStatus.capacity()<<" and size "<<hbridgeStatus.size()<<"\n";
+    std::cout<<"[Task configure] asguardStatus has capacity "<<asguardStatus.capacity()<<" and size "<<asguardStatus.size()<<"\n";
+    std::cout<<"[Task configure] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
+    std::cout<<"[Task configure] poseInit has capacity "<<poseInit.capacity()<<" and size "<<poseInit.size()<<"\n";
+    #endif
+    
     
     /** Filter delta time step in seconds **/
     if (_filter_frequency.value() != 0.00)
@@ -672,9 +712,9 @@ bool Task::configureHook()
     
     /** Gravity vector covariance matrix **/
     Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rat(0,0) = 0.0054785914701378034;
-    Rat(1,1) = 0.0061094546837916494;
-    Rat(2,2) = 0.0063186020143245212;
+    Rat(0,0) = NUMAXIS * Ra(0,0);//0.0054785914701378034;
+    Rat(1,1) = NUMAXIS * Ra(1,1);//0.0061094546837916494;
+    Rat(2,2) = NUMAXIS * Ra(2,2);//0.0063186020143245212;
     
     /** Gyroscopes covariance matrix **/
     Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -697,7 +737,7 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,Sckf::X_STATE_VECTOR_SIZE,Sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-20 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
+    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-06 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 1e-06 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
     P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
@@ -814,6 +854,7 @@ bool Task::configureHook()
     p_fn = new envire::FrameNode();
     mEnv.getRootNode()->addChild(p_fn);
     mpSlip->setFrameNode(p_fn);
+    mpSlip->setHasCellColor(true);
     
     /** Emitter **/
     mEmitter = new envire::OrocosEmitter(_envire_environment_out);
@@ -821,16 +862,30 @@ bool Task::configureHook()
     mEmitter->useEventQueue( true );
     mEmitter->attach(&mEnv);
     
-    /** Set a flat surface **/
+    /** Set a flat surface **/    
+    base::Vector3d color;
+    color<<0.0, 1.0, 0.0;
+    
     for(register int i=0; i<100; i++ )
     {
 	for(register int j=0; j<100; j++ )
 	{
 	    double h = 0.0;
-	    mpSlip->insertTail( i, j, envire::MLSGrid::SurfacePatch( h, 0.05 ) );
+	    envire::MLSGrid::SurfacePatch p(h, 0.05);
+	    if (i<50 || j<50)
+		p.setColor(color);
+	    else
+	    {
+		color <<1.0, 0.0, 0.0;
+		p.setColor(color);
+	    }
+		
+	    
+	    mpSlip->insertTail( i, j, p);
 	}
     }
     mpSlip->itemModified();
+    
 
     /** Envire outport **/
     this->sendEnvireEnvironment();
@@ -1527,7 +1582,7 @@ void Task::toDebugPorts()
     /** Port out filter info **/
     mysckf.toFilterInfo(finfo);
     finfo.time = rbsBC.time;
-    _filter_debug.write(finfo);
+    _filter_info.write(finfo);
      
     
 }
