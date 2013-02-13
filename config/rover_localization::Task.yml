@@ -2,9 +2,9 @@
 # bias offset in static regimen for the Accelerometers
 abiasof: 
   data: 
-  - -0.0125
-  - 0.00908
-  - -0.03531
+  - 0.0 #-0.0027
+  - 0.0 
+  - 0.0 #0.0055
 # acceleration random walk for accelerometers (m/s^2/sqrt(s))
 accrrw: 
   data: 
