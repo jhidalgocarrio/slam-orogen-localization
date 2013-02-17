@@ -9,9 +9,13 @@ import matplotlib.pyplot as plt
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.puremodel_velo.10.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.corrected_velo.3.data', 'rb'), delimiter=' ', quotechar='|')
-#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.puremodel_velo.incre.4.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.puremodel_velo.3.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1850.puremodel_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.puremodel_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.puremodel_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.velocity_corrected.4.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_corrected.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 timebody=[]
 velbodyx=[]
@@ -40,9 +44,11 @@ tbody = deltabody_t * r_[0:len(timebody)]
 #IMU Data
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.imu_acc_velo.incre.9.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.imu_acc_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
-#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.imu_acc_velo.incre.4.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1850.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_acc_velo.incre.3.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.imu_acc_velo.incre.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 timeimu=[]
 velimux=[]
@@ -79,9 +85,13 @@ timu = deltaimu_t * r_[0:len(timeimu)]
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.vicon_velo.body_frame.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.vicon_velo.incre.10.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.ivicon_velo.incre.10.data', 'rb'), delimiter=' ', quotechar='|')
-#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.vicon_velo.incre.4.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.vicon_velo.3.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1850.vicon_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.vicon_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.vicon_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+
 
 timevicon=[]
 velviconx=[]
@@ -108,7 +118,11 @@ tvicon = deltavicon_t * r_[0:len(timevicon)]
 
 #Velocities error Data
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.error_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.velocity_error.2.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.velocity_error.4.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_error.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.velocity_error.0.data', 'rb'), delimiter=' ', quotechar='|')
+
 
 timeerror=[]
 velerrorx=[]
@@ -132,6 +146,37 @@ for i in range(0,len(timeerror)-1):
 deltaerror_t = mean(deltaerror)    
 sample_rateerror = 1/deltaerror_t
 terror = deltaerror_t * r_[0:len(timeerror)]
+
+#Hellinger coefficient
+spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.hellinger.1.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.hellinger.0.data', 'rb'), delimiter=' ', quotechar='|')
+
+timehellinger=[]
+hellingerx=[]
+hellingery=[]
+hellingerz=[]
+
+for row in spamReader:
+    #print row
+    timehellinger.append(float(row[0])/1000000)
+    hellingerx.append(float(row[1]))
+    hellingery.append(float(row[5]))
+    hellingerz.append(float(row[9]))
+
+
+#Mahalanobis Distance
+spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.mahalanobis.0.data', 'rb'), delimiter=' ', quotechar='|')
+
+timemaha=[]
+mahax=[]
+
+for row in spamReader:
+    #print row
+    timemaha.append(float(row[0])/1000000)
+    mahax.append(float(row[1]))
+
+
+
 
 #Incremental velocity data
 spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
@@ -221,7 +266,7 @@ tfiltererror = deltafiltererror_t * r_[0:len(timefiltererror)]
 #################
 ### GRAPHICS  ###
 #################
-plt.figure(1)
+plt.figure(4)
 plot(timebody,velbodyx, '-o', label="X model velocity estimation")
 plot(timebody,np.cumsum(velbodyx), '-o', label="X kinematics velocity")
 #plot(timebody,velibodyx, '-o', label="X model incremental velocity")
@@ -233,10 +278,13 @@ plot(timeimu,np.cumsum(velimux), '-o', label="X imu velocity")
 #plot(timebody[0:len(timeiimu)-63],velcimux, '-o', label="X combined imu velocity")
 plot(timeimu,accimux, '-o', label="X imu acc")
 #plot(timeiimu,acciimux, '-o', label="X imu acc (incremental log)")
-plot(timevicon[0:len(timevicon)-6],velviconx[6:len(timevicon)], '-o',label="X ground truth incre velocity")
+plot(timevicon[0:len(timevicon)-6],velviconx[6:len(timevicon)], '-o',label="X ground truth velocity")
 plot(timevicon[0:len(timevicon)-6],np.cumsum(velviconx[6:len(timevicon)]), '-o',label="X ground truth incre velocity")
-plot(timevicon,velviconx, '-o',label="X incre ivicon ground truth velocity")
+#plot(timevicon,velviconx, '-o',label="X incre ivicon ground truth velocity")
 plot(timeerror,velerrorx, '-o', label="X error velocity")
+plot(timehellinger,hellingerx, '-o', label="X Hellinger Coef")
+plot(timemaha,mahax, '-o', label="Mahalanobis distance")
+plot(timeerror,sqrt(velerrorx), '-o', label="X error velocity")
 plot(timefiltererror,filtervelerrorx, '-o', label="X filter error velocity")
 grid()
 xlabel("Time(s)")
@@ -585,7 +633,7 @@ legend()
 # Inertial sensors
 ####################
 #All the sensor in one file
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_inport.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_outport.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 time=[]
@@ -646,20 +694,55 @@ t = delta_t * r_[0:len(time)]
 meanaccx = []
 stdaccxpos = []
 stdaccxneg = []
-numbermean = mean(accx[100:28000])
-accx = accx - mean(accx[100:28000])
-numberstd = std(accx[100:28000])
-numbervar = var(accx[100:28000])
-for i in range(0,len(time[100:28000])):
+numbermean = mean(accx)
+#accx = accx - mean(accx[100:28000])
+numberstd = std(accx)
+numbervar = var(accx)
+for i in range(0,len(time)):
     meanaccx.append(numbermean)
-    stdaccxpos.append(numberstd)
-    stdaccxneg.append(-numberstd)
+    stdaccxpos.append(numbermean + numberstd)
+    stdaccxneg.append(numbermean - numberstd)
 
 plt.figure(3)
-plot(t[100:28000],accx[100:28000], label="X axis at 16Hz")
-plot(t[100:28000],meanaccx, label="Mean value")
-plot(t[100:28000],stdaccxpos, label="Std (+)")
-plot(t[100:28000],stdaccxneg, label="Std (-)")
+plot(t,accx, label="X axis at 100Hz")
+plot(t,meanaccx, label="Mean value")
+plot(t,stdaccxpos, label="Std (+)")
+plot(t,stdaccxneg, label="Std (-)")
+
+
+meanaccy = []
+stdaccypos = []
+stdaccyneg = []
+numbermean = mean(accy)
+numberstd = std(accy)
+numbervar = var(accy)
+for i in range(0,len(time)):
+    meanaccy.append(numbermean)
+    stdaccypos.append(numbermean + numberstd)
+    stdaccyneg.append(numbermean - numberstd)
+
+plt.figure(3)
+plot(t,accy, label="X axis at 16Hz")
+plot(t,meanaccy, label="Mean value")
+plot(t,stdaccypos, label="Std (+)")
+plot(t,stdaccyneg, label="Std (-)")
+
+meanaccz = []
+stdacczpos = []
+stdacczneg = []
+numbermean = mean(accz)
+numberstd = std(accz)
+numbervar = var(accz)
+for i in range(0,len(time)):
+    meanaccz.append(numbermean)
+    stdacczpos.append(numbermean + numberstd)
+    stdacczneg.append(numbermean - numberstd)
+
+plt.figure(3)
+plot(t,accz, label="X axis at 16Hz")
+plot(t,meanaccz, label="Mean value")
+plot(t,stdacczpos, label="Std (+)")
+plot(t,stdacczneg, label="Std (-)")
 
 
 
@@ -698,8 +781,8 @@ numberstd = std(gyrox[100:28000])
 numbervar = var(gyrox[100:28000])
 for i in range(0,len(time[100:28000])):
     meangyrox.append(numbermean)
-    stdgyroxpos.append(numberstd)
-    stdgyroxneg.append(-numberstd)
+    stdgyroxpos.append(numbermean + numberstd)
+    stdgyroxneg.append(numbermean - numberstd)
 
 plt.figure(4)
 plot(t[100:28000],gyrox[100:28000], label="X axis at 16Hz")
@@ -707,7 +790,7 @@ plot(t[100:28000],meangyrox, label="Mean value")
 plot(t[100:28000],stdgyroxpos, label="Std (+)")
 plot(t[100:28000],stdgyroxneg, label="Std (-)")
 
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.puremodel_velo.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
 
 time=[]
 velox=[]
@@ -741,8 +824,8 @@ numberstd = std(velox)
 numbervar = var(velox)
 for i in range(0,len(time)):
     meanvelox.append(numbermean)
-    stdveloxpos.append(numberstd)
-    stdveloxneg.append(-numberstd)
+    stdveloxpos.append(numbermean + numberstd)
+    stdveloxneg.append(numbermean - numberstd)
 
 plt.figure(5)
 plot(t,velox, label="X axis at 16Hz bandwidth(125Hz sampling)")
@@ -763,8 +846,8 @@ numberstd = std(veloy)
 numbervar = var(veloy)
 for i in range(0,len(time)):
     meanveloy.append(numbermean)
-    stdveloypos.append(numberstd)
-    stdveloyneg.append(-numberstd)
+    stdveloypos.append(numbermean + numberstd)
+    stdveloyneg.append(numbermean - numberstd)
 
 plt.figure(4)
 plot(t,veloy, label="Y axis at 16Hz bandwidth(125Hz sampling)")
@@ -785,8 +868,8 @@ numberstd = std(veloz)
 numbervar = var(veloz)
 for i in range(0,len(time)):
     meanveloz.append(numbermean)
-    stdvelozpos.append(numberstd)
-    stdvelozneg.append(-numberstd)
+    stdvelozpos.append(numbermean + numberstd)
+    stdvelozneg.append(numbermean - numberstd)
 
 plt.figure(5)
 plot(t,veloz, label="Z axis at 16Hz bandwidth(125Hz sampling)")
