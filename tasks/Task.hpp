@@ -11,6 +11,8 @@
 #include <rover_localization/DeadReckon.hpp>
 #include <rover_localization/DataTypes.hpp>
 
+#include <math.h> /** For natural Log **/
+
 #include <Eigen/Core>
 #include <Eigen/Dense> /** for the algebra and transformation matrices **/
 
@@ -108,7 +110,7 @@ namespace rover_localization {
  	unsigned int counterForceSamples; /** conter of Ground Force info samples for the resampling **/
  	unsigned int counterPose; /** counter of pose information comming from external measurement **/
  	
- 	/** Buffer for inputs port samples (filter to the desired filter frequency) **/
+ 	/** Buffer for inputs port samples (filtered to the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbHbridges;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;
 	boost::circular_buffer<base::samples::IMUSensors> cbIMU;
@@ -137,6 +139,7 @@ namespace rover_localization {
 	/** Accelerometers eccentricity **/
 	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
 	
+	/** Auxiliar quaternion **/
 	Eigen::Quaternion <double> q_world2imu;
 	
 	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact (identification) **/
@@ -167,32 +170,16 @@ namespace rover_localization {
 	localization::DeadReckon drPose;
 	
 	/** Feet for FL wheel **/
-	base::samples::RigidBodyState rbsC0FL2body;
-	base::samples::RigidBodyState rbsC1FL2body;
-	base::samples::RigidBodyState rbsC2FL2body;
-	base::samples::RigidBodyState rbsC3FL2body;
-	base::samples::RigidBodyState rbsC4FL2body;
+	boost::circular_buffer<base::samples::RigidBodyState> rbsCiFL2body;
 	
 	/** Feet for FR wheel **/
-	base::samples::RigidBodyState rbsC0FR2body;
-	base::samples::RigidBodyState rbsC1FR2body;
-	base::samples::RigidBodyState rbsC2FR2body;
-	base::samples::RigidBodyState rbsC3FR2body;
-	base::samples::RigidBodyState rbsC4FR2body;
+	boost::circular_buffer<base::samples::RigidBodyState> rbsCiFR2body;
 	
 	/** Feet for RL wheel **/
-	base::samples::RigidBodyState rbsC0RL2body;
-	base::samples::RigidBodyState rbsC1RL2body;
-	base::samples::RigidBodyState rbsC2RL2body;
-	base::samples::RigidBodyState rbsC3RL2body;
-	base::samples::RigidBodyState rbsC4RL2body;
+	boost::circular_buffer<base::samples::RigidBodyState> rbsCiRL2body;
 	
 	/** Feet for RR wheel **/
-	base::samples::RigidBodyState rbsC0RR2body;
-	base::samples::RigidBodyState rbsC1RR2body;
-	base::samples::RigidBodyState rbsC2RR2body;
-	base::samples::RigidBodyState rbsC3RR2body;
-	base::samples::RigidBodyState rbsC4RR2body;
+	boost::circular_buffer<base::samples::RigidBodyState> rbsCiRR2body;
 	
 	/** Wheel Jacobian Matrices **/
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFL;
@@ -204,6 +191,14 @@ namespace rover_localization {
 	envire::Environment mEnv;
 	envire::MLSGrid *mpSlip;
 	envire::OrocosEmitter* mEmitter;
+	
+	/** World_to_MLS Transformation **/
+	Eigen::Affine3d world2mls;
+	
+	double slipmaxnorm;
+	
+	/** Foot print dimenstion (in number of cells) **/
+	int numberCellsFootx, numberCellsFooty;
 
         virtual void calibrated_sensorsTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &calibrated_sensors_sample);
         virtual void ground_forces_estimatedTransformerCallback(const base::Time &ts, const ::torque_estimator::GroundForces &ground_forces_estimated_sample);
@@ -317,6 +312,15 @@ namespace rover_localization {
 	 * @return void
 	 */
 	void toAsguardBodyState();
+	
+	/** \Brief Fill the MLS Map of Envire
+	 * 
+	 * Represent contact and slip information in MLS
+	 * 
+	 * @return void
+	 */
+	void toMLSGrid(Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> roverslipvector,
+		Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE> roverslipvectorCov);
 	
 	/** \Brief Write debug info in the ports
 	 * 

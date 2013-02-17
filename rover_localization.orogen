@@ -103,17 +103,23 @@ task_context "Task" do
         doc("Define the envire-environment-update-interval for visualization. If < 1 the environment will not be updated")
 
     # MLS-Grid
-    property("grid_resolution", "int", 100).
+    property("grid_resolution", "int", 500).
         doc("Defines the number of patches in x and y.")
 
     property("patch_size", "double", 0.05).
         doc("Size of each patch (meters)")
 
-    property("grid_center_x", "double", 0.0).
+    property("grid_center_x", "double", -5.0).
         doc("Offset of the grid coordinate system in x (meters), describes the transformation WORLD2MLS")
 
-    property("grid_center_y", "double", 0.0).
+    property("grid_center_y", "double", -5.0).
         doc("Offset of the grid coordinate system in y (meters), describes the transformation WORLD2MLS")
+
+    property("foot_size_x", "double", 0.04).
+        doc("Foot length  in meters")
+
+    property("foot_size_y", "double", 0.03).
+        doc("Foot width in meters")
 
 
     #******************************

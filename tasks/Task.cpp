@@ -28,11 +28,17 @@ Task::Task(std::string const& name)
     cbAsguard = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbIMU = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     
-    /** Default size for the circular_bufferfor the filtered samples **/
+    /** Default size for the circular_buffer for the filtered samples **/
     hbridgeStatus = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
     asguardStatus = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     poseInit = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    
+    /** Size the Feet per wheel **/
+    rbsCiFL2body = boost::circular_buffer<base::samples::RigidBodyState>(FEET_PER_WHEEL);
+    rbsCiFR2body = boost::circular_buffer<base::samples::RigidBodyState>(FEET_PER_WHEEL);
+    rbsCiRL2body = boost::circular_buffer<base::samples::RigidBodyState>(FEET_PER_WHEEL);
+    rbsCiRR2body = boost::circular_buffer<base::samples::RigidBodyState>(FEET_PER_WHEEL);
     
     /** Wheel kinematics model objects **/
     wheelFL = asguard::KinematicModel(3,2);
@@ -61,6 +67,8 @@ Task::Task(std::string const& name)
     
     /** Point the measurement pointer to the one in the filter object **/
     mymeasure = &(mysckf.filtermeasurement);
+    
+    slipmaxnorm = 0.00;
     
 }
 
@@ -381,7 +389,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
 	std::cout<< "[Measurement] Hme:\n"<<Hme<<"\n";
 	if (mysckf.filtermeasurement.getCurrentVeloModel()[0] > 0.5)
-	    std::cout<< "[Measurement] AQUI ES MAYOR DE 0.5 at "<<hbridgeStatus[0].time.toMicroseconds()<<"\n";
+	    std::cout<< "[Measurement] BIGGER THAN 0.5 at "<<hbridgeStatus[0].time.toMicroseconds()<<"\n";
 	#endif
 	
 	#ifdef DEBUG_PRINTS
@@ -392,19 +400,26 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
  	mysckf.update(Hme, Rme, vel_error, acc, mag, delta_t, false);
 
 	/** Set the variables to perform the dead-reckoning **/
-	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.filtermeasurement.getCurrentVeloModel();
+	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.getVelocity();//mysckf.filtermeasurement.getCurrentVeloModel();
 	Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
-	Eigen::Matrix<double, NUMAXIS, 1> linvelo_error = mysckf.getStatex().block<NUMAXIS,1> (3,0);
 	
-	std::cout<< "[Measurement] linvelo_error:\n"<<linvelo_error<<"\n";
 	
 	/** Dead-reckoning and save into rbsBC **/
-	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, linvelo_error, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, delta_t);
+	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, delta_t);
 	
 	/** Write new pose to the output port **/
 	_pose_samples_out.write(rbsBC);
+	
+	/** Compute Slip vector **/
+	Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> roverslipvector;
+	Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE> roverslipvectorCov;
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** To Rover Slip Vector **********\n";
+	#endif
+	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, delta_t);
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** To Asguard Body **********\n";
@@ -412,6 +427,12 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	
 	/** Body pose to asguard for the vizkit visualization **/
 	this->toAsguardBodyState();
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<<"********** To Envire Representation **********\n";
+	#endif
+	/** Foot contact and slip vector to envire representation **/
+// 	this->toMLSGrid(roverslipvector, roverslipvectorCov);
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** To Deburg Ports **********\n";
@@ -544,7 +565,6 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 		
 	/** Set the initial pose in the uncertainty variable **/
 	drPose.setInitPose(rbsBC);
-// 	this->actualPose = rbsBC;
 	
 	initPosition = true;
     }
@@ -676,6 +696,19 @@ bool Task::configureHook()
 	/** Pose Init **/
 	poseInit[i].invalidate();
     }
+    
+    /** Initialize the Feet per wheel **/
+    base::samples::RigidBodyState initFoot;
+    initFoot.invalidate();
+    
+    for(register unsigned int i=0;i<FEET_PER_WHEEL;i++)
+    {
+	rbsCiFL2body.push_front(initFoot);
+	rbsCiFR2body.push_front(initFoot);
+	rbsCiRL2body.push_front(initFoot);
+	rbsCiRR2body.push_front(initFoot);
+    }
+    
     
     #ifdef DEBUG_PRINTS
     std::cout<<"[Task configure] hbridgeStatus has capacity "<<hbridgeStatus.capacity()<<" and size "<<hbridgeStatus.size()<<"\n";
@@ -855,6 +888,7 @@ bool Task::configureHook()
     mEnv.getRootNode()->addChild(p_fn);
     mpSlip->setFrameNode(p_fn);
     mpSlip->setHasCellColor(true);
+    mpSlip->initIndex();
     
     /** Emitter **/
     mEmitter = new envire::OrocosEmitter(_envire_environment_out);
@@ -862,29 +896,42 @@ bool Task::configureHook()
     mEmitter->useEventQueue( true );
     mEmitter->attach(&mEnv);
     
-    /** Set a flat surface **/    
-    base::Vector3d color;
-    color<<0.0, 1.0, 0.0;
+//     /** Set a flat surface **/    
+//     base::Vector3d color;
+//     color<<0.0, 1.0, 0.0;
+//     
+//     for(register int i=0; i<100; i++ )
+//     {
+// 	for(register int j=0; j<100; j++ )
+// 	{
+// 	    double h = 0.0;
+// 	    envire::MLSGrid::SurfacePatch p(h, 0.05);
+// 	    if (i<50 || j<50)
+// 		p.setColor(color);
+// 	    else
+// 	    {
+// 		color <<1.0, 0.0, 0.0;
+// 		p.setColor(color);
+// 	    }
+// 		
+// 	    
+// 	    mpSlip->insertTail( i, j, p);
+// 	}
+//     }
+//     mpSlip->itemModified();
     
-    for(register int i=0; i<100; i++ )
-    {
-	for(register int j=0; j<100; j++ )
-	{
-	    double h = 0.0;
-	    envire::MLSGrid::SurfacePatch p(h, 0.05);
-	    if (i<50 || j<50)
-		p.setColor(color);
-	    else
-	    {
-		color <<1.0, 0.0, 0.0;
-		p.setColor(color);
-	    }
-		
-	    
-	    mpSlip->insertTail( i, j, p);
-	}
-    }
-    mpSlip->itemModified();
+    /** World to MLS transformation **/
+    base::Vector3d trans(_grid_center_x.get(), _grid_center_y.get(), 0.00);
+    world2mls =  Eigen::Affine3d::Identity();
+    world2mls.translation() = trans;
+    
+    /** Number of cells of the foot print **/
+    numberCellsFootx = ceil(_foot_size_x.get()/_patch_size.get());
+    numberCellsFooty = ceil(_foot_size_y.get()/_patch_size.get());
+    #ifdef DEBUG_PRINTS
+    std::cout<< "[Task configure] world2mls:\n"<<world2mls.matrix()<<"\n";
+    std::cout<< "[Task configure] numberCellsFootx: "<<numberCellsFootx<<" numberCellsFooty: "<<numberCellsFooty<<"\n";
+    #endif
     
 
     /** Envire outport **/
@@ -1042,60 +1089,39 @@ void Task::getInputPortValues()
 void Task::calculateFootPoints()
 {
     /** For the Wheel 0 Rear Left **/
-    wheelRL.Body2FootPoint (0, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC0RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (1, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC1RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (2, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC2RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (3, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC3RL2body = wheelRL.getBody2FootPoint();
-    wheelRL.Body2FootPoint (4, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC4RL2body = wheelRL.getBody2FootPoint();
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	wheelRL.Body2FootPoint (i, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	rbsCiRL2body[i] = wheelRL.getBody2FootPoint();
+    }
     
 //     wheelRL.Body2ContactPoint (hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2RL2body = wheelRL.getBody2ContactPoint();
     
     /** For the Wheel 1 Rear Right **/
-    wheelRR.Body2FootPoint (0, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC0RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (1, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC1RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (2, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC2RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (3, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC3RR2body = wheelRR.getBody2FootPoint();
-    wheelRR.Body2FootPoint (4, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC4RR2body = wheelRR.getBody2FootPoint();
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	wheelRR.Body2FootPoint (i, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	rbsCiRR2body[i] = wheelRR.getBody2FootPoint();
+    }
     
 //     wheelRR.Body2ContactPoint (hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2RR2body = wheelRR.getBody2ContactPoint();
     
     /** For the Wheel 2 Forward Right **/
-    wheelFR.Body2FootPoint (0, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC0FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (1, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC1FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (2, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC2FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (3, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC3FR2body = wheelFR.getBody2FootPoint();
-    wheelFR.Body2FootPoint (4, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC4FR2body = wheelFR.getBody2FootPoint();
-    
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	wheelFR.Body2FootPoint (i, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	rbsCiFR2body[i] = wheelFR.getBody2FootPoint();
+    }
     	
     /** For the Wheel 3 Forward Left **/
-    wheelFL.Body2FootPoint (0, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC0FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (1, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC1FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (2, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC2FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (3, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC3FL2body = wheelFL.getBody2FootPoint();
-    wheelFL.Body2FootPoint (4, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
-    rbsC4FL2body = wheelFL.getBody2FootPoint();
-    
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	wheelFL.Body2FootPoint (i, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	rbsCiFL2body[i] = wheelFL.getBody2FootPoint();
+    }
+        
 //     wheelFL.Body2ContactPoint (hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
 //     rbsC2FL2body = wheelFL.getBody2ContactPoint();
     
@@ -1115,16 +1141,15 @@ void Task::selectContactPoints(std::vector<int> &contactPoints)
     footFL.resize(5);
     
     /** Z-coordinate of the foot **/
-    footFL[0] = rbsC0FL2body.position(2);
-    footFL[1] = rbsC1FL2body.position(2);
-    footFL[2] = rbsC2FL2body.position(2);
-    footFL[3] = rbsC3FL2body.position(2);
-    footFL[4] = rbsC4FL2body.position(2);
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	footFL[i] = rbsCiFL2body[i].position(2);
+    }
     
     contactPoints[3] = std::distance(footFL.begin(), std::min_element(footFL.begin(), footFL.end()));
     
     #ifdef DEBUG_PRINTS
-    std::cout<<"FL position: "<< rbsC0FL2body.position(2)<<"\n";
+    std::cout<<"FL position: "<< rbsCiFL2body[0].position(2)<<"\n";
     std::cout<<"footFL: "<<footFL[0]<<" "<<footFL[1]<<" "<<footFL[2]<<" "<<footFL[3]<<" "<<footFL[4]<<"\n";
     std::cout<<"contactPoints[3]: "<< contactPoints[3]<<"\n";
     #endif
@@ -1132,33 +1157,30 @@ void Task::selectContactPoints(std::vector<int> &contactPoints)
     /** For the FR wheel **/
     footFR.resize(5);
     
-    footFR[0] = rbsC0FR2body.position(2);
-    footFR[1] = rbsC1FR2body.position(2);
-    footFR[2] = rbsC2FR2body.position(2);
-    footFR[3] = rbsC3FR2body.position(2);
-    footFR[4] = rbsC4FR2body.position(2);
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	footFR[i] = rbsCiFR2body[i].position(2);
+    }
     
     contactPoints[2] = std::distance(footFR.begin(), std::min_element(footFR.begin(), footFR.end()));
     
     /** For the RR wheel **/
     footRR.resize(5);
     
-    footRR[0] = rbsC0RR2body.position(2);
-    footRR[1] = rbsC1RR2body.position(2);
-    footRR[2] = rbsC2RR2body.position(2);
-    footRR[3] = rbsC3RR2body.position(2);
-    footRR[4] = rbsC4RR2body.position(2);
-    
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	footRR[i] = rbsCiRR2body[i].position(2);
+    }
+
     contactPoints[1] = std::distance(footRR.begin(), std::min_element(footRR.begin(), footRR.end()));
     
     /** For the RL wheel **/
     footRL.resize(5);
     
-    footRL[0] = rbsC0RL2body.position(2);
-    footRL[1] = rbsC1RL2body.position(2);
-    footRL[2] = rbsC2RL2body.position(2);
-    footRL[3] = rbsC3RL2body.position(2);
-    footRL[4] = rbsC4RL2body.position(2);
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	footRL[i] = rbsCiRL2body[i].position(2);
+    }
     
     contactPoints[0] = std::distance(footRL.begin(), std::min_element(footRL.begin(), footRL.end()));
     
@@ -1460,59 +1482,161 @@ void Task::toAsguardBodyState()
     
     
     /** For the movement of the points with the BC **/
-    rbsC0FL2body.setTransform(rbsBC.getTransform()*rbsC0FL2body.getTransform());
-    rbsC1FL2body.setTransform(rbsBC.getTransform()*rbsC1FL2body.getTransform());
-    rbsC2FL2body.setTransform(rbsBC.getTransform()*rbsC2FL2body.getTransform());
-    rbsC3FL2body.setTransform(rbsBC.getTransform()*rbsC3FL2body.getTransform());
-    rbsC4FL2body.setTransform(rbsBC.getTransform()*rbsC4FL2body.getTransform());
-    
-    rbsC0FR2body.setTransform(rbsBC.getTransform()*rbsC0FR2body.getTransform());
-    rbsC1FR2body.setTransform(rbsBC.getTransform()*rbsC1FR2body.getTransform());
-    rbsC2FR2body.setTransform(rbsBC.getTransform()*rbsC2FR2body.getTransform());
-    rbsC3FR2body.setTransform(rbsBC.getTransform()*rbsC3FR2body.getTransform());
-    rbsC4FR2body.setTransform(rbsBC.getTransform()*rbsC4FR2body.getTransform());
-    
-    rbsC0RL2body.setTransform(rbsBC.getTransform()*rbsC0RL2body.getTransform());
-    rbsC1RL2body.setTransform(rbsBC.getTransform()*rbsC1RL2body.getTransform());
-    rbsC2RL2body.setTransform(rbsBC.getTransform()*rbsC2RL2body.getTransform());
-    rbsC3RL2body.setTransform(rbsBC.getTransform()*rbsC3RL2body.getTransform());
-    rbsC4RL2body.setTransform(rbsBC.getTransform()*rbsC4RL2body.getTransform());
-    
-    rbsC0RR2body.setTransform(rbsBC.getTransform()*rbsC0RR2body.getTransform());
-    rbsC1RR2body.setTransform(rbsBC.getTransform()*rbsC1RR2body.getTransform());
-    rbsC2RR2body.setTransform(rbsBC.getTransform()*rbsC2RR2body.getTransform());
-    rbsC3RR2body.setTransform(rbsBC.getTransform()*rbsC3RR2body.getTransform());
-    rbsC4RR2body.setTransform(rbsBC.getTransform()*rbsC4RR2body.getTransform());
-    
-    
+    for (register int i=0; i<FEET_PER_WHEEL; i++)
+    {
+	rbsCiFL2body[i].setTransform(rbsBC.getTransform()*rbsCiFL2body[i].getTransform());
+	rbsCiFR2body[i].setTransform(rbsBC.getTransform()*rbsCiFR2body[i].getTransform());
+	rbsCiRL2body[i].setTransform(rbsBC.getTransform()*rbsCiRL2body[i].getTransform());
+	rbsCiRR2body[i].setTransform(rbsBC.getTransform()*rbsCiRR2body[i].getTransform());
+    }
     
     /** Write values in the output ports **/
-    _C0FL2body_out.write(rbsC0FL2body);
-    _C1FL2body_out.write(rbsC1FL2body);
-    _C2FL2body_out.write(rbsC2FL2body);
-    _C3FL2body_out.write(rbsC3FL2body);
-    _C4FL2body_out.write(rbsC4FL2body);
+    _C0FL2body_out.write(rbsCiFL2body[0]);
+    _C1FL2body_out.write(rbsCiFL2body[1]);
+    _C2FL2body_out.write(rbsCiFL2body[2]);
+    _C3FL2body_out.write(rbsCiFL2body[3]);
+    _C4FL2body_out.write(rbsCiFL2body[4]);
     
-    _C0FR2body_out.write(rbsC0FR2body);
-    _C1FR2body_out.write(rbsC1FR2body);
-    _C2FR2body_out.write(rbsC2FR2body);
-    _C3FR2body_out.write(rbsC3FR2body);
-    _C4FR2body_out.write(rbsC4FR2body);
+    _C0FR2body_out.write(rbsCiFR2body[0]);
+    _C1FR2body_out.write(rbsCiFR2body[1]);
+    _C2FR2body_out.write(rbsCiFR2body[2]);
+    _C3FR2body_out.write(rbsCiFR2body[3]);
+    _C4FR2body_out.write(rbsCiFR2body[4]);
     
-    _C0RR2body_out.write(rbsC0RR2body);
-    _C1RR2body_out.write(rbsC1RR2body);
-    _C2RR2body_out.write(rbsC2RR2body);
-    _C3RR2body_out.write(rbsC3RR2body);
-    _C4RR2body_out.write(rbsC4RR2body);
+    _C0RR2body_out.write(rbsCiRR2body[0]);
+    _C1RR2body_out.write(rbsCiRR2body[1]);
+    _C2RR2body_out.write(rbsCiRR2body[2]);
+    _C3RR2body_out.write(rbsCiRR2body[3]);
+    _C4RR2body_out.write(rbsCiRR2body[4]);
     
-    _C0RL2body_out.write(rbsC0RL2body);
-    _C1RL2body_out.write(rbsC1RL2body);
-    _C2RL2body_out.write(rbsC2RL2body);
-    _C3RL2body_out.write(rbsC3RL2body);
-    _C4RL2body_out.write(rbsC4RL2body);
+    _C0RL2body_out.write(rbsCiRL2body[0]);
+    _C1RL2body_out.write(rbsCiRL2body[1]);
+    _C2RL2body_out.write(rbsCiRL2body[2]);
+    _C3RL2body_out.write(rbsCiRL2body[3]);
+    _C4RL2body_out.write(rbsCiRL2body[4]);
 
 }
 
+void Task::toMLSGrid(Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> roverslipvector,
+		Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE> roverslipvectorCov)
+{
+    boost::circular_buffer<Eigen::Affine3d> world2foot(localization::NUMBER_OF_WHEELS);
+    
+    for (register unsigned int i = 0; i< localization::NUMBER_OF_WHEELS; i++)
+    {
+	world2foot.push_front(Eigen::Affine3d::Identity());
+    }
+    
+    #ifdef DEBUG_PRINTS
+    std::cout<< "[ENVIRE] world2foot has capacity "<<world2foot.capacity()<<" and size "<<world2foot.size()<<"\n";
+    #endif
+    
+    /** Get the feet in contact **/
+    for (register unsigned int j = 0; j< localization::NUMBER_OF_WHEELS; j++)
+    {
+	for (register unsigned int i = 0; i< FEET_PER_WHEEL; i++)
+	{
+	    /** For wheel FL (j index 3), FR (j index 2), RR (j index1) RL (j index 0) **/
+	    if (i == static_cast<unsigned int>(this->contactPoints[j]))
+	    {
+		if (j==0)
+		    world2foot[j]= rbsCiRL2body[i].getTransform();
+		else if (j==1)
+		    world2foot[j]= rbsCiRR2body[i].getTransform();
+		else if (j==2)
+		    world2foot[j]= rbsCiFR2body[i].getTransform();
+		else
+		    world2foot[j]= rbsCiFL2body[i].getTransform();		
+	    }
+	}
+    }    
+    
+    /** Update the slip map according to the position and slip vector **/
+    
+    Eigen::Matrix<double, 3, 1> footPrint;
+    footPrint<<round(numberCellsFootx/2.0), round(numberCellsFooty/2.0), 0.0;
+    double stdZ = 0.1;
+		
+    for (register unsigned int k = 0; k< localization::NUMBER_OF_WHEELS; k++)
+    {
+	/** Foot position in World frame **/
+	Eigen::Vector3d footPosition;
+	footPosition << world2foot[k].translation()[0], world2foot[k].translation()[1], world2foot[k].translation()[2];
+	
+	/** Foot position in cells units in MLS frame **/
+	size_t xi, yi;
+	mpSlip->toGrid(footPosition.x(), footPosition.y(), xi, yi);
+	
+	/** Create the Patch **/
+	envire::MLSGrid::SurfacePatch p(footPosition.z(), stdZ);
+	
+	/** Get existing Patch if any **/
+	envire::MLSGrid::SurfacePatch * prevP = NULL;
+	envire::GridBase::Position envirePos (footPosition[0],footPosition[1]);
+	prevP = mpSlip->get(envirePos, p, stdZ, true);
+	
+	/** Slip vector to color **/
+	base::Vector3d color;
+	base::Vector3d slip = roverslipvector.block<NUMAXIS,1> (k*NUMAXIS,0);
+	double slipcolor = 0.00;
+	#ifdef DEBUG_PRINTS
+	std::cout<< "[ENVIRE] slip\n"<< slip<<"\n";
+	#endif
+	
+// 	slip[2] *= R2D; //! Radians to degrees in the z slip
+	slipcolor = std::max(fabs(slip[0]*100), fabs(slip[1]*100));
+// 	slipcolor = std::max(fabs(slip[2]*180), slipcolor);
+	
+	if(slipcolor > slipmaxnorm)
+	    slipmaxnorm = slipcolor;
+	
+	color = mymeasure->valueToColor(slipcolor, 10.0, 0.0);
+	p.setColor(color);
+	
+	#ifdef DEBUG_PRINTS
+	std::cout<< "[ENVIRE] Wheel["<< k<<"]\n";
+	std::cout<< "[ENVIRE] world2foot(x,y): "<<world2foot[k].translation()[0]<<","<<world2foot[k].translation()[1]<<"\n";
+	std::cout<< "[ENVIRE] footi: "<< xi <<" footj: "<< yi<<"\n";
+	std::cout<< "[ENVIRE] slip\n"<< slip<<"\n";
+	std::cout<< "[ENVIRE] slip.norm: "<< slip.norm()<<"\n";
+	std::cout<< "[ENVIRE] slipmaxnorm: "<< slipmaxnorm<<"\n";
+	std::cout<< "[ENVIRE] color:\n"<< color<<"\n";
+	#endif
+	
+// 	for(register int i=0;i<numberCellsFootx; i++)
+// 	{
+// 	    for(register int j=0;j<numberCellsFooty; j++)
+// 	    {
+// 		Eigen::Matrix<double, 3, 1> offset;
+// 		offset<<i*footPrint[0],j*footPrint[1],0;
+// 		
+// 		offset = world2foot[k].rotation() * offset;//!offset in MLS frame;
+// 		footinMLSFrame += offset;
+	
+	/** First look if there is already a patch in the cell **/
+	double zvalue, stDev;
+	if (mpSlip->get(footPosition, zvalue, stDev))
+	{
+	    #ifdef DEBUG_PRINTS
+	    std::cout<< "[ENVIRE] THERE is a Patch in cell at ("<< footPosition[0]<<","<< footPosition[1]<<")\n";
+	    #endif
+	    mpSlip->updateCell (envirePos, p);
+	}
+	else
+	{
+	    #ifdef DEBUG_PRINTS
+	    std::cout<< "[ENVIRE] No cell at ("<< footPosition[0]<<","<< footPosition[1]<<")\n";
+	    #endif
+	    mpSlip->insertTail(xi, yi, p);
+	}
+// 	    }
+// 	}
+    }
+    
+    mpSlip->itemModified();
+    
+    return;
+}
 
 void Task::toDebugPorts()
 {
