@@ -15,7 +15,9 @@ import matplotlib.pyplot as plt
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.velocity_corrected.4.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_corrected.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.puremodel_velo.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.puremodel_velo.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 timebody=[]
 velbodyx=[]
@@ -48,7 +50,9 @@ tbody = deltabody_t * r_[0:len(timebody)]
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1850.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.imu_acc_velo.incre.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 timeimu=[]
 velimux=[]
@@ -90,7 +94,9 @@ timu = deltaimu_t * r_[0:len(timeimu)]
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.vicon_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.vicon_velo.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.vicon_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.vicon_velo.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timevicon=[]
@@ -121,7 +127,9 @@ tvicon = deltavicon_t * r_[0:len(timevicon)]
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.velocity_error.4.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_error.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.velocity_error.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.velocity_error.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.velocity_error.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timeerror=[]
@@ -146,6 +154,36 @@ for i in range(0,len(timeerror)-1):
 deltaerror_t = mean(deltaerror)    
 sample_rateerror = 1/deltaerror_t
 terror = deltaerror_t * r_[0:len(timeerror)]
+
+
+#Acceleration Error
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.acc_error.1.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.acc_error.1.data', 'rb'), delimiter=' ', quotechar='|')
+
+
+timeaerror=[]
+accerrorx=[]
+accerrory=[]
+accerrorz=[]
+
+for row in spamReader:
+    #print row
+    timeaerror.append(float(row[0])/1000000)
+    accerrorx.append(float(row[1]))
+    accerrory.append(float(row[2]))
+    accerrorz.append(float(row[3]))
+    
+    
+deltaerror = []
+for i in range(0,len(timeaerror)-1):
+    #print timebody[i]
+    taerror = float(timeaerror[i+1]) - float(timeaerror[i])
+    deltaerror.append(taerror)
+    
+deltaerror_t = mean(deltaerror)    
+sample_rateerror = 1/deltaerror_t
+taerror = deltaerror_t * r_[0:len(timeaerror)]
+
 
 #Hellinger coefficient
 spamReader = csv.reader(open('data/minitest_spacehall/spacehall1847.hellinger.1.data', 'rb'), delimiter=' ', quotechar='|')
@@ -262,17 +300,38 @@ deltafiltererror_t = mean(deltafiltererror)
 sample_ratefiltererror = 1/deltafiltererror_t
 tfiltererror = deltafiltererror_t * r_[0:len(timefiltererror)]
 
+# Measurement generation info
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.wls_nav.0.log', 'rb'), delimiter=' ', quotechar='|')
+
+timewls=[]
+wlsnav=[]
+for row in spamReader:
+    #print row
+    timewls.append(float(row[0])/1000000)
+    wlsnav.append(float(row[1]))
+    
+deltawls = []
+for i in range(0,len(timewls)-1):
+    #print time[i]
+    twls = float(timewls[i+1]) - float(timewls[i])
+    deltawls.append(twls)
+    
+deltawls_t = mean(deltawls)    
+sample_ratewls = 1/deltawls_t
+twls = deltawls_t * r_[0:len(timewls)]
+
+
+
 
 #################
 ### GRAPHICS  ###
 #################
-plt.figure(4)
+plt.figure(2)
 plot(timebody,velbodyx, '-o', label="X model velocity estimation")
 plot(timebody,np.cumsum(velbodyx), '-o', label="X kinematics velocity")
 #plot(timebody,velibodyx, '-o', label="X model incremental velocity")
 plot(timeimu,velimux, '-o', label="X imu incre velocity")
 plot(timeimu,np.cumsum(velimux), '-o', label="X imu velocity")
-
 #plot(timeiimu,veliimux, '-o', label="X imu incremental velocity")
 #plot(timebody[0:len(timeiimu)-63],veliimux[63:len(timeiimu)], '-o', label="X imu incremental velocity")
 #plot(timebody[0:len(timeiimu)-63],velcimux, '-o', label="X combined imu velocity")
@@ -282,16 +341,64 @@ plot(timevicon[0:len(timevicon)-6],velviconx[6:len(timevicon)], '-o',label="X gr
 plot(timevicon[0:len(timevicon)-6],np.cumsum(velviconx[6:len(timevicon)]), '-o',label="X ground truth incre velocity")
 #plot(timevicon,velviconx, '-o',label="X incre ivicon ground truth velocity")
 plot(timeerror,velerrorx, '-o', label="X error velocity")
+plot(terror,filtervelerrorx, '-o', label="X error velocity")
+plot(timeaerror,accerrorx, '-o', label="X error acceleration")
 plot(timehellinger,hellingerx, '-o', label="X Hellinger Coef")
 plot(timemaha,mahax, '-o', label="Mahalanobis distance")
 plot(timeerror,sqrt(velerrorx), '-o', label="X error velocity")
-plot(timefiltererror,filtervelerrorx, '-o', label="X filter error velocity")
+plot(terror,velfiltererrorx, '-o', label="X filter error velocity")
 grid()
 xlabel("Time(s)")
 ylabel("Velocity(m/s)")
 title("Asguard Body Center Velocity")
 legend()
 
+plt.figure(2)
+plot(tbody,velbodyx, '-o', label="X model velocity estimation")
+plot(tvicon[0:len(tvicon)-6],velviconx[6:len(tvicon)], '-o',label="X ground truth velocity")
+plot(terror,velerrorx, '-o', label="X velocity error")
+grid()
+xlabel("Time(s)")
+ylabel("Velocity(m/s)")
+title("Asguard Body Velocity - Slip Path")
+legend()
+plt.show()
+
+plt.figure(2)
+plot(twls,wlsnav, '-o', label="Std. Nav Kinematics")
+xlabel("Time(s)")
+ylabel("Velocity(m/s)")
+title("Aguard - Evolution of the Uncertainty - Serpentine Path")
+legend()
+plt.show()
+
+plt.figure(3)
+plot(tbody,velbodyy, '-o', label="Y model velocity estimation")
+#plot(timebody,np.cumsum(velbodyy), '-o', label="Y kinematics velocity")
+plot(timu,velimuy, '-o', label="Y imu incre velocity")
+plot(timu,np.cumsum(velimuy), '-o', label="Y imu velocity")
+#plot(timeimu,accimuy, '-o', label="Y imu acc")
+#plot(timevicon[0:len(timevicon)-6],velvicony[6:len(timevicon)], '-o',label="Y ground truth velocity")
+plot(terror,velerrory, '-o', label="Y error velocity")
+plot(taerror,accerrory, '-o', label="Y error acceleration")
+grid()
+xlabel("Time(s)")
+ylabel("Velocity(m/s)")
+title("Asguard Body Velocity - Lateral Slip")
+legend()
+
+
+##################################
+# 1stOrder Filter Velocity error
+##################################
+velfiltererrorx=[]
+delta_t=1.0/100.0
+Tc=1.0/2.0
+
+velfiltererrorx.append(velerrorx[0])
+
+for i in range(1,len(velerrorx)):
+  velfiltererrorx.append(velfiltererrorx[i-1] + (delta_t/Tc)*(velerrorx[i]-velfiltererrorx[i-1]))
 #######################
 velerrorx = []
 for i in range(0,len(velimux)):
@@ -527,28 +634,37 @@ legend()
 # Position
 ####################
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.puremodel_position.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.pose_out.1.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.pose_out.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.pose_out.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 
-timemodel=[]
-posmodelx=[]
-posmodely=[]
-posmodelz=[]
-velmodelx=[]
-velmodely=[]
-velmodelz=[]
+timepose=[]
+posposex=[]
+posposey=[]
+posposez=[]
+velposex=[]
+velposey=[]
+velposez=[]
 
 for row in spamReader:
     #print row
-    timemodel.append(float(row[0])/1000000)
-    posmodelx.append(float(row[1]))
-    posmodely.append(float(row[2]))
-    posmodelz.append(float(row[3]))
-    velmodelx.append(float(row[4]))
-    velmodely.append(float(row[5]))
-    velmodelz.append(float(row[6]))
+    timepose.append(float(row[0])/1000000)
+    posposex.append(float(row[1]))
+    posposey.append(float(row[2]))
+    posposez.append(float(row[3]))
+    velposex.append(float(row[4]))
+    velposey.append(float(row[5]))
+    velposez.append(float(row[6]))
     
-
+deltapose = []
+for i in range(0,len(timepose)-1):
+    #print timebody[i]
+    tpose = float(timepose[i+1]) - float(timepose[i])
+    deltapose.append(tpose)
+    
+deltapose_t = mean(deltapose)    
+sample_ratepose = 1/deltapose_t
+tpose = deltapose_t * r_[0:len(timepose)]
 
 spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.puremodel_position.center.2.data', 'rb'), delimiter=' ', quotechar='|')
 
@@ -565,8 +681,35 @@ for row in spamReader:
     posbodyy.append(float(row[2]))
     posbodyz.append(float(row[3]))
 
+#Asguard odometry
+spamReader = csv.reader(open('/home/jhidalgocarrio/iMoby/iMoby-dev/asguard/orogen/asguard_odometry/scripts/data/normal_spacehall/spacehall1154.asguard_odo.1.data', 'rb'), delimiter=' ', quotechar='|')
 
-spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.vicon_position.1.data', 'rb'), delimiter=' ', quotechar='|')
+timeodo=[]
+posodox=[]
+posodoy=[]
+posodoz=[]
+
+for row in spamReader:
+    #print row
+    timeodo.append(float(row[0])/1000000)
+    posodox.append(float(row[1]))
+    posodoy.append(float(row[2]))
+    posodoz.append(float(row[3]))
+
+deltaodo = []
+for i in range(0,len(timeodo)-1):
+    #print time[i]
+    todo = float(timeodo[i+1]) - float(timeodo[i])
+    deltaodo.append(todo)
+    
+deltaodo_t = mean(deltaodo)
+sample_rateodo = 1/deltaodo_t
+todo = deltaodo_t * r_[0:len(timeodo)]
+
+
+#Vicon pose(ground truth)
+#spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.vicon_position.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.vicon_position.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timevicon=[]
@@ -581,12 +724,21 @@ for row in spamReader:
     posvicony.append(float(row[2]))
     posviconz.append(float(row[3]))
 
+deltavicon = []
+for i in range(0,len(timevicon)-1):
+    #print time[i]
+    tvicon = float(timevicon[i+1]) - float(timevicon[i])
+    deltavicon.append(tvicon)
+    
+deltavicon_t = mean(deltavicon)    
+sample_ratevicon = 1/deltavicon_t
+tvicon = deltavicon_t * r_[0:len(timevicon)]
 
 #################
 ### GRAPHICS  ###
 #################
 plt.figure(2)
-plot(timemodel,posmodelx, label="X model position(roverlocal)")
+plot(timepose,posposex, label="X model position(roverlocal)")
 plot(timebody,posbodyx, label="X body position")
 #plot(timu,accimux, label="X imu acc")
 plot(timevicon,posviconx, label="X vicon position")
@@ -607,6 +759,7 @@ ylabel("Position(m)")
 legend()
 
 
+    
 plt.figure(4)
 plot(timemodel,posmodelz, label="Z model position(roverlocal)")
 plot(timebody,posbodyz, label="Z body position")
@@ -618,16 +771,30 @@ ylabel("Position(m)")
 legend()
 
 
-
+posodobisx=[]
+posodobisy=[]
+for i in range(0,len(posodox)):
+    posodobisx.append(posodox[i]-(posodox[0] - posposex[0]))
+    posodobisy.append(posodoy[i]-(posodoy[0] - posposey[0]))
+    
 plt.figure(5)
-plot(posmodelx,posmodely, label="Model with dynamic wheel-weithing matrix")
-plot(posbodyx,posbodyy, label="Model without wheel-weithing matrix")
+plot(posposex,posposey, label="Navigation kinematics (6DoF)")
+#plot(posbodyx,posbodyy, label="Model without wheel-weithing matrix")
 #plot(timu,accimux, label="X imu acc")
-plot(posviconx,posvicony, label="Vicon position")
-grid()
+#plot(posodox,posodoy, label="Asguard odometry")
+#plot(posodobisx,posodobisy, label="Conventional planar kinematics (3DoF)")
+plot(posviconx,posvicony, label="Ground truth position (vicon)")
 xlabel("Position X-axis (m)")
 ylabel("Position Y-axis (m)")
+title("Asguard Position - Navigation Kinematics")
+grid()
 legend()
+
+plt.figure(6)
+plot(posodox,posodoy, label="Asguard odometry")
+plot(posodox,posodoy, label="Asguard odometry")
+legend()
+plt.show()
 
 ####################
 # Inertial sensors
