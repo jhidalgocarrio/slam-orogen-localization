@@ -274,14 +274,14 @@ task_context "Task" do
     output_port('rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the vicon system'
 
-    output_port('imu_sensors_out', '/base/samples/IMUSensors').
-	doc 'Inertial sensor outport processed by the callback function of the transformer'
-
     output_port('incre_rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Delta pose and velocities computed from the vicon system'
 
-    output_port('least_squares_error', 'double').
-	doc 'Relative error in the least-squares computation.'
+    output_port('imu_sensors_out', '/base/samples/IMUSensors').
+	doc 'Inertial sensor outport processed by the callback function of the transformer'
+
+    output_port('measurement_info', '/localization/MeasurementGenerationInfo').
+	doc 'Some debug information of the least-squares computation.'
 
     output_port('angular_position', 'double').
 	doc 'Angular position of the FL wheel'

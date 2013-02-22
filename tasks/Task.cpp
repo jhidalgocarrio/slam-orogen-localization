@@ -400,7 +400,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
  	mysckf.update(Hme, Rme, vel_error, acc, mag, delta_t, false);
 
 	/** Set the variables to perform the dead-reckoning **/
-	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.getVelocity();//mysckf.filtermeasurement.getCurrentVeloModel();
+	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.filtermeasurement.getCurrentVeloModel();//mysckf.getVelocity();
 	Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
 	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
@@ -419,7 +419,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** To Rover Slip Vector **********\n";
 	#endif
-	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, delta_t);
+// 	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, delta_t);
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** To Asguard Body **********\n";
@@ -1646,6 +1646,7 @@ void Task::toDebugPorts()
     base::samples::RigidBodyState rbsVicon;
     localization::FilterInfo finfo;
     localization::SlipInfo sinfo;
+    localization::MeasurementGenerationInfo mInfo;
 
     /** Port out the slip vectors **/
     mymeasure->toSlipInfo(sinfo);
@@ -1686,27 +1687,35 @@ void Task::toDebugPorts()
     
 //     rbsVelError.velocity = mysckf.getIncreVeloError();
 //     _incre_velocities_error.write(rbsVelError);
-    
-    /** Port out the info comming from vicon **/
-    rbsVicon = poseInit[0];
-//     rbsVicon.velocity = mysckf.getAttitude() * poseInit.velocity; // velocity in body frame
-    rbsVicon.time = rbsBC.time;
-    _rbsVicon.write(rbsVicon);
-    
-    /** Port out the delta info comming from vicon **/
-    rbsVicon.position = poseInit[0].position - poseInit[1].position;
-    rbsVicon.cov_position = poseInit[0].cov_position - poseInit[1].cov_position;
-    rbsVicon.velocity = poseInit[0].velocity - poseInit[1].velocity;
-    rbsVicon.cov_velocity = poseInit[0].cov_velocity - poseInit[1].cov_velocity;
-    _incre_rbsVicon.write(rbsVicon);
+
+    if (_pose_init.connected())
+    {
+	/** Port out the info comming from vicon **/
+	rbsVicon = poseInit[0];
+	rbsVicon.velocity = mysckf.getAttitude().inverse() * poseInit[0].velocity; // velocity in body frame
+	rbsVicon.time = rbsBC.time;
+	_rbsVicon.write(rbsVicon);
+	
+	/** Port out the delta info comming from vicon **/
+	rbsVicon.position = poseInit[0].position - poseInit[1].position;
+	rbsVicon.cov_position = poseInit[0].cov_position - poseInit[1].cov_position;
+	rbsVicon.velocity = mysckf.getAttitude().inverse() * (poseInit[0].velocity - poseInit[1].velocity);//in body frame
+	rbsVicon.cov_velocity = mysckf.getAttitude().inverse()* (poseInit[0].cov_velocity - poseInit[1].cov_velocity);
+	_incre_rbsVicon.write(rbsVicon);
+    }
     
     /** IMU outport **/
     _imu_sensors_out.write(imuSamples[0]);
     
     /** Port out filter info **/
-    mysckf.toFilterInfo(finfo);
+    mysckf.toFilterInfo(finfo, delta_t);
     finfo.time = rbsBC.time;
     _filter_info.write(finfo);
+    
+    /** Port out measurement generation info **/
+    mInfo.time = rbsBC.time;
+    mymeasure->toMeasurementGenerationInfo(mInfo);
+    _measurement_info.write(mInfo);
      
     
 }
