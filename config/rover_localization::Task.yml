@@ -53,10 +53,10 @@ eccz:
 # Quaternion to specify the projection of the center of mass to the rover X-Y plane (center of gravity).Identity quaternion if the weight is equally distributed.
 #corresponding to asguard uneven weight distribution (roll=0.00, pitch=+18.26 and yaw=0.00)
 q_weight_distribution:
-  re: 0.987331
+  re: 0.9974032102313197 #0.987331 #Whitout GPS
   im:
   - 0.0
-  - 0.158675
+  - 0.07201969328078207 #0.158675 #Whitout GPS
   - 0.0
 # Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (transformer)
 filter_frequency: 100.0
