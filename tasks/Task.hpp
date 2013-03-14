@@ -53,12 +53,12 @@ namespace rover_localization {
     #define NUMAXIS 3 /** Number of axis sensed by the sensors **/
     #endif
     
-    #ifndef NUMBER_INIT_ACC
-    #define NUMBER_INIT_ACC 1000 /** Number acc samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
+    #ifndef NUMBER_INIT_LEVELING
+    #define NUMBER_INIT_LEVELING 1000 /** Default number of the initLeveling **/
     #endif
     
     #ifndef DEFAULT_CIRCULAR_BUFFER_SIZE
-    #define DEFAULT_CIRCULAR_BUFFER_SIZE 2 /** Number object regarding the inport **/
+    #define DEFAULT_CIRCULAR_BUFFER_SIZE 2 /** Default number of objects to store regarding the inputs port **/
     #endif
 
     /*! \class Task 
@@ -82,17 +82,28 @@ namespace rover_localization {
 	
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	
+	int initLeveling; /** Number acceleration samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
+	
 	/** Init pose **/
 	bool initPosition, initAttitude;
 	
 	/** Index for acc mean value for init attitude (Pose init process) **/
 	int accidx;
 	
-	/** Index for processed samples in teh buffer **/
+	/** Index for processed samples in the buffer **/
 	int samplesidx;
 	
+	/** Index for triggering the indirect filter  **/
+	int filteridx;
+	
+	/** Number of iteration that the proprioceptive measurement runs before triggering the indirect filter  **/
+	int measurementiterations;
+	
+	/** Integration step for the proprioceptive measurement in seconds **/
+	double measurement_delta_t;
+	
 	/** Integration step for the filter in seconds **/
-	double delta_t;
+	double filter_delta_t;
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberHbridgeSamples; /** number of Hbridge samples for the resampling**/
@@ -110,7 +121,7 @@ namespace rover_localization {
  	unsigned int counterForceSamples; /** conter of Ground Force info samples for the resampling **/
  	unsigned int counterPose; /** counter of pose information comming from external measurement **/
  	
- 	/** Buffer for inputs port samples (filtered to the desired filter frequency) **/
+ 	/** Buffer for raw inputs port samples (filtered to the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbHbridges;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;
 	boost::circular_buffer<base::samples::IMUSensors> cbIMU;
@@ -146,7 +157,7 @@ namespace rover_localization {
 	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/
 	
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
-	Eigen::Matrix <double,NUMAXIS, NUMBER_INIT_ACC> init_acc;
+	Eigen::Matrix <double,NUMAXIS, Eigen::Dynamic> init_acc;
 	
 	/** Joint encoders velocities (order is 0 -> PassiveJoint, 1-> RL, 2 -> RR, 3 -> FR, 4 -> FL, ) **/
 	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;
@@ -187,6 +198,7 @@ namespace rover_localization {
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRL;
 	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRR;
 	
+	/** ****** **/
 	/** Envire **/
 	envire::Environment mEnv;
 	envire::MLSGrid *mpSlip;

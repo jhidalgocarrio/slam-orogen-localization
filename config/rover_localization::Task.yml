@@ -58,8 +58,10 @@ q_weight_distribution:
   - 0.0
   - 0.07201969328078207 #0.158675 #Whitout GPS
   - 0.0
-# Desired frequency in Hertz to run the filter. It cannnot be bigger that the sensor values of the aggregator (transformer)
-filter_frequency: 100.0
+# Desired frequency in Hertz to run the indirect filter. It cannot be higher that measurement frequency (proprioceptive sensors measurement)
+filter_frequency: 5.0
+# Desired frequency in Hertz to run the prioprocesing measurement step. It cannot be higher that the sensor values of the aggregator (transformer)
+measurement_frequency: 100.0
 # bias offset in static regimen for the Gyroscopes
 gbiasof: 
   data: 

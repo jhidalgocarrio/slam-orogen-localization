@@ -123,14 +123,20 @@ task_context "Task" do
 
 
     #******************************
-    #**** Filter Properties *******
+    #**** Framework Properties ****
     #******************************
-    property('filter_frequency', 'double', 100).
-	doc 'Desired frequency in Hertz to run the filter. It cannnot be higher that the sensor values of the aggregator (transformer)'
+    property('measurement_frequency', 'double', 100).
+	doc 'Desired frequency in Hertz to run the prioprocesing measurement step. It cannot be higher that the sensor values of the aggregator (transformer)'
+
+    property('filter_frequency', 'double', 5).
+	doc 'Desired frequency in Hertz to run the indirect filter. It cannot be higher that measurement frequency (proprioceptive sensors measurement)'
 
     #******************************
     #******* Input ports  *********
     #******************************
+
+    #******* Proprioceptive sensors *********
+
     input_port('hbridge_samples', '/base/actuators/Status').
         needs_reliable_connection.
 	doc 'timestamped Motorstate samples providing odometry information.'
@@ -148,6 +154,12 @@ task_context "Task" do
     input_port("ground_forces_estimated", "torque_estimator/GroundForces").
         doc("Estimated ground force values")
 
+    #******* Exteroceptive sensors *********
+    
+    #TO-DO
+
+    #******* Initial pose/External Ground Truth*********
+
     input_port("pose_init", "/base/samples/RigidBodyState").
         doc("Rover position and orientation information (only for initialization or debug purpose)")
 
@@ -156,7 +168,7 @@ task_context "Task" do
     ##########################
     transformer do
 	transform "imu", "body"
-	align_port("calibrated_sensors", 0.008)
+	align_port("calibrated_sensors", 0.002)
 	align_port("hbridge_samples", 0.001)
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_estimated", 0.01)
@@ -248,7 +260,7 @@ task_context "Task" do
     #******* Debug OutPorts *******
     #******************************
     output_port('slip_vector', '/localization/SlipInfo').
-	doc 'Timestamnped slip vector for the rover (all the wheels)'
+	doc 'Timestamped slip vector for the rover (all the wheels)'
 
     output_port('filter_info', '/localization/FilterInfo').
 	doc 'Timestamped filter information for debug'
@@ -270,6 +282,9 @@ task_context "Task" do
 
     output_port('velocities_error', 'base/samples/RigidBodyState').
 	doc 'Velocity error in body frame'
+
+    output_port('velocities_error_truth', 'base/samples/RigidBodyState').
+	doc 'Velocity error in body frame comparison with the vicon system'
 
     output_port('rbsVicon', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the vicon system'
