@@ -35,19 +35,19 @@ Orocos.run 'rover_localization::Task' => 'rover_localization' do
     
     #Mapping the inputs ports in the navigation tasks
     if viz[:proprio]
-	log_replay.propriocessing.hbridge_samples_out.connect_to(asguard_localization_task.hbridge_samples, :type => :buffer, :size => 100 )
-	log_replay.propriocessing.systemstate_samples_out.connect_to(asguard_localization_task.systemstate_samples, :type => :buffer, :size => 100 )
-	log_replay.propriocessing.calibrated_sensors_out.connect_to(asguard_localization_task.calibrated_sensors, :type => :buffer, :size => 100 )
+	log_replay.propriocessing.hbridge_samples_out.connect_to(asguard_localization_task.hbridge_samples, :type => :buffer, :size => 200 )
+	log_replay.propriocessing.systemstate_samples_out.connect_to(asguard_localization_task.systemstate_samples, :type => :buffer, :size => 200 )
+	log_replay.propriocessing.calibrated_sensors_out.connect_to(asguard_localization_task.calibrated_sensors, :type => :buffer, :size => 200 )
     else
-	log_replay.hbridge.status_motors.connect_to(asguard_localization_task.hbridge_samples, :type => :buffer, :size => 100 )
-	log_replay.sysmon.system_status.connect_to(asguard_localization_task.systemstate_samples, :type => :buffer, :size => 100 )
-	log_replay.stim300.calibrated_sensors.connect_to(asguard_localization_task.calibrated_sensors, :type => :buffer, :size => 100 )
+	log_replay.hbridge.status_motors.connect_to(asguard_localization_task.hbridge_samples, :type => :buffer, :size => 200 )
+	log_replay.sysmon.system_status.connect_to(asguard_localization_task.systemstate_samples, :type => :buffer, :size => 200 )
+	log_replay.stim300.calibrated_sensors.connect_to(asguard_localization_task.calibrated_sensors, :type => :buffer, :size => 200 )
     end
     
     if viz[:vicon]
-	log_replay.vicon.pose_samples.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
+	log_replay.vicon.pose_samples.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 200 )
     elsif (viz[:pvicon] || viz[:ivicon])
-	log_replay.propriocessing.pose_samples_out.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 100 )
+	log_replay.propriocessing.pose_samples_out.connect_to(asguard_localization_task.pose_init, :type => :buffer, :size => 200 )
     end
 
     asguard_localization_task.calibrated_sensors.frame = "stim300"
