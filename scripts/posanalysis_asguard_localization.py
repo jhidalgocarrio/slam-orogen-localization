@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_corrected.0.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.puremodel_velo.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.puremodel_velo.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.puremodel_velo.incre.slip_gp.5.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.puremodel_velo.nk.data', 'rb'), delimiter=' ', quotechar='|')
 
 timebody=[]
@@ -51,7 +52,7 @@ tbody = deltabody_t * r_[0:len(timebody)]
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_acc_velo.incre.2.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.imu_acc_velo.incre.1.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.slip_gp.5.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.imu_acc_velo.incre.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 timeimu=[]
@@ -128,8 +129,9 @@ tvicon = deltavicon_t * r_[0:len(timevicon)]
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1048.velocity_error.1.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.velocity_error.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.velocity_error.5.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.velocity_error.nk.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.velocity_error.slip_gp.5.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timeerror=[]
@@ -326,21 +328,22 @@ twls = deltawls_t * r_[0:len(timewls)]
 #################
 ### GRAPHICS  ###
 #################
-plt.figure(2)
-plot(timebody,velbodyx, '-o', label="X model velocity estimation")
-plot(timebody,np.cumsum(velbodyx), '-o', label="X kinematics velocity")
+plt.figure(4)
+plot(tbody,velbodyx, '-o', label="X model velocity estimation")
+#plot(tbody,np.cumsum(velbodyx), '-o', label="X kinematics velocity")
 #plot(timebody,velibodyx, '-o', label="X model incremental velocity")
-plot(timeimu,velimux, '-o', label="X imu incre velocity")
-plot(timeimu,np.cumsum(velimux), '-o', label="X imu velocity")
+plot(timu,velimux, '-o', label="X imu incre velocity")
+fill_between(timu, velbodyx, velimux)
+#plot(timu,np.cumsum(velimux), '-o', label="X imu velocity")
 #plot(timeiimu,veliimux, '-o', label="X imu incremental velocity")
 #plot(timebody[0:len(timeiimu)-63],veliimux[63:len(timeiimu)], '-o', label="X imu incremental velocity")
 #plot(timebody[0:len(timeiimu)-63],velcimux, '-o', label="X combined imu velocity")
-plot(timeimu,accimux, '-o', label="X imu acc")
+plot(timu,accimux, '-o', label="X imu acc")
 #plot(timeiimu,acciimux, '-o', label="X imu acc (incremental log)")
 plot(timevicon[0:len(timevicon)-6],velviconx[6:len(timevicon)], '-o',label="X ground truth velocity")
 plot(timevicon[0:len(timevicon)-6],np.cumsum(velviconx[6:len(timevicon)]), '-o',label="X ground truth incre velocity")
 #plot(timevicon,velviconx, '-o',label="X incre ivicon ground truth velocity")
-plot(timeerror,velerrorx, '-o', label="X error velocity")
+plot(terror,velerrorx, '-o', label="X error velocity")
 plot(terror,filtervelerrorx, '-o', label="X error velocity")
 plot(timeaerror,accerrorx, '-o', label="X error acceleration")
 plot(timehellinger,hellingerx, '-o', label="X Hellinger Coef")
@@ -372,7 +375,7 @@ title("Aguard - Evolution of the Uncertainty - Serpentine Path")
 legend()
 plt.show()
 
-plt.figure(3)
+plt.figure(5)
 plot(tbody,velbodyy, '-o', label="Y model velocity estimation")
 #plot(timebody,np.cumsum(velbodyy), '-o', label="Y kinematics velocity")
 plot(timu,velimuy, '-o', label="Y imu incre velocity")
@@ -461,17 +464,19 @@ legend()
 
 ### SUM BY BLOCK ##
 
-blocksize = 10
+blocksize = 20
 
 #For Model incre
 velblockbodyx = []
 timeblockbody = []
+tblockbody = []
 count = 0    
 
 while (count < len(velbodyx)):
     print np.sum(velbodyx[count-blocksize:count])
     velblockbodyx.append(np.sum(velbodyx[count-blocksize:count]))
     timeblockbody.append(timebody[count])
+    tblockbody.append(tbody[count])
     count = count + blocksize
 
 
@@ -481,12 +486,14 @@ while (count < len(velbodyx)):
 #For IMU incre
 velblockimux = []
 timeblockimu = []
+tblockimu = []
 count = 0    
 
 while (count < len(velimux)):
     print np.sum(velimux[count-blocksize:count])
     velblockimux.append(np.sum(velimux[count-blocksize:count]))
     timeblockimu.append(timeimu[count])
+    tblockimu.append(timu[count])
     count = count + blocksize
 
 
@@ -502,11 +509,12 @@ while (count < len(velviconx)):
     velblockviconx.append(np.sum(velviconx[count-blocksize:count]))
     timeblockvicon.append(timevicon[count])
     count = count + blocksize
-
+    
+    
 plt.figure(7)
-plot(timeblockbody,velblockbodyx, '-o', label="X model block sum velocity estimation(1)")
-plot(timeblockimu,velblockimux, '-o', label="X imu block sum velocity estimation")
-plot(timeblockvicon,velblockviconx, '-o', label="X vicon block sum velocity estimation")
+plot(tblockbody,velblockbodyx, '-o', label="X model block sum velocity estimation(1)")
+plot(tblockimu,velblockimux, '-o', label="X imu block sum velocity estimation")
+plot(tblockvicon,velblockviconx, '-o', label="X vicon block sum velocity estimation")
 grid()
 xlabel("Time(s)")
 ylabel("Velocity(m/s)")
@@ -800,7 +808,8 @@ plt.show()
 # Inertial sensors
 ####################
 #All the sensor in one file
-spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_outport.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.imu_outport.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.imu_inport.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 time=[]
