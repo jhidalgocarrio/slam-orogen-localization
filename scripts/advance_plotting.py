@@ -4,73 +4,149 @@ import csv, scipy
 from pylab import *
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
 
 def func(x):
     return (x-3)*(x-5)*(x-7)+85
     
-class VeloData:
-    time
-    delta
-    t
-    x
-    y
-    z
+class ThreeData:
     
     def __init__(self):
 	self.time = []
 	self.delta = []
 	self.t=[]
-	self.x=[]
-	self.y=[]
-	self.z=[]
+	self.data=[]
+	self.cov=[]
+	self.var=[]
 	
     def f(self):
         return 'hello world'
     
-    def readData(self,filename):
+    def readData(self,filename, cov=False):
 	
 	for row in csv.reader(open(filename, 'rb'), delimiter=' ', quotechar='|'):
 	    #print row
 	    self.time.append(float(row[0])/1000000)
-	    self.x.append(float(row[1]))
-	    self.y.append(float(row[2]))
-	    self.z.append(float(row[3]))
+	    self.data.append(np.array([float(row[1]), float(row[2]), float(row[3])]))
 	    
-	time = self.time     
+	    if False != cov:
+		matrix = np.array([[float(row[4]), float(row[5]), float(row[6])],
+			    [float(row[7]), float(row[8]), float(row[9])],
+			    [float(row[10]), float(row[11]), float(row[12])]])
+		self.cov.append(matrix)
+		
+	    
+	time = self.time
 	for i in range(0,len(time)-1):
 	    tbody = float(time[i+1]) - float(time[i])
 	    self.delta.append(tbody)
 	    
-	deltabody_t = mean(self.delta)    
-	self.t = deltabody_t * r_[0:len(self.time)]
+	self.t = mean(self.delta) * r_[0:len(self.time)]
+	
+    def eigenValues(self):
+	
+	#Eigen values are the axis of the ellipsoid
+	for i in range(0,len(self.cov)):
+	    self.var.append(linalg.eigvals(self.cov[i]))
+	    
+    def plot_axis(self, fign=1, axis=0, cov=False, levelconf=1, grid=False, linecolor=[1,0,0]):
+	
+	values = []
+	sdmax=[]
+	sdmin=[]
+	for i in range(0,len(self.data)):
+	    values.append(self.data[i][axis])
+	    sdmax.append(values[i]+(levelconf*sqrt(self.var[i][axis])))
+	    sdmin.append(values[i]-(levelconf*sqrt(self.var[i][axis])))
+	    #print i
+	    #print values[i]
+	    
+	#print len(values)
+	plt.figure(fign)
+	plt.plot(self.t, values, '-o', label="X axis", color=linecolor)
+	
+	if False != cov:
+	    plt.fill_between(self.t, sdmax, sdmin, color=linecolor)
+	
+	if False != grid:
+	    plt.grid(True)
+	    
+	plt.show()
+	
+
+#Motion model incremental velocity
+ivelbody100Hz = ThreeData()
+ivelbody1Hz = ThreeData()
+ivelbody100Hz.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.slip_gp.5.data', cov=True)
+ivelbody1Hz.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.slip_gp.6.data', cov=True)
+ivelbody100Hz.eigenValues()
+ivelbody1Hz.eigenValues()
+
+#IMU incremental velocity
+velimu100Hz = ThreeData()
+velimu1Hz = ThreeData()
+velimu100Hz.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.slip_gp.5.data', cov=True)
+velimu1Hz.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.slip_gp.6.data', cov=True)
+velimu100Hz.eigenValues()
+velimu1Hz.eigenValues()
 
 
-velbody = VeloData()
-velbody.readData('data/minitest_spacehall/spacehall1852.puremodel_velo.incre.0.data')
+#Velocity error
+evelocity100Hz = ThreeData()
+evelocity1Hz = ThreeData()
+evelocity100Hz.readData('data/normal_spacehall/spacehall1140.velocity_error.slip_gp.5.data', cov=True)
+evelocity1Hz.readData('data/normal_spacehall/spacehall1140.velocity_error.slip_gp.6.data', cov=True)
+evelocity100Hz.eigenValues()
+evelocity1Hz.eigenValues()
 
-ax = subplot(111)
 
-a, b = 2, 9 # integral area
-x = arange(0, 10, 0.01)
-y = func(x)
-plot(x, y, linewidth=1)
+#Ploting
+ivelbody100Hz.plot_axis(1, 0,True, 1, True, [0,0,1])
+velimu100Hz.plot_axis(1, 0,True, 1, True, [0,1,0])
+evelocity100Hz.plot_axis(1, 0,True, 1, True, [1,0,0])
 
-# make the shaded region
-ix = arange(a, b, 0.01)
-iy = func(ix)
-verts = [(a,0)] + list(zip(ix,iy)) + [(b,0)]
-poly = Polygon(verts, facecolor='0.8', edgecolor='k')
-ax.add_patch(poly)
+ivelbody1Hz.plot_axis(3, 0,True, 2, True, [0,0,1])
+velimu1Hz.plot_axis(3, 0,True, 2, True, [0,1,0])
+#evelocity1Hz.plot_axis(2, 0,True, 1, True, [1,0,0])
 
-text(0.5 * (a + b), 30,
-     r"$\int_a^b f(x)\mathrm{d}x$", horizontalalignment='center',
-     fontsize=20)
 
-axis([0,10, 0, 180])
-figtext(0.9, 0.05, 'x')
-figtext(0.1, 0.9, 'y')
-ax.set_xticks((a,b))
-ax.set_xticklabels(('a','b'))
-ax.set_yticks([])
-show()
+
+#Motion model incremental velocity
+ivelbody = ThreeData()
+ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.0.data', cov=True)
+ivelbody.eigenValues()
+
+#IMU incremental velocity
+velimu = ThreeData()
+velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.0.data', cov=True)
+velimu.eigenValues()
+
+
+#Velocity error
+evelocity = ThreeData()
+evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.0.data', cov=True)
+evelocity.eigenValues()
+
+ivelbody.plot_axis(3, 0,True, 3, True, [0,0,1])
+velimu.plot_axis(3, 0,True, 3, True, [0,1,0])
+evelocity.plot_axis(3,0,True, 1, True, [1,0,0])
+
+
+#Motion model incremental velocity
+ivelbody = ThreeData()
+ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.5.data', cov=True)
+ivelbody.eigenValues()
+
+#IMU incremental velocity
+velimu = ThreeData()
+velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.5.data', cov=True)
+velimu.eigenValues()
+
+
+#Velocity error
+evelocity = ThreeData()
+evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.5.data', cov=True)
+evelocity.eigenValues()
+
+ivelbody.plot_axis(7, 0,True, 3, True, [0,0,1])
+velimu.plot_axis(7, 0,True, 3, True, [0,1,0])
+evelocity.plot_axis(6,1,True, 1, True, [1,0,0])
