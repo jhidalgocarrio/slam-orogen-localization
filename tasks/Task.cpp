@@ -18,6 +18,7 @@ Task::Task(std::string const& name)
     poseInitValues = false;
     initPosition = false;
     initAttitude = false;
+    useInclinometers = false;
     
     /** Set index values **/
     accidx = 0;
@@ -26,6 +27,9 @@ Task::Task(std::string const& name)
     
     /** Default size for initial acceleration leveling **/
     init_acc.resize (NUMAXIS, NUMBER_INIT_LEVELING);
+    
+    /** Default size for initial acceleration (inclinometers) leveling **/
+    init_incl.resize (NUMAXIS, NUMBER_INIT_LEVELING);
     
     /** Default size for the circular_buffer **/
     cbHbridges = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
@@ -131,27 +135,52 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	
 	/** Add one acc sample to the buffer **/
 	init_acc.col(accidx) = calibrated_sensors_sample.acc;
+	
+	/** Add one acc(inclinometer) sample to the buffer **/
+	init_incl.col(accidx) = calibrated_sensors_sample.mag; //!TO-DO: still incl values come into the mag field of the class
+	
 	accidx++;
-
+	
 	/** Chekc if the number of stores acceleration corresponds to the initial leveling **/
 	if (accidx == this->initLeveling)
 	{
-	    Eigen::Matrix <double,NUMAXIS,1> meanacc; /** In euler angles **/
+	    Eigen::Matrix <double,NUMAXIS,1> meanacc; /** Mean value of accelerometers **/
+	    Eigen::Matrix <double,NUMAXIS,1> meanincl; /** Mean value of inclinometer **/
 	    Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
 	    Eigen::Quaternion <double> attitude; /** Initial attitude in case no port in orientation is connected **/
 	    
+	    /** Mean inclinometers value **/
+	    meanincl[0] = init_incl.row(0).mean();
+	    meanincl[1] = init_incl.row(1).mean();
+	    meanincl[2] = init_incl.row(2).mean();
+	    
+	    /** Mean accelerometers value **/
 	    meanacc[0] = init_acc.row(0).mean();
 	    meanacc[1] = init_acc.row(1).mean();
 	    meanacc[2] = init_acc.row(2).mean();
+
 	    
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
-	    std::cout<<"*** Computed gravity: "<<meanacc.norm()<<"\n";
+	    std::cout<<"*** Computed gravity (acc): "<<meanacc.norm()<<"\n";
+	    if (useInclinometers)
+	    {
+		std::cout<<"*** Computed gravity (incl): "<<meanincl.norm()<<"\n";
+	    }
 	    #endif
 	    
-	    euler[0] = (double) asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
-	    euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
-	    euler[2] = - M_PI;
+	    if (useInclinometers)
+	    {
+		euler[0] = (double) asin((double)meanincl[1]/ (double)meanincl.norm()); // Roll
+		euler[1] = (double) -atan(meanincl[0]/meanincl[2]); //Pitch
+		euler[2] = - M_PI;
+	    }
+	    else
+	    {
+		euler[0] = (double) asin((double)meanacc[1]/ (double)meanacc.norm()); // Roll
+		euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
+		euler[2] = - M_PI;
+	    }
 	    
 	    /** Set the initial attitude when no initial IMU orientation is provided **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
@@ -260,11 +289,11 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"** Received IMU Samples **\n";
-	std::cout<<"acc:\n"<<calibrated_sensors_sample.acc<<"\n";
+	std::cout<<"acc(imu_frame):\n"<<calibrated_sensors_sample.acc<<"\n";
 	std::cout<<"acc(quat):\n"<<qtf * calibrated_sensors_sample.acc<<"\n";
 	std::cout<<"acc(Rot):\n"<< tf.rotation() * calibrated_sensors_sample.acc<<"\n";
-	std::cout<<"gyro:\n"<<calibrated_sensors_sample.gyro<<"\n";
-	std::cout<<"mag:\n"<<calibrated_sensors_sample.mag<<"\n";
+	std::cout<<"gyro(imu_frame):\n"<<calibrated_sensors_sample.gyro<<"\n";
+	std::cout<<"mag(imu_frame):\n"<<calibrated_sensors_sample.mag<<"\n";
 	#endif
 	
 	/** Convert the IMU values in the body orientation **/
@@ -367,19 +396,19 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	Measurement::SubstractEarthRotation(&angular_velocity, &currentq, _latitude.value());
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"********** ATTITUDE MODEL *****************\n";
+	mysckf.getEuler();
+	std::cout<<"********** PREDICT ***** IN_IDX("<<this->filteridx<<") ***\n";
 	#endif
 	
-	/** Measurement: compute the estimate quaternion (current orientation)
-	 *  and stores the inertial values for the measurement **/
-	mysckf.attitudeMeasurement(angular_velocity, acc, measurement_delta_t);
-	
+	/** Filter: Predict the state of the filter **/
+	mysckf.predict(angular_velocity, acc, propagation_delta_t);
+	    
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** MOTION MODEL *****************\n";
 	#endif
 	
 	/** Measurement: compute the motion model (nav. kinematics) **/
-	mysckf.motionModel (Anav, Bnav, vjoints, measurement_delta_t);
+	mysckf.motionModel (Anav, Bnav, vjoints, propagation_delta_t);
 	
 	/** Increment in one the filter index **/
 	this->filteridx++;
@@ -389,22 +418,16 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	{
 	    
 	    /** Get the inertial values from the measurement **/
-	    mysckf.measurement.getAvgInertialValues (acc, angular_velocity);
-	    
-	    #ifdef DEBUG_PRINTS
-	    mysckf.getEuler();
-	    std::cout<<"********** PREDICT ***** IN_IDX("<<this->filteridx<<") ***\n";
-	    #endif
-	    
-	    /** Filter: Predict the state of the filter **/
-	    mysckf.predict(angular_velocity, acc, filter_delta_t);
-	    
+	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
 	    
 	    /** Using the incremental velocity as measurement **/
 	    Eigen::Matrix<double,NUMAXIS,NUMAXIS> Hme;
 	    Eigen::Matrix<double,NUMAXIS,NUMAXIS> Rme;
 	    Eigen::Matrix<double,NUMAXIS,1> vel_error;
 	    Hme.setIdentity();Rme.setZero();vel_error.setZero();
+	    
+	    /** Velocity error measurement **/
+	    mysckf.velocityError (vel_error, Rme, update_delta_t);
 	    
 	    #ifdef DEBUG_PRINTS
 	    std::cout<< "[Measurement] Hme is of size "<<Hme.rows()<<"x"<<Hme.cols()<<"\n";
@@ -418,20 +441,8 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    #endif
 	    
 	    /** Update the state of the filter **/
-	    mysckf.update(Hme, Rme, vel_error, acc, mag, filter_delta_t, false);
-	    
-	    /** Set the variables to perform the dead-reckoning **/
-	    Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.measurement.getCurrentVeloModel();//mysckf.getVelocity();
-	    Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
-	    Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
-	    Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
-	    
-	    /** Dead-reckoning and save into rbsBC **/
-	    rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, measurement_delta_t);
-	    
-	    /** Write new pose to the output port **/
-	    _pose_samples_out.write(rbsBC);
-	    
+	    mysckf.update(Hme, Rme, vel_error, acc, mag, update_delta_t, false);
+
 	    /** Compute Slip vector **/
 	    Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> roverslipvector;
 	    Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE> roverslipvectorCov;
@@ -439,7 +450,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"********** To Rover Slip Vector **********\n";
 	    #endif
-    // 	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, measurement_delta_t);
+    // 	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, update_delta_t);
 	    
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"********** To Asguard Body **********\n";
@@ -451,6 +462,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"********** To Envire Representation **********\n";
 	    #endif
+	    
 	    /** Foot contact and slip vector to envire representation **/
 	// 	this->toMLSGrid(roverslipvector, roverslipvectorCov);
 	    
@@ -471,6 +483,18 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    this->filteridx = 0;
 	    
 	}
+	
+	/** Set the variables to perform the dead-reckoning **/
+	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.measurement.getCurrentVeloModel();//mysckf.getVelocity();
+	Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
+	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
+	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
+	
+	/** Dead-reckoning and save into rbsBC **/
+	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, propagation_delta_t);
+	
+	/** Write new pose to the output port **/
+	_pose_samples_out.write(rbsBC);
 
 	#ifdef DEBUG_PRINTS
 	std::cout<<"********** END **********\n";
@@ -608,7 +632,8 @@ bool Task::configureHook()
     double theoretical_g; /** Ideal gravity value **/
     int buffer_size; /** Buffer size of the propriocesing measurement **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra; /** Measurement noise convariance matrix for acc */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra_predict; /** Measurement noise convariance matrix for acc (predict) */
+    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra_update; /** Measurement noise convariance matrix for acc (update) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rat; /** Measurement noise convariance matrix for attitude correction (gravity vector noise) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /** Measurement noise convariance matrix for velocity (accelerometers integration) */
     Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /** Measurement noise convariance matrix for gyros */
@@ -645,11 +670,17 @@ bool Task::configureHook()
 	initPosition = true;
     }
     
+    /** Get the flag to use or not the inclinometers fopr initial leveling **/
+    useInclinometers = _use_inclinometers_leveling.value();
+    
     /** Set the initial number of samples for the attitude **/
-    this->initLeveling = static_cast<int>(10.0/_calibrated_sensors_period.value());
+    this->initLeveling = static_cast<int>(15.0/_calibrated_sensors_period.value());
     
     /** Init size for initial acceleration leveling **/
     init_acc.resize (NUMAXIS, this->initLeveling);
+    
+    /** Init size for initial acceleration leveling **/
+    init_incl.resize (NUMAXIS, this->initLeveling);
     
     /** Set the counters to Zero **/
     counterHbridgeSamples = 0;
@@ -660,14 +691,14 @@ bool Task::configureHook()
     counterPose = 0;
     
     /** Set the number of samples between each sensor input (if there are not comming at the same sampling rate) */
-    if (_measurement_frequency.value() != 0.00)
+    if (_propagation_frequency.value() != 0.00)
     {
-	numberIMUSamples = (1.0/_calibrated_sensors_period.value())/_measurement_frequency.value();
-	numberHbridgeSamples = (1.0/_hbridge_samples_period.value())/_measurement_frequency.value();
-	numberAsguardStatusSamples = (1.0/_systemstate_samples_period.value())/_measurement_frequency.value();
-	numberForceSamples = (1.0/_ground_forces_estimated_period.value())/_measurement_frequency.value();
-	numberTorqueSamples = (1.0/_torque_estimated_period.value())/_measurement_frequency.value();
-	numberPose = (1.0/_pose_init_period.value())/_measurement_frequency.value();
+	numberIMUSamples = (1.0/_calibrated_sensors_period.value())/_propagation_frequency.value();
+	numberHbridgeSamples = (1.0/_hbridge_samples_period.value())/_propagation_frequency.value();
+	numberAsguardStatusSamples = (1.0/_systemstate_samples_period.value())/_propagation_frequency.value();
+	numberForceSamples = (1.0/_ground_forces_estimated_period.value())/_propagation_frequency.value();
+	numberTorqueSamples = (1.0/_torque_estimated_period.value())/_propagation_frequency.value();
+	numberPose = (1.0/_pose_init_period.value())/_propagation_frequency.value();
     }
     
     #ifdef DEBUG_PRINTS
@@ -749,24 +780,24 @@ bool Task::configureHook()
     #endif
     
     
-    /** Measurement delta time step in seconds **/
-    if (_measurement_frequency.value() != 0.00)
-	measurement_delta_t = 1.0/_measurement_frequency.value();    
+    /** Propagation delta time step in seconds **/
+    if (_propagation_frequency.value() != 0.00)
+	propagation_delta_t = 1.0/_propagation_frequency.value();    
     
-    /** Indirect filter delta time step in seconds **/
-    if (_filter_frequency.value() != 0.00)
-	filter_delta_t = 1.0/_filter_frequency.value(); 
+    /** Indirect filter update delta time step in seconds **/
+    if (_update_frequency.value() != 0.00)
+	update_delta_t = 1.0/_update_frequency.value(); 
     
     /** Set the Indirect Filter Bandwidth delta time to the sensors bandwidth **/
     if (_sensors_bandwidth.value() != 0.00)
 	delta_bandwidth = 1.0/_sensors_bandwidth.value();
     
     /** Buffer size - difference between frequency in proprioceptive measurement and filter **/
-    if (filter_delta_t > measurement_delta_t)
-	buffer_size = static_cast<int> (filter_delta_t/measurement_delta_t); 
+    if (update_delta_t > propagation_delta_t)
+	buffer_size = static_cast<int> (update_delta_t/propagation_delta_t); 
     else
     {
-	filter_delta_t = measurement_delta_t;
+	update_delta_t = propagation_delta_t;
 	buffer_size = 1;
     }
     
@@ -774,29 +805,41 @@ bool Task::configureHook()
     this->measurementiterations = buffer_size;
     
     
-    /** Check if the indirect filter is running at lower frequency
-     *  than inertial sensor bandwidth. The Filter bandwidth cannot
+    /** Check if the indirect filter (propagation) is running at lower frequency
+     *  than inertial sensor bandwidth. The Filter "bandwidth" cannot
      *  be higher than the filter sampling rate **/
-    if (delta_bandwidth < filter_delta_t)
-	delta_bandwidth = filter_delta_t;
+    if (delta_bandwidth < propagation_delta_t)
+	delta_bandwidth = propagation_delta_t;
     
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
-    Ra = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Ra(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
-    Ra(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
-    Ra(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
+    Ra_predict = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Ra_predict(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
+    Ra_predict(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
+    Ra_predict(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
     
-    #ifdef DEBUG_PRINTS
-    std::cout<< "[Task configure] Ra is of size "<<Ra.rows()<<"x"<<Ra.cols()<<"\n";
-    std::cout<< "[Task configure] Ra:\n"<<Ra<<"\n";
-    #endif
+    if (update_delta_t > delta_bandwidth)
+    {
+	/** Accelerometers covariance matrix **/
+	Ra_update = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+	Ra_update(0,0) = pow(_accrw.get()[0]/sqrt(update_delta_t),2);
+	Ra_update(1,1) = pow(_accrw.get()[1]/sqrt(update_delta_t),2);
+	Ra_update(2,2) = pow(_accrw.get()[2]/sqrt(update_delta_t),2);
+    }
+    else
+    {
+	/** Accelerometers covariance matrix **/
+	Ra_update = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+	Ra_update(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
+	Ra_update(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
+	Ra_update(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
+    }
     
     /** Gravity vector covariance matrix **/
     Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rat(0,0) = NUMAXIS * Ra(0,0);//0.0054785914701378034;
-    Rat(1,1) = NUMAXIS * Ra(1,1);//0.0061094546837916494;
-    Rat(2,2) = NUMAXIS * Ra(2,2);//0.0063186020143245212;
+    Rat(0,0) = NUMAXIS * Ra_update(0,0);//0.0054785914701378034;
+    Rat(1,1) = NUMAXIS * Ra_update(1,1);//0.0061094546837916494;
+    Rat(2,2) = NUMAXIS * Ra_update(2,2);//0.0063186020143245212;
     
     /** Gyroscopes covariance matrix **/
     Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
@@ -815,9 +858,9 @@ bool Task::configureHook()
     
     /** Angular Velocity error for the proprioceptive measurements **/
     Rangvelo = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rangvelo(0,0) = pow(_accrw.get()[0]/sqrt(measurement_delta_t),2);
-    Rangvelo(1,1) = pow(_accrw.get()[1]/sqrt(measurement_delta_t),2);
-    Rangvelo(2,2) = pow(_accrw.get()[2]/sqrt(measurement_delta_t),2);
+    Rangvelo(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_bandwidth),2);
+    Rangvelo(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_bandwidth),2);
+    Rangvelo(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_bandwidth),2);
     
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
@@ -847,7 +890,7 @@ bool Task::configureHook()
     mysckf.measurement.Init(Ren, Rangvelo, _q_weight_distribution.value(), buffer_size);
     
     /** Initialization of the filter **/
-    mysckf.Init(P_0, Rg, Qbg, Qba, Ra, Rat, Rm, theoretical_g, (double)_dip_angle.value());
+    mysckf.Init(P_0, Rg, Qbg, Qba, Ra_predict, Ra_update, Rat, Rm, theoretical_g, (double)_dip_angle.value());
      
     /** Initialization set the vector state and bias offset to zero but they can be changed here **/
     x_0.resize(Sckf::X_STATE_VECTOR_SIZE,1);
@@ -921,8 +964,8 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[Info] Frequency of Asguard Status[Hertz]: "<<(1.0/_systemstate_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Torque Estimator[Hertz]: "<<(1.0/_torque_estimated_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Ground Force Estimator[Hertz]: "<<(1.0/_ground_forces_estimated_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Proprioceptive measurements running at Frequency[Hertz]: "<<_measurement_frequency.value()<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Indirect filter running at Frequency[Hertz]: "<<_filter_frequency.value()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] Predict step running at Frequency[Hertz]: "<<_propagation_frequency.value()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] Update step running at Frequency[Hertz]: "<<_update_frequency.value()<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] numberIMUSamples: "<<numberIMUSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] numberHbridgeSamples: "<<numberHbridgeSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] numberAsguardStatusSamples: "<<numberAsguardStatusSamples<<RTT::endlog();
@@ -1282,12 +1325,12 @@ void Task::calculateEncodersVelocities()
 	}
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"PassiveJoint old velocity: "<<(asguardStatus[0].asguardJointEncoder - asguardStatus[1].asguardJointEncoder)/measurement_delta_t<<"\n";
+	std::cout<<"PassiveJoint old velocity: "<<(asguardStatus[0].asguardJointEncoder - asguardStatus[1].asguardJointEncoder)/propagation_delta_t<<"\n";
 	#endif
 	
 	
 	/** Passive joint velocity **/
-	vjoints(0) = Measurement::finiteDifference (passiveJoint, measurement_delta_t); //passive joints speed
+	vjoints(0) = Measurement::finiteDifference (passiveJoint, propagation_delta_t); //passive joints speed
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"PassiveJoint new velocity: "<<vjoints(0)<<"\n";
@@ -1314,11 +1357,11 @@ void Task::calculateEncodersVelocities()
 		std::cout << "[Difference] Region!!\n";
 	    
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"MotorJoint old velocity: "<<(hbridgeStatus[0].states[i-1].positionExtern - hbridgeStatus[1].states[i-1].positionExtern)/measurement_delta_t<<"\n";
+	    std::cout<<"MotorJoint old velocity: "<<(hbridgeStatus[0].states[i-1].positionExtern - hbridgeStatus[1].states[i-1].positionExtern)/propagation_delta_t<<"\n";
 	    #endif
 	    
 	    /** Motor joint velocity **/
-	    vjoints(i) = Measurement::finiteDifference(motorsJoint, measurement_delta_t); //wheel rotation speed
+	    vjoints(i) = Measurement::finiteDifference(motorsJoint, propagation_delta_t); //wheel rotation speed
 	    
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"MotorJoint new velocity: "<<vjoints(i)<<"\n";
@@ -1328,7 +1371,7 @@ void Task::calculateEncodersVelocities()
 	
 	_angular_position.write(hbridgeStatus[0].states[3].positionExtern);
 	_angular_rate.write(vjoints(3));
-	_angular_rate_old.write((hbridgeStatus[0].states[3].positionExtern - hbridgeStatus[1].states[3].positionExtern)/measurement_delta_t);
+	_angular_rate_old.write((hbridgeStatus[0].states[3].positionExtern - hbridgeStatus[1].states[3].positionExtern)/propagation_delta_t);
     }
     
     #ifdef DEBUG_PRINTS
@@ -1713,6 +1756,11 @@ void Task::toDebugPorts()
     sinfo.time = rbsBC.time;
     _slip_vector.write(sinfo);
     
+    /** Port out filter info **/
+    mysckf.toFilterInfo(finfo, propagation_delta_t);
+    finfo.time = rbsBC.time;
+    _filter_info.write(finfo);
+    
     /** Port out the contact angle **/
 //     _contact_angle.write(mysckf.measurement.getContactAnglesVelocity()*this->measurement_delta_t);
     
@@ -1720,20 +1768,23 @@ void Task::toDebugPorts()
     rbsIMU.invalidate();
     rbsIMU.time = rbsBC.time;
     Eigen::Matrix<double, NUMAXIS, 1> acc, angvelo;
-    mysckf.measurement.getAvgInertialValues(acc, angvelo);
+    mysckf.measurement.getStepInertialValues(acc, angvelo);
     rbsIMU.position = acc;
     rbsIMU.angular_velocity = angvelo;
-    rbsIMU.velocity = mysckf.measurement.getLinearVelocities();
+    rbsIMU.velocity = mysckf.measurement.getLinearVelocities(update_delta_t);
+    rbsIMU.cov_velocity = mysckf.getLinearCovarianceVelocities(update_delta_t);
     _incre_velocities_imu.write(rbsIMU);
     
     /** Port out the incremental velocity computed in the model (body frame) **/
     rbsModel.invalidate();
     rbsModel.time = rbsBC.time;
     rbsModel.velocity = mysckf.measurement.getIncrementalVeloModel();
+    rbsModel.cov_velocity = mysckf.measurement.getIncrementalVeloModelCovariance();
     _incre_velocities_model.write(rbsModel);
     
     /** Port out the velocity computed in the model (body frame) **/
     rbsModel.velocity = mysckf.measurement.getCurrentVeloModel();
+    rbsModel.cov_velocity = mysckf.measurement.getCurrentVeloModelCovariance();
     _velocities_model.write(rbsModel);
     
     rbsCorrected.invalidate();
@@ -1745,6 +1796,7 @@ void Task::toDebugPorts()
     base::samples::RigidBodyState rbsVelError;
     rbsVelError.time = rbsBC.time;
     rbsVelError.velocity = mysckf.getVeloError(); //error = truth - estimated
+    rbsVelError.cov_velocity = finfo.evelocity_cov;
     _velocities_error.write(rbsVelError);
     
 //     rbsVelError.velocity = mysckf.getIncreVeloError();
@@ -1765,7 +1817,7 @@ void Task::toDebugPorts()
 	rbsVicon.cov_velocity = mysckf.getAttitude().inverse()* (poseInit[0].cov_velocity - poseInit[1].cov_velocity);
 	_incre_rbsVicon.write(rbsVicon);
 	
-	/** Port out the velocities error wrt the vicon system **/
+	/** Port out the model velocities error wrt the vicon system **/
 	rbsVicon.invalidate();
 	rbsVicon.time = rbsBC.time;
 	rbsVicon.velocity = (mysckf.getAttitude().inverse() * poseInit[0].velocity) - mysckf.measurement.getCurrentVeloModel();	
@@ -1774,11 +1826,6 @@ void Task::toDebugPorts()
     
     /** IMU outport **/
     _imu_sensors_out.write(imuSamples[0]);
-    
-    /** Port out filter info **/
-    mysckf.toFilterInfo(finfo, measurement_delta_t);
-    finfo.time = rbsBC.time;
-    _filter_info.write(finfo);
     
     /** Port out measurement generation info **/
     mInfo.time = rbsBC.time;

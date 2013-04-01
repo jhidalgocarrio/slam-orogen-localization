@@ -87,23 +87,26 @@ namespace rover_localization {
 	/** Init pose **/
 	bool initPosition, initAttitude;
 	
+	/** Init leveling **/
+	bool useInclinometers;
+	
 	/** Index for acc mean value for init attitude (Pose init process) **/
 	int accidx;
 	
 	/** Index for processed samples in the buffer **/
 	int samplesidx;
 	
-	/** Index for triggering the indirect filter  **/
+	/** Index for triggering the indirect filter update  **/
 	int filteridx;
 	
 	/** Number of iteration that the proprioceptive measurement runs before triggering the indirect filter  **/
 	int measurementiterations;
 	
 	/** Integration step for the proprioceptive measurement in seconds **/
-	double measurement_delta_t;
+	double propagation_delta_t;
 	
 	/** Integration step for the filter in seconds **/
-	double filter_delta_t;
+	double update_delta_t;
 	
 	/** Number of samples to process in the callback function **/
 	unsigned int numberHbridgeSamples; /** number of Hbridge samples for the resampling**/
@@ -158,6 +161,9 @@ namespace rover_localization {
 	
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
 	Eigen::Matrix <double,NUMAXIS, Eigen::Dynamic> init_acc;
+	
+	/** Initial values of Acceleremeters (Inclinometers) for Picth and Roll calculation */
+	Eigen::Matrix <double,NUMAXIS, Eigen::Dynamic> init_incl;
 	
 	/** Joint encoders velocities (order is 0 -> PassiveJoint, 1-> RL, 2 -> RR, 3 -> FR, 4 -> FL, ) **/
 	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;

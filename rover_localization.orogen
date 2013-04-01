@@ -125,11 +125,17 @@ task_context "Task" do
     #******************************
     #**** Framework Properties ****
     #******************************
-    property('measurement_frequency', 'double', 100).
-	doc 'Desired frequency in Hertz to run the prioprocesing measurement step. It cannot be higher that the sensor values of the aggregator (transformer)'
+    property('propagation_frequency', 'double', 100).
+	doc 'Desired frequency in Hertz to run the predict (propagation) step (error dynamics and motion model).'
+	doc 'It cannot be higher that the sensor values of the aggregator (transformer)'
 
-    property('filter_frequency', 'double', 5).
-	doc 'Desired frequency in Hertz to run the indirect filter. It cannot be higher that measurement frequency (proprioceptive sensors measurement)'
+    property('update_frequency', 'double', 5).
+	doc 'Desired frequency in Hertz to run the correction (measurement) step.'
+	doc 'It cannot be higher that propagation_frequency (predict step of the motion model and errors dynamics)'
+
+    property('use_inclinometers_leveling', 'bool', true).
+	doc 'Some IMU provide inclinometers as fast and more accurate solution for leveling. Set True or False to use inclinometers values or not.'
+	doc 'Note: Check if the IMU inport has inclinometers information (right now coded in mag).'
 
     #******************************
     #******* Input ports  *********

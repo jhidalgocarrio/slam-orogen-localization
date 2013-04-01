@@ -58,10 +58,15 @@ q_weight_distribution:
   - 0.0
   - 0.07201969328078207 #0.158675 #Whitout GPS
   - 0.0
-# Desired frequency in Hertz to run the indirect filter. It cannot be higher that measurement frequency (proprioceptive sensors measurement)
-filter_frequency: 5.0
-# Desired frequency in Hertz to run the prioprocesing measurement step. It cannot be higher that the sensor values of the aggregator (transformer)
-measurement_frequency: 100.0
+# Desired frequency in Hertz to run the predict (propagation) step (error dynamics and motion model).
+# It cannot be higher that the sensor values of the aggregator (transformer)
+propagation_frequency: 100.0
+# Desired frequency in Hertz to run the correction (measurement) step.
+# It cannot be higher that propagation_frequency (predict step of the motion model and errors dynamics)
+update_frequency: 5.0
+# Some IMU provide inclinometers as fast and more accurate solution for leveling. Set True or False to use inclinometers values or not.
+# Note: Check if the IMU inport has inclinometers information (right now coded in mag).
+use_inclinometers_leveling: true
 # bias offset in static regimen for the Gyroscopes
 gbiasof: 
   data: 
