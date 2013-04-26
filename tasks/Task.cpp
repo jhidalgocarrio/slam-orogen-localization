@@ -62,16 +62,19 @@ Task::Task(std::string const& name)
     eccz = eccx;
     
     /** Set the correct size for the joint velocities vector **/
-    vjoints.resize (1 + NUMBER_WHEELS, 1);
+    vjoints.resize (1 + NUMBER_WHEELS, 1); //!Wheel ecnoders + passive joint
+    
+    /** Set the correct size for the joint velocities vector (step timestamp) **/
+    stepvjoints.resize (1 + NUMBER_WHEELS, 1); //!Wheel ecnoders + passive joint
     
     /** Contact angle to zero **/
     contactAngle.resize(NUMBER_WHEELS);
     std::fill(contactAngle.begin(), contactAngle.end(), 0.00);
     
     /** Set also here the default Foot in Contact **/
-    contactPoints.resize(4);
-    contactPoints[0] = 2; contactPoints[1] = 2;
-    contactPoints[2] = 2; contactPoints[3] = 2;
+    contactPoints.resize(NUMBER_WHEELS);
+    contactPoints[0] = -1; contactPoints[1] = -1;
+    contactPoints[2] = -1; contactPoints[3] = -1;
     
     /** Candidate contact points **/
     candidatePoints.resize(2*NUMBER_WHEELS);
@@ -82,6 +85,9 @@ Task::Task(std::string const& name)
     
     slipmaxnorm = 0.00;
     
+    sinfo.slip_vector.resize(localization::SLIP_VECTOR_SIZE, 1);
+    sinfo.slip_vectorCov.resize(localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE);
+    sinfo.contactPoints.resize(NUMAXIS, localization::NUMBER_OF_WHEELS);    
 }
 
 Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
@@ -382,47 +388,56 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	mysckf.predict(angular_velocity, acc, propagation_delta_t);
 	
 	/** Compare with the measurement number of iterations (to select new Contact Points) **/
-	if (this->filteridx == this->measurementiterations)
-	{
-	    std::vector<int> oldcontactPoints = contactPoints; /** Old contact points **/
-	    
-	    /** Get the instantaneous inertial values from the measurement **/
-	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
-    
-	    #ifdef DEBUG_PRINTS
-	    std::cout<<"*********** SELECT CONTACT POINT ***********\n";
-	    #endif
-	
-	    /** Select the Contact Point among the Foot Points **/
-	    if ((this->vjoints.array() > 0.00).any()) //! If the encoders reading are not zero
-	    {
-		this->selectCandidatePoints(candidatePoints, vjoints);
-		this->selectContactPointsCombinatorics(contactPoints, candidatePoints, acc, angular_velocity);
-		
-		/** Check if the contact points have changed in order to reset the contact angle **/
-		for (unsigned int i=0; i<NUMBER_WHEELS; ++i)
-		{
-		    if (oldcontactPoints[i] != contactPoints[i])
-		    {
-			#ifdef DEBUG_PRINTS
-			std::cout<<" changed contactPoint["<<i<<"]"<<" with angle: "<<contactAngle[i]<<"\n";
-			#endif
-			
-			contactAngle[i] = 0.00;
-		    }
-		}
-	    }
-	    else //!if the encoders reading are zero
-	    {
+// 	if (this->filteridx == this->measurementiterations)
+// 	{
+// 	    std::vector<int> oldcontactPoints = contactPoints; /** Old contact points **/
+// 	    
+// 	    /** Get the instantaneous inertial values from the measurement **/
+// 	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
+//     
+// 	    #ifdef DEBUG_PRINTS
+// 	    std::cout<<"*********** SELECT CONTACT POINT ***********\n";
+// 	    #endif
+// 	
+// 	    /** Select the Contact Point among the Foot Points **/
+// 	    if ((this->stepvjoints.array() > 0.00).any()) //! If the encoders reading are not zero
+// 	    {
+// 		this->selectCandidatePoints(candidatePoints, stepvjoints);
+// 		this->selectContactPointsCombinatorics(contactPoints, candidatePoints, acc, angular_velocity, stepvjoints);
+// 		
+// 		/** Check if the contact points have changed in order to reset the contact angle **/
+// 		for (unsigned int i=0; i<NUMBER_WHEELS; ++i)
+// 		{
+// 		    if (oldcontactPoints[i] != contactPoints[i])
+// 		    {
+// 			#ifdef DEBUG_PRINTS
+// 			std::cout<<" changed contactPoint["<<i<<"]"<<" with angle: "<<contactAngle[i]<<"\n";
+// 			#endif
+// 			
+// 			contactAngle[i] = 0.00;
+// 		    }
+// 		}
+// 		
+// 		/** Reset the step delta time vjoints vector **/
+// 		stepvjoints.setZero();
+// 		
+// 	    }//!if the encoders reading are zero the jacobian matrices do not change
+// 	}
+// 	else
+// 	{
+	    /** First time to select the contact point, use the simple method**/
+// 	    if (contactPoints[0] == -1)
 		this->selectContactPointsSimple(contactPoints);
-		
-		/** Calculate the Wheel jacobian for the selected contact points **/
-		wheelRL.calculateWheelJacobian(contactPoints[0]);
-		wheelRR.calculateWheelJacobian(contactPoints[1]);
-		wheelFR.calculateWheelJacobian(contactPoints[2]);
-		wheelFL.calculateWheelJacobian(contactPoints[3]);
-	    }   
-	}
+	    
+// 	    stepvjoints += vjoints;
+	    
+	    /** Calculate the Wheel jacobian for the selected contact points **/
+	    wheelRL.calculateWheelJacobian(contactPoints[0]);
+	    wheelRR.calculateWheelJacobian(contactPoints[1]);
+	    wheelFR.calculateWheelJacobian(contactPoints[2]);
+	    wheelFL.calculateWheelJacobian(contactPoints[3]);
+// 	}   
+	
 	
 	#ifdef DEBUG_PRINTS
 	std::cout<<"*********** BODY2CONTACTPOINT ***********\n";
@@ -449,7 +464,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	Eigen::VectorXd dcontactAngle;
 	dcontactAngle.resize(NUMBER_WHEELS, 1);
 	dcontactAngle = mysckf.measurement.getContactAnglesVelocity();
-	Eigen::Map<Eigen::VectorXd> (&(contactAngle[0]), NUMBER_WHEELS) += dcontactAngle*propagation_delta_t;
+// 	Eigen::Map<Eigen::VectorXd> (&(contactAngle[0]), NUMBER_WHEELS) += dcontactAngle*propagation_delta_t;
 	#ifdef DEBUG_PRINTS
 	std::cout<< "[Task] contactAngle is of size "<<contactAngle.size()<<"\n";
 	std::cout<< "[Task] contactAngle:\n"<<"CA ["<<contactPoints[0]<<"]"<<contactAngle[0]*R2D<<" ["<<contactPoints[1]<<"]"<<contactAngle[1]*R2D
@@ -458,8 +473,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	
 	/** Compare with the measurement number of iterations **/
 	if (this->filteridx == this->measurementiterations)
-	{
-	    
+	{	    
 	    /** Get the inertial values from the measurement **/
 	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
 	    
@@ -485,7 +499,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    
 	    /** Update the state of the filter **/
 	    mysckf.update(Hme, Rme, vel_error, acc, mag, update_delta_t, false);
-
+	}
+	if (this->filteridx == this->measurementiterations)
+	{
 	    /** Compute Slip vector **/
 	    Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> roverslipvector;
 	    Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE> roverslipvectorCov;
@@ -493,8 +509,28 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"********** To Rover Slip Vector **********\n";
 	    #endif
-    // 	mysckf.computeSlipVector(Aslip, Bslip, roverslipvector, roverslipvectorCov, update_delta_t);
-
+	    mysckf.computeSlipVector(Aslip, Bslip, mysckf.getAttitude().inverse() * poseInit[0].velocity, roverslipvector, roverslipvectorCov, propagation_delta_t);
+	    
+// 	    /** To slip vector at 100Hz **/
+// 	    localization::SlipInfo localsinfo;
+// 	
+//     
+// 	    localsinfo.slip_vector.resize(localization::SLIP_VECTOR_SIZE, 1);
+// 	    localsinfo.slip_vectorCov.resize(localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE);
+//     
+// 	    /** Port out the slip vectors **/
+// 	    mymeasure->toSlipInfo(localsinfo);
+// 	    sinfo.slip_vector += (localsinfo.slip_vector * propagation_delta_t);
+// 	    sinfo.slip_vectorCov += (localsinfo.slip_vectorCov * propagation_delta_t);
+	
+	    #ifdef DEBUG_PRINTS
+	    std::cout<<"********** To Asguard Body **********\n";
+	    #endif
+	    
+	    /** Body pose to asguard for the vizkit visualization **/
+	    this->toAsguardBodyState();
+	    
+	
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"********** To Envire Representation **********\n";
 	    #endif
@@ -503,7 +539,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	// 	this->toMLSGrid(roverslipvector, roverslipvectorCov);
 	    
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"********** To Deburg Ports **********\n";
+	    std::cout<<"********** To Debug Ports **********\n";
 	    #endif
 	    
 	    /** To Debug ports **/
@@ -519,13 +555,6 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    this->filteridx = 0;
 	    
 	}
-	
-	#ifdef DEBUG_PRINTS
-	std::cout<<"********** To Asguard Body **********\n";
-	#endif
-	
-	/** Body pose to asguard for the vizkit visualization **/
-	this->toAsguardBodyState();
 	    
 	/** Set the variables to perform the dead-reckoning **/
 	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.measurement.getCurrentVeloModel();//mysckf.getVelocity();
@@ -717,7 +746,7 @@ bool Task::configureHook()
     useInclinometers = _use_inclinometers_leveling.value();
     
     /** Set the initial number of samples for the attitude **/
-    this->initLeveling = static_cast<int>(15.0/_calibrated_sensors_period.value());
+    this->initLeveling = static_cast<int>(5.0/_calibrated_sensors_period.value());
     
     /** Init size for initial acceleration leveling **/
     init_acc.resize (NUMAXIS, this->initLeveling);
@@ -1234,28 +1263,44 @@ void Task::calculateFootPoints()
     /** For the Wheel 0 Rear Left **/
     for (register int i=0; i<FEET_PER_WHEEL; i++)
     {
-	wheelRL.Body2ContactPoint (i, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	if (i == contactPoints[wheelRL.getWheelIdx()])
+	    wheelRL.Body2ContactPoint (i, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[wheelRL.getWheelIdx()]);
+	else
+	    wheelRL.Body2ContactPoint (i, hbridgeStatus[0].states[0].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	
 	rbsCiRL2body[i] = wheelRL.getBody2FootPoint(i);
     }
         
     /** For the Wheel 1 Rear Right **/
     for (register int i=0; i<FEET_PER_WHEEL; i++)
     {
-	wheelRR.Body2ContactPoint (i, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	if (i == contactPoints[wheelRR.getWheelIdx()])
+	    wheelRR.Body2ContactPoint (i, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[wheelRR.getWheelIdx()]);
+	else
+	    wheelRR.Body2ContactPoint (i, hbridgeStatus[0].states[1].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	
 	rbsCiRR2body[i] = wheelRR.getBody2FootPoint(i);
     }
         
     /** For the Wheel 2 Forward Right **/
     for (register int i=0; i<FEET_PER_WHEEL; i++)
     {
-	wheelFR.Body2ContactPoint (i, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	if (i == contactPoints[wheelFR.getWheelIdx()])
+	    wheelFR.Body2ContactPoint (i, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[wheelFR.getWheelIdx()]);
+	else
+	    wheelFR.Body2ContactPoint (i, hbridgeStatus[0].states[2].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	
 	rbsCiFR2body[i] = wheelFR.getBody2FootPoint(i);
     }
     	
     /** For the Wheel 3 Forward Left **/
     for (register int i=0; i<FEET_PER_WHEEL; i++)
     {
-	wheelFL.Body2ContactPoint (i, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	if (i == contactPoints[wheelFL.getWheelIdx()])
+	    wheelFL.Body2ContactPoint (i, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, contactAngle[wheelFL.getWheelIdx()]);
+	else
+	    wheelFL.Body2ContactPoint (i, hbridgeStatus[0].states[3].positionExtern, asguardStatus[0].asguardJointEncoder, 0.00);
+	
 	rbsCiFL2body[i] = wheelFL.getBody2FootPoint(i);
     }
     
@@ -1392,7 +1437,8 @@ void Task::selectContactPointsSimple(std::vector<int> &contactPoints)
 }
 
 void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std::vector<int> &candidatePoints,
-					    Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo)
+					    Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo,
+					    Eigen::Matrix< double, Eigen::Dynamic, 1  > velojoints)
 {
     double minerror = 0.00;
     unsigned int minidx = 0;
@@ -1421,25 +1467,25 @@ void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std
     /** Filled the navigation vectors with information **/
     y.block<NUMAXIS, 1> (0,0) = acc;
     y.block<NUMAXIS, 1> (NUMAXIS,0) = angvelo;
-    y.block<ENCODERS_VECTOR_SIZE, 1> (2*NUMAXIS,0) = this->vjoints;
+    y.block<ENCODERS_VECTOR_SIZE, 1> (2*NUMAXIS,0) = velojoints;
     
     /** Compute the Jacobian matrices **/
     for (unsigned int i=0; i<2; ++i)
     {
 	/** RL WHEEL **/
-	if (wheelRL.getBody2FootPoint(candidatePoints[i]).position(2) < 0.00)
+	if (wheelRL.getBody2FootPoint(candidatePoints[i]).position(2) < -0.01975)
 	    vjacobRL[i] = wheelRL.calculateWheelJacobian(candidatePoints[i]);
 	
 	/** RR Wheel **/
-	if (wheelRR.getBody2FootPoint(candidatePoints[i+2]).position(2) < 0.00)
+	if (wheelRR.getBody2FootPoint(candidatePoints[i+2]).position(2) < -0.01975)
 	    vjacobRR[i] = wheelRR.calculateWheelJacobian(candidatePoints[i+2]);
 	
 	/** FR wheel **/
-	if (wheelFR.getBody2FootPoint(candidatePoints[i+4]).position(2) < 0.00)
+	if (wheelFR.getBody2FootPoint(candidatePoints[i+4]).position(2) < -0.01975)
 	    vjacobFR[i] = wheelFR.calculateWheelJacobian(candidatePoints[i+4]);
 	
 	/** FL wheel **/
-	if (wheelFL.getBody2FootPoint(candidatePoints[i+6]).position(2) < 0.00)
+	if (wheelFL.getBody2FootPoint(candidatePoints[i+6]).position(2) < -0.01975)
 	    vjacobFL[i] = wheelFL.calculateWheelJacobian(candidatePoints[i+6]);
     }
     
@@ -1538,7 +1584,7 @@ void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std
     return;
 }
 
-void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints)
+void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matrix< double, Eigen::Dynamic, 1  > velojoints)
 {
     int pointFRidx = 2;
     int pointFLidx = 2;
@@ -1587,7 +1633,7 @@ void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matri
     /** For the FL wheel **/
     candidatePoints[6] = pointFLidx;
     
-    if (vjoints(4) > 0.00)
+    if (velojoints(4) > 0.00)
     {
 	if (pointFLidx > 0)
 	    candidatePoints[7] = pointFLidx - 1;
@@ -1602,7 +1648,7 @@ void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matri
     /** For the FR wheel **/
     candidatePoints[4] = pointFRidx;
     
-    if (vjoints(3) > 0.00)
+    if (velojoints(3) > 0.00)
     {
 	if (pointFRidx > 0)
 	    candidatePoints[5] = pointFRidx - 1 ;
@@ -1618,7 +1664,7 @@ void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matri
     /** For the RR wheel **/
     candidatePoints[2] = pointRRidx;
     
-    if (vjoints(2) > 0.00)
+    if (velojoints(2) > 0.00)
     {
 	if (pointRRidx > 0)
 	    candidatePoints[3] = pointRRidx - 1;
@@ -1633,7 +1679,7 @@ void Task::selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matri
     /** For the RL wheel **/
     candidatePoints[0] = pointRLidx;
     
-    if (vjoints(2) > 0.00)
+    if (velojoints(2) > 0.00)
     {
 	if (pointRLidx > 0)
 	    candidatePoints[1] = pointRLidx - 1;
@@ -2114,16 +2160,23 @@ void Task::toDebugPorts()
     base::samples::RigidBodyState rbsCorrected;
     base::samples::RigidBodyState rbsVicon;
     localization::FilterInfo finfo;
-    localization::SlipInfo sinfo;
     localization::MeasurementGenerationInfo mInfo;
     
-    sinfo.slip_vector.resize(localization::SLIP_VECTOR_SIZE, 1);
-    sinfo.Cov.resize(localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE);
-
+    /** Set the contact point coordinate in the slipInfo **/
+    sinfo.contactPoints.col(0) = rbsCiRL2body[this->contactPoints[0]].getTransform().translation();
+    sinfo.contactPoints.col(1) = rbsCiRR2body[this->contactPoints[1]].getTransform().translation();
+    sinfo.contactPoints.col(2) = rbsCiFR2body[this->contactPoints[2]].getTransform().translation();
+    sinfo.contactPoints.col(3) = rbsCiFL2body[this->contactPoints[3]].getTransform().translation();
+    
     /** Port out the slip vectors **/
     mymeasure->toSlipInfo(sinfo);
     sinfo.time = rbsBC.time;
     _slip_vector.write(sinfo);
+    
+    /** Reset **/
+    sinfo.slip_vector.setZero();
+    sinfo.slip_vectorCov.setZero();
+    
     
     /** Port out filter info **/
     mysckf.toFilterInfo(finfo, propagation_delta_t);

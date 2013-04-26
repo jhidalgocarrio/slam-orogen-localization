@@ -153,8 +153,8 @@ namespace rover_localization {
 	/** Auxiliar quaternion **/
 	Eigen::Quaternion <double> q_world2imu;
 	
-	std::vector<int> contactPoints; /** Number between 0 and 4 of the feet in contact (identification) **/
-	std::vector<int> candidatePoints; /** Candidates for potential contact points 2^(NUMBER_WHEELS) **/
+	std::vector<int> contactPoints; /** Number between 0 and NUMBER_WHEELS-1 of the feet in contact (identification) **/
+	std::vector<int> candidatePoints; /** Candidates for potential contact points 2*NUMBER_WHEELS **/
 	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/
 		
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
@@ -165,6 +165,7 @@ namespace rover_localization {
 	
 	/** Joint encoders velocities (order is 0 -> PassiveJoint, 1-> RL, 2 -> RR, 3 -> FR, 4 -> FL, ) **/
 	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;
+	Eigen::Matrix< double, Eigen::Dynamic, 1  > stepvjoints;
 	
 	/** Jacobian matrix for the rover Eu = Jp **/
 	Eigen::Matrix <double, Eigen::Dynamic, Eigen::Dynamic> E; /** Sparse matrix (24 x 6) **/
@@ -212,6 +213,8 @@ namespace rover_localization {
 	Eigen::Affine3d world2mls;
 	
 	double slipmaxnorm;
+	
+	localization::SlipInfo sinfo;
 	
 	/** Foot print dimenstion (in number of cells) **/
 	int numberCellsFootx, numberCellsFooty;
@@ -309,12 +312,13 @@ namespace rover_localization {
 	
 	/** \brief Select the Candidates for Foot in contact among all the Foot Points
 	 */
-	void selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints);
+	void selectCandidatePoints(std::vector<int> &candidatePoints, Eigen::Matrix< double, Eigen::Dynamic, 1  > velojoints);
 	
 	/** \brief Select the Foot in contact among all the Foot Points which minimize the error
 	 */
 	void selectContactPointsCombinatorics(std::vector<int> &contactPoints, std::vector<int> &candidatePoints,
-						Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo);
+						Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo,
+						Eigen::Matrix<double, Eigen::Dynamic, 1> velojoints);
 	
 	/** \brief Get the correct value from teh buffer
 	 */
@@ -375,6 +379,7 @@ namespace rover_localization {
 	bool increment(std::vector<int> & vector, int k);
 	
 	/** \brief It forms the Navigatin Kinematics
+	 * 
 	 * Navigation kinematics for combinatorics solution
 	 * to detect the contact point.
 	 */
