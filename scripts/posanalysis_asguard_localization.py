@@ -643,7 +643,11 @@ legend()
 ####################
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.puremodel_position.1.data', 'rb'), delimiter=' ', quotechar='|')
 #spamReader = csv.reader(open('data/minitest_spacehall/spacehall1852.pose_out.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.pose_out.nk.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.pose_out.nk.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.pose_out.1.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.pose_out.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.pose_out.wident.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/test_track_motion_model/testtrack1144.pose_out.1.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timepose=[]
@@ -689,35 +693,12 @@ for row in spamReader:
     posbodyy.append(float(row[2]))
     posbodyz.append(float(row[3]))
 
-#Asguard odometry
-spamReader = csv.reader(open('/home/jhidalgocarrio/iMoby/iMoby-dev/asguard/orogen/asguard_odometry/scripts/data/normal_spacehall/spacehall1154.asguard_odo.1.data', 'rb'), delimiter=' ', quotechar='|')
-
-timeodo=[]
-posodox=[]
-posodoy=[]
-posodoz=[]
-
-for row in spamReader:
-    #print row
-    timeodo.append(float(row[0])/1000000)
-    posodox.append(float(row[1]))
-    posodoy.append(float(row[2]))
-    posodoz.append(float(row[3]))
-
-deltaodo = []
-for i in range(0,len(timeodo)-1):
-    #print time[i]
-    todo = float(timeodo[i+1]) - float(timeodo[i])
-    deltaodo.append(todo)
-    
-deltaodo_t = mean(deltaodo)
-sample_rateodo = 1/deltaodo_t
-todo = deltaodo_t * r_[0:len(timeodo)]
-
 
 #Vicon pose(ground truth)
 #spamReader = csv.reader(open('data/multitest_spacehall/spacehall0940.vicon_position.1.data', 'rb'), delimiter=' ', quotechar='|')
-spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.vicon_position.nk.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.vicon_position.nk.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1140.vicon_position.0.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.vicon_position.0.data', 'rb'), delimiter=' ', quotechar='|')
 
 
 timevicon=[]
@@ -742,14 +723,43 @@ deltavicon_t = mean(deltavicon)
 sample_ratevicon = 1/deltavicon_t
 tvicon = deltavicon_t * r_[0:len(timevicon)]
 
+#Asguard iMoby odometry
+#spamReader = csv.reader(open('/home/jhidalgocarrio/iMoby/iMoby-dev/asguard/orogen/asguard_odometry/scripts/data/normal_spacehall/spacehall1154.asguard_odo.1.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/normal_spacehall/spacehall1154.asguard_odo.nk.data', 'rb'), delimiter=' ', quotechar='|')
+spamReader = csv.reader(open('data/normal_spacehall/spacehall1057.asguard_odo.0.data', 'rb'), delimiter=' ', quotechar='|')
+#spamReader = csv.reader(open('data/test_track_motion_model/testtrack1144.asguard_odo.0.data', 'rb'), delimiter=' ', quotechar='|')
+
+timeodo=[]
+posodox=[]
+posodoy=[]
+posodoz=[]
+
+for row in spamReader:
+    #print row
+    timeodo.append(float(row[0])/1000000)
+    posodox.append(float(row[1]))
+    posodoy.append(float(row[2]))
+    posodoz.append(float(row[3]))
+
+deltaodo = []
+for i in range(0,len(timeodo)-1):
+    #print time[i]
+    todo = float(timeodo[i+1]) - float(timeodo[i])
+    deltaodo.append(todo)
+    
+deltaodo_t = mean(deltaodo)
+sample_rateodo = 1/deltaodo_t
+todo = deltaodo_t * r_[0:len(timeodo)]
+
 #################
 ### GRAPHICS  ###
 #################
-plt.figure(2)
-plot(timepose,posposex, label="X model position(roverlocal)")
-plot(timebody,posbodyx, label="X body position")
+plt.figure(3)
+plot(tpose,posposez, label="X model position(roverlocal)")
+plot(todo,posodoz, label="X model position(roverlocal)")
+plot(tbody,posbodyx, label="X body position")
 #plot(timu,accimux, label="X imu acc")
-plot(timevicon,posviconx, label="X vicon position")
+plot(tvicon,posviconz, label="X vicon position")
 grid()
 xlabel("Time(s)")
 ylabel("Position(m)")
@@ -778,25 +788,59 @@ xlabel("Time(s)")
 ylabel("Position(m)")
 legend()
 
+#Only to copy when it is w/o whell weighting
+posposex_wo = posposex
+posposey_wo = posposey
 
-posodobisx=[]
-posodobisy=[]
-for i in range(0,len(posodox)):
-    posodobisx.append(posodox[i]-(posodox[0] - posposex[0]))
-    posodobisy.append(posodoy[i]-(posodoy[0] - posposey[0]))
-    
-plt.figure(5)
-plot(posposex,posposey, label="Navigation kinematics (6DoF)")
+
+fig = plt.figure(5)
+ax = fig.add_subplot(1,1,1)
+ax.plot(posposex_wo,posposey_wo, '--', linewidth=3.5,color='b', label="Navigation kinematics w/o wheel weighting")
+ax.plot(posposex,posposey, '--', linewidth=3.5,color='k', label="Navigation kinematics with wheel weighting")
 #plot(posbodyx,posbodyy, label="Model without wheel-weithing matrix")
 #plot(timu,accimux, label="X imu acc")
-#plot(posodox,posodoy, label="Asguard odometry")
-#plot(posodobisx,posodobisy, label="Conventional planar kinematics (3DoF)")
-plot(posviconx,posvicony, label="Ground truth position (vicon)")
-xlabel("Position X-axis (m)")
-ylabel("Position Y-axis (m)")
-title("Asguard Position - Navigation Kinematics")
-grid()
-legend()
+ax.plot(posodox,posodoy, '--', linewidth=3.5,color='g', label="Conventional Skid Odometry")
+ax.plot(posviconx,posvicony, '--', linewidth=3.5,color='r', label="Ground truth position (vicon)")
+plt.setp(ax.get_xticklabels(), rotation='horizontal', fontsize=26)
+plt.setp(ax.get_yticklabels(), rotation='horizontal', fontsize=26)
+plt.xlabel("Position X-axis (m)", fontsize=28)
+plt.ylabel("Position Y-axis (m)", fontsize=28)
+#plt.title("Asguard Position - Navigation Kinematics", fontsize=24)
+#ax.tick_params(axis='x', labelsize=8)
+#plot.tick_params(axis='both', which='major', labelsize=10)
+#plot.tick_params(axis='both', which='minor', labelsize=8)
+ax.grid(True)
+ax.legend(prop={'size':25})
+savefig('straightline.png', bbox_inches=0, dpi=100)
+
+
+# With background image
+im = plt.imread("DFKI_TestTrack_Hill.jpg")
+implot = plt.imshow(im, origin="lower")
+angle = 100.00*(np.pi/180)
+nkx = np.array(posposex)*cos(-angle) - np.array(posposey)*sin(-angle)
+nky = np.array(posposex)*sin(-angle) + np.array(posposey)*cos(-angle)
+odox = np.array(posodox)*cos(-angle) - np.array(posodoy)*sin(-angle)
+odoy = np.array(posodox)*sin(-angle) + np.array(posodoy)*cos(-angle)
+nkx= nkx*140
+nky= nky*140
+odox= odox*140
+odoy= odoy*140
+nkx = nkx+3180
+nky = nky+1090
+odox = odox+3180
+odoy = odoy+1090
+plot(nkx,nky, '--', linewidth=3.5,color='b', label="Navigation kinematics with wheel weighting")
+plot(odox,odoy, '--', linewidth=3.5,color='r', label="Conventional Skid Odometry")
+grid(True)
+#legend(prop={'size':25})
+
+# put a blue dot at (10, 20)
+plt.scatter([10], [20])
+# put a red dot, size 40, at 2 locations:
+plt.scatter(x=[30, 40], y=[50, 60], c='r', s=40)
+plt.show()
+
 
 plt.figure(6)
 plot(posodox,posodoy, label="Asguard odometry")
