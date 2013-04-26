@@ -133,18 +133,18 @@ evelocity.plot_axis(3,0,True, 1, True, [1,0,0])
 
 #Motion model incremental velocity
 ivelbody = ThreeData()
-ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.5.data', cov=True)
+ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.1.data', cov=True)
 ivelbody.eigenValues()
 
 #IMU incremental velocity
 velimu = ThreeData()
-velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.5.data', cov=True)
+velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.1.data', cov=True)
 velimu.eigenValues()
 
 
 #Velocity error
 evelocity = ThreeData()
-evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.5.data', cov=True)
+evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.1.data', cov=True)
 evelocity.eigenValues()
 
 ivelbody.plot_axis(7, 0,True, 3, True, [0,0,1])
