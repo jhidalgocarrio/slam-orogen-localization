@@ -30,26 +30,6 @@
 namespace rover_localization {
     
     /** General defines **/
-    #ifndef OK_TASK
-    #define OK_TASK	0  /** Integer value in order to return when everything is all right. */
-    #endif
-    
-    #ifndef ERROR_OUT
-    #define ERROR_OUT -1  /** Integer value in order to return when an error occured. */
-    #endif
-    
-    #ifndef D2R
-    #define D2R M_PI/180.00 /** Convert degree to radian **/
-    #endif
-    
-    #ifndef R2D
-    #define R2D 180.00/M_PI /** Convert radian to degree **/
-    #endif
-    
-    #ifndef NUMAXIS
-    #define NUMAXIS 3 /** Number of axis sensed by the sensors **/
-    #endif
-    
     #ifndef NUMBER_INIT_LEVELING
     #define NUMBER_INIT_LEVELING 1000 /** Default number of the initLeveling **/
     #endif
@@ -148,7 +128,7 @@ namespace rover_localization {
 	bool imuValues, hbridgeValues, asguardValues, poseInitValues;
 	
 	/** Accelerometers eccentricity **/
-	Eigen::Matrix<double, NUMAXIS,1> eccx, eccy, eccz;
+	Eigen::Matrix<double, localization::NUMAXIS,1> eccx, eccy, eccz;
 	
 	/** Auxiliar quaternion **/
 	Eigen::Quaternion <double> q_world2imu;
@@ -158,10 +138,10 @@ namespace rover_localization {
 	std::vector<double> contactAngle; /** Current contact angle for the foot in contact (angle in radians) **/
 		
 	/** Initial values of Acceleremeters for Picth and Roll calculation */
-	Eigen::Matrix <double,NUMAXIS, Eigen::Dynamic> init_acc;
+	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_acc;
 	
 	/** Initial values of Acceleremeters (Inclinometers) for Picth and Roll calculation */
-	Eigen::Matrix <double,NUMAXIS, Eigen::Dynamic> init_incl;
+	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_incl;
 	
 	/** Joint encoders velocities (order is 0 -> PassiveJoint, 1-> RL, 2 -> RR, 3 -> FR, 4 -> FL, ) **/
 	Eigen::Matrix< double, Eigen::Dynamic, 1  > vjoints;
@@ -198,10 +178,10 @@ namespace rover_localization {
 	boost::circular_buffer<base::samples::RigidBodyState> rbsCiRR2body;
 	
 	/** Wheel Jacobian Matrices **/
-	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFL;
-	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobFR;
-	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRL;
-	Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> jacobRR;
+	Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> jacobFL;
+	Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> jacobFR;
+	Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> jacobRL;
+	Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> jacobRR;
 	
 	/** ****** **/
 	/** Envire **/
@@ -317,7 +297,7 @@ namespace rover_localization {
 	/** \brief Select the Foot in contact among all the Foot Points which minimize the error
 	 */
 	void selectContactPointsCombinatorics(std::vector<int> &contactPoints, std::vector<int> &candidatePoints,
-						Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo,
+						Eigen::Matrix<double, localization::NUMAXIS, 1> &acc, Eigen::Matrix<double, localization::NUMAXIS, 1> &angvelo,
 						Eigen::Matrix<double, Eigen::Dynamic, 1> velojoints);
 	
 	/** \brief Get the correct value from teh buffer
@@ -383,12 +363,12 @@ namespace rover_localization {
 	 * Navigation kinematics for combinatorics solution
 	 * to detect the contact point.
 	 */
-	void compositeNavJacobians (Eigen::Matrix< double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS> &A,
-				    Eigen::Matrix< double, NUMBER_WHEELS*(2*NUMAXIS), (2*NUMAXIS) + (1 + NUMBER_WHEELS)> &B,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobRL,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobRR,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobFR,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobFL);
+	void compositeNavJacobians (Eigen::Matrix< double, NUMBER_WHEELS*(2*localization::NUMAXIS), NUMBER_WHEELS> &A,
+				    Eigen::Matrix< double, NUMBER_WHEELS*(2*localization::NUMAXIS), (2*localization::NUMAXIS) + (1 + NUMBER_WHEELS)> &B,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobRL,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobRR,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobFR,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobFL);
 	
     };
 }

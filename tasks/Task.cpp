@@ -26,10 +26,10 @@ Task::Task(std::string const& name)
     filteridx = 0;
     
     /** Default size for initial acceleration leveling **/
-    init_acc.resize (NUMAXIS, NUMBER_INIT_LEVELING);
+    init_acc.resize (localization::NUMAXIS, NUMBER_INIT_LEVELING);
     
     /** Default size for initial acceleration (inclinometers) leveling **/
-    init_incl.resize (NUMAXIS, NUMBER_INIT_LEVELING);
+    init_incl.resize (localization::NUMAXIS, NUMBER_INIT_LEVELING);
     
     /** Default size for the circular_buffer **/
     cbHbridges = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
@@ -87,7 +87,7 @@ Task::Task(std::string const& name)
     
     sinfo.slip_vector.resize(localization::SLIP_VECTOR_SIZE, 1);
     sinfo.slip_vectorCov.resize(localization::SLIP_VECTOR_SIZE, localization::SLIP_VECTOR_SIZE);
-    sinfo.contactPoints.resize(NUMAXIS, localization::NUMBER_OF_WHEELS);    
+    sinfo.contactPoints.resize(localization::NUMAXIS, localization::NUMBER_OF_WHEELS);    
 }
 
 Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
@@ -154,9 +154,9 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 	/** Chekc if the number of stores acceleration corresponds to the initial leveling **/
 	if (accidx == this->initLeveling)
 	{
-	    Eigen::Matrix <double,NUMAXIS,1> meanacc; /** Mean value of accelerometers **/
-	    Eigen::Matrix <double,NUMAXIS,1> meanincl; /** Mean value of inclinometer **/
-	    Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
+	    Eigen::Matrix <double,localization::NUMAXIS,1> meanacc; /** Mean value of accelerometers **/
+	    Eigen::Matrix <double,localization::NUMAXIS,1> meanincl; /** Mean value of inclinometer **/
+	    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
 	    Eigen::Quaternion <double> attitude; /** Initial attitude in case no port in orientation is connected **/
 	    
 	    /** Mean inclinometers value **/
@@ -257,7 +257,7 @@ void Task::calibrated_sensorsTransformerCallback(const base::Time &ts, const ::b
 // 		mysckf.setGravity(meanacc.norm());
 		
 		/** Gravity error between theoretical gravity and estimated **/
-		Eigen::Matrix <double,NUMAXIS,1> g_error;
+		Eigen::Matrix <double,localization::NUMAXIS,1> g_error;
 		g_error << 0.00, 0.00, (mysckf.getGravity()-meanacc.norm());
 		
 		#ifdef DEBUG_PRINTS
@@ -371,9 +371,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	this->filteridx++;
 	
 	/** Inertial sensor information **/
-	Eigen::Matrix<double, NUMAXIS, 1> angular_velocity = imuSamples[0].gyro;
-	Eigen::Matrix<double, NUMAXIS, 1> acc = imuSamples[0].acc;
-	Eigen::Matrix<double, NUMAXIS, 1> mag = imuSamples[0].mag;
+	Eigen::Matrix<double, localization::NUMAXIS, 1> angular_velocity = imuSamples[0].gyro;
+	Eigen::Matrix<double, localization::NUMAXIS, 1> acc = imuSamples[0].acc;
+	Eigen::Matrix<double, localization::NUMAXIS, 1> mag = imuSamples[0].mag;
 	
 	/** Substract Earth rotation from gyros **/
 	Eigen::Quaternion <double> currentq = mysckf.getAttitude();
@@ -444,7 +444,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	#endif
 	
 	/** Compute the wheel Jacobians for the Selected Foot Point in Contact **/
-// 	Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
+// 	Eigen::Matrix< double, localization::NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
 	jacobRL = wheelRL.getContactPointWheelJacobian ();
 	jacobRR = wheelRR.getContactPointWheelJacobian ();
 	jacobFR = wheelFR.getContactPointWheelJacobian ();
@@ -478,9 +478,9 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
 	    
 	    /** Using the incremental velocity as measurement **/
-	    Eigen::Matrix<double,NUMAXIS,NUMAXIS> Hme;
-	    Eigen::Matrix<double,NUMAXIS,NUMAXIS> Rme;
-	    Eigen::Matrix<double,NUMAXIS,1> vel_error;
+	    Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS> Hme;
+	    Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS> Rme;
+	    Eigen::Matrix<double,localization::NUMAXIS,1> vel_error;
 	    Hme.setIdentity();Rme.setZero();vel_error.setZero();
 	    
 	    /** Velocity error measurement **/
@@ -557,10 +557,10 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	}
 	    
 	/** Set the variables to perform the dead-reckoning **/
-	Eigen::Matrix<double, NUMAXIS, 1> linvelo = mysckf.measurement.getCurrentVeloModel();//mysckf.getVelocity();
+	Eigen::Matrix<double, localization::NUMAXIS, 1> linvelo = mysckf.measurement.getCurrentVeloModel();//mysckf.getVelocity();
 	Eigen::Quaternion <double> delta_q = mysckf.deltaQuaternion();
-	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covlinvelo = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
-	Eigen::Matrix<double, NUMAXIS, NUMAXIS> covdelta_q = Eigen::Matrix<double, NUMAXIS, NUMAXIS>::Zero();
+	Eigen::Matrix<double, localization::NUMAXIS, localization::NUMAXIS> covlinvelo = Eigen::Matrix<double, localization::NUMAXIS, localization::NUMAXIS>::Zero();
+	Eigen::Matrix<double, localization::NUMAXIS, localization::NUMAXIS> covdelta_q = Eigen::Matrix<double, localization::NUMAXIS, localization::NUMAXIS>::Zero();
 	
 	/** Dead-reckoning and save into rbsBC **/
 	rbsBC = drPose.updatePose (linvelo, delta_q, covlinvelo, covdelta_q, hbridgeStatus[0].time, propagation_delta_t);
@@ -633,11 +633,11 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	rbsBC.velocity.setZero();
 	
 	/** Assume well known starting position **/
-	rbsBC.cov_position = Eigen::Matrix <double, NUMAXIS , NUMAXIS>::Zero();
-	rbsBC.cov_velocity = Eigen::Matrix <double, NUMAXIS , NUMAXIS>::Zero();
+	rbsBC.cov_position = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
+	rbsBC.cov_velocity = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
 	
 	#ifdef DEBUG_PRINTS
-	Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
+	Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
 	euler[2] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
 	euler[1] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
 	euler[0] = poseInit[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
@@ -651,7 +651,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	/** Initial attitude from IMU acceleration has been already calculated **/
 	if (initAttitude)
 	{
-	    Eigen::Matrix <double,NUMAXIS,1> euler; /** In euler angles **/
+	    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
 	    Eigen::Quaternion <double> attitude = mysckf.getAttitude(); /** Initial attitude in case no port in orientation is connected **/
 	    
 	    /** Get the initial Yaw from the initialPose **/
@@ -704,17 +704,17 @@ bool Task::configureHook()
     double theoretical_g; /** Ideal gravity value **/
     int buffer_size; /** Buffer size of the propriocesing measurement **/
     Eigen::Matrix< double, Eigen::Dynamic,1> x_0; /** Initial vector state **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra_predict; /** Measurement noise convariance matrix for acc (predict) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Ra_update; /** Measurement noise convariance matrix for acc (update) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rat; /** Measurement noise convariance matrix for attitude correction (gravity vector noise) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rv; /** Measurement noise convariance matrix for velocity (accelerometers integration) */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rg; /** Measurement noise convariance matrix for gyros */
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rm; /** Measurement noise convariance matrix for mag */    
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Ra_predict; /** Measurement noise convariance matrix for acc (predict) */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Ra_update; /** Measurement noise convariance matrix for acc (update) */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rat; /** Measurement noise convariance matrix for attitude correction (gravity vector noise) */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rv; /** Measurement noise convariance matrix for velocity (accelerometers integration) */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rg; /** Measurement noise convariance matrix for gyros */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rm; /** Measurement noise convariance matrix for mag */    
     Eigen::Matrix <double,Eigen::Dynamic,Eigen::Dynamic> P_0; /** Initial covariance matrix **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qbg; /** Process noise matrix of gyros bias (bias instability) **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Qba; /** Process noise matric of acc bias (bias instability) **/
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Qbg; /** Process noise matrix of gyros bias (bias instability) **/
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Qba; /** Process noise matric of acc bias (bias instability) **/
     Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE,localization::ENCODERS_VECTOR_SIZE> Ren; /** Measurement noise of encoders velocity **/
-    Eigen::Matrix <double,NUMAXIS,NUMAXIS> Rangvelo; /** Measurement noise for angular velocity in the measurement */
+    Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rangvelo; /** Measurement noise for angular velocity in the measurement */
     
     if (! TaskBase::configureHook())
         return false;
@@ -749,10 +749,10 @@ bool Task::configureHook()
     this->initLeveling = static_cast<int>(5.0/_calibrated_sensors_period.value());
     
     /** Init size for initial acceleration leveling **/
-    init_acc.resize (NUMAXIS, this->initLeveling);
+    init_acc.resize (localization::NUMAXIS, this->initLeveling);
     
     /** Init size for initial acceleration leveling **/
-    init_incl.resize (NUMAXIS, this->initLeveling);
+    init_incl.resize (localization::NUMAXIS, this->initLeveling);
     
     /** Set the counters to Zero **/
     counterHbridgeSamples = 0;
@@ -885,7 +885,7 @@ bool Task::configureHook()
     
     /** Fill the filter initial matrices **/
     /** Accelerometers covariance matrix **/
-    Ra_predict = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Ra_predict = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
     Ra_predict(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
     Ra_predict(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
     Ra_predict(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
@@ -893,7 +893,7 @@ bool Task::configureHook()
     if (update_delta_t > delta_bandwidth)
     {
 	/** Accelerometers covariance matrix **/
-	Ra_update = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+	Ra_update = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
 	Ra_update(0,0) = pow(_accrw.get()[0]/sqrt(update_delta_t),2);
 	Ra_update(1,1) = pow(_accrw.get()[1]/sqrt(update_delta_t),2);
 	Ra_update(2,2) = pow(_accrw.get()[2]/sqrt(update_delta_t),2);
@@ -901,26 +901,26 @@ bool Task::configureHook()
     else
     {
 	/** Accelerometers covariance matrix **/
-	Ra_update = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+	Ra_update = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
 	Ra_update(0,0) = pow(_accrw.get()[0]/sqrt(delta_bandwidth),2);
 	Ra_update(1,1) = pow(_accrw.get()[1]/sqrt(delta_bandwidth),2);
 	Ra_update(2,2) = pow(_accrw.get()[2]/sqrt(delta_bandwidth),2);
     }
     
     /** Gravity vector covariance matrix **/
-    Rat = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
-    Rat(0,0) = NUMAXIS * Ra_update(0,0);//0.0054785914701378034;
-    Rat(1,1) = NUMAXIS * Ra_update(1,1);//0.0061094546837916494;
-    Rat(2,2) = NUMAXIS * Ra_update(2,2);//0.0063186020143245212;
+    Rat = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
+    Rat(0,0) = localization::NUMAXIS * Ra_update(0,0);//0.0054785914701378034;
+    Rat(1,1) = localization::NUMAXIS * Ra_update(1,1);//0.0061094546837916494;
+    Rat(2,2) = localization::NUMAXIS * Ra_update(2,2);//0.0063186020143245212;
     
     /** Gyroscopes covariance matrix **/
-    Rg = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Rg = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
     Rg(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_bandwidth),2);
     Rg(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_bandwidth),2);
     Rg(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_bandwidth),2);
 
     /** Magnetometers covariance matrix **/
-    Rm = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Rm = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
     Rm(0,0) = pow(_magrw.get()[0]/sqrt(delta_bandwidth),2);
     Rm(1,1) = pow(_magrw.get()[1]/sqrt(delta_bandwidth),2);
     Rm(2,2) = pow(_magrw.get()[2]/sqrt(delta_bandwidth),2);
@@ -929,7 +929,7 @@ bool Task::configureHook()
     Ren = 0.000001 * Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE, localization::ENCODERS_VECTOR_SIZE>::Identity();
     
     /** Angular Velocity error for the proprioceptive measurements **/
-    Rangvelo = Eigen::Matrix<double,NUMAXIS,NUMAXIS>::Zero();
+    Rangvelo = Eigen::Matrix<double,localization::NUMAXIS,localization::NUMAXIS>::Zero();
     Rangvelo(0,0) = pow(_gyrorw.get()[0]/sqrt(delta_bandwidth),2);
     Rangvelo(1,1) = pow(_gyrorw.get()[1]/sqrt(delta_bandwidth),2);
     Rangvelo(2,2) = pow(_gyrorw.get()[2]/sqrt(delta_bandwidth),2);
@@ -937,10 +937,10 @@ bool Task::configureHook()
     /** Initial error covariance **/
     P_0.resize(Sckf::X_STATE_VECTOR_SIZE, Sckf::X_STATE_VECTOR_SIZE);
     P_0 = Eigen::Matrix <double,Sckf::X_STATE_VECTOR_SIZE,Sckf::X_STATE_VECTOR_SIZE>::Zero();
-    P_0.block <2*NUMAXIS, 2*NUMAXIS> (0, 0) = 1e-06 * Eigen::Matrix <double,2*NUMAXIS,2*NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (2*NUMAXIS,2*NUMAXIS) = 1e-06 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (3*NUMAXIS,3*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
-    P_0.block <NUMAXIS, NUMAXIS> (4*NUMAXIS,4*NUMAXIS) = 1e-10 * Eigen::Matrix <double,NUMAXIS,NUMAXIS>::Identity();
+    P_0.block <2*localization::NUMAXIS, 2*localization::NUMAXIS> (0, 0) = 1e-06 * Eigen::Matrix <double,2*localization::NUMAXIS,2*localization::NUMAXIS>::Identity();
+    P_0.block <localization::NUMAXIS, localization::NUMAXIS> (2*localization::NUMAXIS,2*localization::NUMAXIS) = 1e-06 * Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS>::Identity();
+    P_0.block <localization::NUMAXIS, localization::NUMAXIS> (3*localization::NUMAXIS,3*localization::NUMAXIS) = 1e-10 * Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS>::Identity();
+    P_0.block <localization::NUMAXIS, localization::NUMAXIS> (4*localization::NUMAXIS,4*localization::NUMAXIS) = 1e-10 * Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS>::Identity();
     
     /** Process noise matrices **/
     /** Gyroscopes bias instability **/    
@@ -1437,7 +1437,7 @@ void Task::selectContactPointsSimple(std::vector<int> &contactPoints)
 }
 
 void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std::vector<int> &candidatePoints,
-					    Eigen::Matrix<double, NUMAXIS, 1> &acc, Eigen::Matrix<double, NUMAXIS, 1> &angvelo,
+					    Eigen::Matrix<double, localization::NUMAXIS, 1> &acc, Eigen::Matrix<double, localization::NUMAXIS, 1> &angvelo,
 					    Eigen::Matrix< double, Eigen::Dynamic, 1  > velojoints)
 {
     double minerror = 0.00;
@@ -1445,29 +1445,29 @@ void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std
     register unsigned int l = 0;
     std::vector<int> combinations(NUMBER_WHEELS,0);
     std::vector<double> leastsquared(pow(2,NUMBER_WHEELS),0);
-    std::vector< Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> > > vjacobRL(2);
-    std::vector< Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> > > vjacobRR(2);
-    std::vector< Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> > > vjacobFR(2);
-    std::vector< Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*NUMAXIS, Eigen::Dynamic> > > vjacobFL(2);
-//     Eigen::Matrix< double, NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
+    std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> > > vjacobRL(2);
+    std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> > > vjacobRR(2);
+    std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> > > vjacobFR(2);
+    std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, Eigen::Dynamic> > > vjacobFL(2);
+//     Eigen::Matrix< double, localization::NUMAXIS , 1> slipvector = Eigen::Matrix< double, 3 , 1>::Zero();
     
     /** Navigation Matrices **/
-    Eigen::Matrix< double, NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS> A;
-    Eigen::Matrix< double, NUMBER_WHEELS*(2*NUMAXIS), (2*NUMAXIS) + (1 + NUMBER_WHEELS)> B;
+    Eigen::Matrix< double, NUMBER_WHEELS*(2*localization::NUMAXIS), NUMBER_WHEELS> A;
+    Eigen::Matrix< double, NUMBER_WHEELS*(2*localization::NUMAXIS), (2*localization::NUMAXIS) + (1 + NUMBER_WHEELS)> B;
     
     /** Navigation Vectors **/
     Eigen::Matrix< double, NUMBER_WHEELS, 1> x;
-    Eigen::Matrix< double, (2*NUMAXIS) + (1 + NUMBER_WHEELS), 1> y;
-    Eigen::Matrix< double, NUMBER_WHEELS*(2*NUMAXIS), 1> b;
+    Eigen::Matrix< double, (2*localization::NUMAXIS) + (1 + NUMBER_WHEELS), 1> y;
+    Eigen::Matrix< double, NUMBER_WHEELS*(2*localization::NUMAXIS), 1> b;
     
     /** Wheel-weighting matrix **/
-    Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*NUMAXIS),NUMBER_OF_WHEELS*(2*NUMAXIS)> W;
+    Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*localization::NUMAXIS),NUMBER_OF_WHEELS*(2*localization::NUMAXIS)> W;
     W.setIdentity();
     
     /** Filled the navigation vectors with information **/
-    y.block<NUMAXIS, 1> (0,0) = acc;
-    y.block<NUMAXIS, 1> (NUMAXIS,0) = angvelo;
-    y.block<ENCODERS_VECTOR_SIZE, 1> (2*NUMAXIS,0) = velojoints;
+    y.block<localization::NUMAXIS, 1> (0,0) = acc;
+    y.block<localization::NUMAXIS, 1> (localization::NUMAXIS,0) = angvelo;
+    y.block<ENCODERS_VECTOR_SIZE, 1> (2*localization::NUMAXIS,0) = velojoints;
     
     /** Compute the Jacobian matrices **/
     for (unsigned int i=0; i<2; ++i)
@@ -1499,10 +1499,10 @@ void Task::selectContactPointsCombinatorics(std::vector<int> &contactPoints, std
 	#endif
 	
 	/** Compute the composite navigation equation if Jacobians are created **/
-	if ((vjacobRL[combinations[0]].cols() == (2 + NUMAXIS + 1)) && 
-	    (vjacobRR[combinations[1]].cols() == (2 + NUMAXIS + 1)) &&
-	    (vjacobFR[combinations[2]].cols() == (1 + NUMAXIS + 1)) &&
-	    (vjacobFL[combinations[3]].cols() == (1 + NUMAXIS + 1)))
+	if ((vjacobRL[combinations[0]].cols() == (2 + localization::NUMAXIS + 1)) && 
+	    (vjacobRR[combinations[1]].cols() == (2 + localization::NUMAXIS + 1)) &&
+	    (vjacobFR[combinations[2]].cols() == (1 + localization::NUMAXIS + 1)) &&
+	    (vjacobFL[combinations[3]].cols() == (1 + localization::NUMAXIS + 1)))
 	{
 	    /** Form the nav. matrices for the Least-Squares **/
 	    compositeNavJacobians (A, B, vjacobRL[combinations[0]], vjacobRR[combinations[1]], vjacobFR[combinations[2]], vjacobFL[combinations[3]]);
@@ -1799,20 +1799,20 @@ void Task::calculateEncodersVelocities()
 void Task::compositeMotionJacobians()
 {
     /** Set the proper size of the matrices **/
-    E.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS);
-    J.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE + localization::SLIP_VECTOR_SIZE + localization::NUMBER_OF_WHEELS);
+    E.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), 2*localization::NUMAXIS);
+    J.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::ENCODERS_VECTOR_SIZE + localization::SLIP_VECTOR_SIZE + localization::NUMBER_OF_WHEELS);
     
-    Anav.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS+2*localization::NUMBER_OF_WHEELS);
-    Bnav.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS+localization::ENCODERS_VECTOR_SIZE);
-    Aslip.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE);
-    Bslip.resize(localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS + ENCODERS_VECTOR_SIZE + NUMBER_OF_WHEELS);
+    Anav.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS+2*localization::NUMBER_OF_WHEELS);
+    Bnav.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS+localization::ENCODERS_VECTOR_SIZE);
+    Aslip.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::SLIP_VECTOR_SIZE);
+    Bslip.resize(localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), 2*localization::NUMAXIS + ENCODERS_VECTOR_SIZE + NUMBER_OF_WHEELS);
     J.setZero(); Anav.setZero(); Bnav.setZero(); Aslip.setZero(); Bslip.setZero();
     
     /** Compute the composite rover equation matrix E **/
-    E.block<2*NUMAXIS, 2*NUMAXIS>(0,0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(2*NUMAXIS, 0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(2*(2*NUMAXIS), 0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(3*(2*NUMAXIS), 0) = Eigen::Matrix <double, 2*NUMAXIS, 2*NUMAXIS>::Identity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(0,0) = Eigen::Matrix <double, 2*localization::NUMAXIS, 2*localization::NUMAXIS>::Identity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(2*localization::NUMAXIS, 0) = Eigen::Matrix <double, 2*localization::NUMAXIS, 2*localization::NUMAXIS>::Identity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(2*(2*localization::NUMAXIS), 0) = Eigen::Matrix <double, 2*localization::NUMAXIS, 2*localization::NUMAXIS>::Identity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(3*(2*localization::NUMAXIS), 0) = Eigen::Matrix <double, 2*localization::NUMAXIS, 2*localization::NUMAXIS>::Identity();
     
     #ifdef DEBUG_PRINTS
     std::cout<< "Composite matrices\n";
@@ -1823,65 +1823,65 @@ void Task::compositeMotionJacobians()
     /** Compute the rover Jacobian matrix **/
     
     /** Twist passive joint **/
-    J.col(0).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(1);
-    J.col(0).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(1);
+    J.col(0).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(1);
+    J.col(0).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(1);
     
     /** Motor encoders **/
-    J.col(1).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(0);
+    J.col(1).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(0);
     
-    J.col(2).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(0);
+    J.col(2).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(0);
         
-    J.col(3).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(0);
+    J.col(3).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(0);
     
-    J.col(4).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(0);
+    J.col(4).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(0);
     
     /** Slip vector x for RL wheel **/
-    J.col(5).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(2);
+    J.col(5).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(2);
     
     /** Slip vector y for RL wheel **/
-    J.col(6).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(3);
+    J.col(6).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(3);
     
     /** Slip vector z for RL wheel **/
-    J.col(7).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(4);
+    J.col(7).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(4);
     
     /** Slip vector x for RR wheel **/
-    J.col(8).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(2);
+    J.col(8).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(2);
     
     /** Slip vector y for RR wheel **/
-    J.col(9).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(3);
+    J.col(9).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(3);
     
     /** Slip vector z for RR wheel **/
-    J.col(10).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(4);
+    J.col(10).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(4);
     
     /** Slip vector x for FR wheel **/
-    J.col(11).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(1);
+    J.col(11).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(1);
     
     /** Slip vector y for FR wheel **/
-    J.col(12).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(2);
+    J.col(12).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(2);
     
     /** Slip vector z for FR wheel **/
-    J.col(13).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(3);
+    J.col(13).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(3);
     
     /** Slip vector x for FL wheel **/
-    J.col(14).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(1);
+    J.col(14).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(1);
     
     /** Slip vector y for FL wheel **/
-    J.col(15).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(2);
+    J.col(15).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(2);
     
     /** Slip vector z for FL wheel **/
-    J.col(16).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(3);
+    J.col(16).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(3);
     
     /** Contact angle for RL wheel **/
-    J.col(17).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(5);
+    J.col(17).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(5);
     
     /** Contact angle for RR wheel **/
-    J.col(18).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(5);
+    J.col(18).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(5);
     
     /** Contact angle for FR wheel **/
-    J.col(19).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(4);
+    J.col(19).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(4);
     
     /** Contact angle for FL wheel **/
-    J.col(20).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(4);
+    J.col(20).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(4);
     
     #ifdef DEBUG_PRINTS
     std::cout<< "J is of size "<<J.rows()<<"x"<<J.cols()<<"\n";
@@ -1890,21 +1890,21 @@ void Task::compositeMotionJacobians()
     
     
     /** Form the matrices for the Navigation Kinematics **/
-    Anav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS>(0,0) = E.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0);
+    Anav.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS>(0,0) = E.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS> (0,0);
     Anav.col(3) = -J.col(7); Anav.col(4) = -J.col(10); Anav.col(5) = -J.col(13); Anav.col(6) = -J.col(16);
-    Anav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS>(0,NUMAXIS+localization::NUMBER_OF_WHEELS) =
-	-J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS>(0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
-    Bnav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,0) = -E.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), NUMAXIS> (0,NUMAXIS);
-    Bnav.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,NUMAXIS) = J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
+    Anav.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMBER_OF_WHEELS>(0,localization::NUMAXIS+localization::NUMBER_OF_WHEELS) =
+	-J.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMBER_OF_WHEELS>(0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
+    Bnav.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS> (0,0) = -E.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMAXIS> (0,localization::NUMAXIS);
+    Bnav.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,localization::NUMAXIS) = J.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
     
     /** Form the matrix for the slip kinematics **/
-    Aslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,0) =
-	-J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,localization::ENCODERS_VECTOR_SIZE);
-    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), 2*NUMAXIS> (0,0) = -E;
-    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,2*NUMAXIS) =
-	J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
-    Bslip.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS> (0,(2*NUMAXIS)+localization::ENCODERS_VECTOR_SIZE) =
-	J.block<localization::NUMBER_OF_WHEELS*(2*NUMAXIS), localization::NUMBER_OF_WHEELS> (0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
+    Aslip.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,0) =
+	-J.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::SLIP_VECTOR_SIZE>(0,localization::ENCODERS_VECTOR_SIZE);
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), 2*localization::NUMAXIS> (0,0) = -E;
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,2*localization::NUMAXIS) =
+	J.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::ENCODERS_VECTOR_SIZE> (0,0);
+    Bslip.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMBER_OF_WHEELS> (0,(2*localization::NUMAXIS)+localization::ENCODERS_VECTOR_SIZE) =
+	J.block<localization::NUMBER_OF_WHEELS*(2*localization::NUMAXIS), localization::NUMBER_OF_WHEELS> (0,localization::ENCODERS_VECTOR_SIZE+localization::SLIP_VECTOR_SIZE);
 
 
     #ifdef DEBUG_PRINTS
@@ -2092,7 +2092,7 @@ void Task::toMLSGrid(Eigen::Matrix<double, localization::SLIP_VECTOR_SIZE, 1> ro
 	
 	/** Slip vector to color **/
 	base::Vector3d color;
-	base::Vector3d slip = roverslipvector.block<NUMAXIS,1> (k*NUMAXIS,0);
+	base::Vector3d slip = roverslipvector.block<localization::NUMAXIS,1> (k*localization::NUMAXIS,0);
 	double slipcolor = 0.00;
 	#ifdef DEBUG_PRINTS
 	std::cout<< "[ENVIRE] slip\n"<< slip<<"\n";
@@ -2189,7 +2189,7 @@ void Task::toDebugPorts()
     /** Port out the imu velocities in body frame **/
     rbsIMU.invalidate();
     rbsIMU.time = rbsBC.time;
-    Eigen::Matrix<double, NUMAXIS, 1> acc, angvelo;
+    Eigen::Matrix<double, localization::NUMAXIS, 1> acc, angvelo;
     mysckf.measurement.getStepInertialValues(acc, angvelo);
     rbsIMU.position = acc;
     rbsIMU.angular_velocity = angvelo;
@@ -2283,22 +2283,22 @@ bool Task::increment(std::vector<int> & vector, int k)
 }
 
 
-void Task::compositeNavJacobians(Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*NUMAXIS), NUMBER_WHEELS> &A,
-				    Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*NUMAXIS), (2*NUMAXIS) + (1 + NUMBER_WHEELS)> &B,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobRL,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobRR,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobFR,
-				    Eigen::Matrix< double, 2*NUMAXIS, Eigen::Dynamic> &jacobFL)
+void Task::compositeNavJacobians(Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*localization::NUMAXIS), NUMBER_WHEELS> &A,
+				    Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*localization::NUMAXIS), (2*localization::NUMAXIS) + (1 + NUMBER_WHEELS)> &B,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobRL,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobRR,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobFR,
+				    Eigen::Matrix< double, 2*localization::NUMAXIS, Eigen::Dynamic> &jacobFL)
 {
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), (2*NUMAXIS)> E; /** Sparse matrix (24 x 6) **/
-    Eigen::Matrix <double, NUMBER_WHEELS*(2*NUMAXIS), (1 + NUMBER_WHEELS) + NUMBER_WHEELS> J; /** Sparse Wheels Jacobian matrix (24 x 11) **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*localization::NUMAXIS), (2*localization::NUMAXIS)> E; /** Sparse matrix (24 x 6) **/
+    Eigen::Matrix <double, NUMBER_WHEELS*(2*localization::NUMAXIS), (1 + NUMBER_WHEELS) + NUMBER_WHEELS> J; /** Sparse Wheels Jacobian matrix (24 x 11) **/
     J.setZero();
     
     /** Compute the composite rover equation matrix E **/
-    E.block<2*NUMAXIS, 2*NUMAXIS>(0,0).setIdentity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(2*NUMAXIS, 0).setIdentity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(2*(2*NUMAXIS), 0).setIdentity();
-    E.block<2*NUMAXIS, 2*NUMAXIS>(3*(2*NUMAXIS), 0).setIdentity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(0,0).setIdentity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(2*localization::NUMAXIS, 0).setIdentity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(2*(2*localization::NUMAXIS), 0).setIdentity();
+    E.block<2*localization::NUMAXIS, 2*localization::NUMAXIS>(3*(2*localization::NUMAXIS), 0).setIdentity();
     
     #ifdef DEBUG_PRINTS
     std::cout<< "Composite NavJacobians\n";
@@ -2309,29 +2309,29 @@ void Task::compositeNavJacobians(Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*NUMA
     /** Compute the rover Jacobian matrix **/
     
     /** Twist passive joint **/
-    J.col(0).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(1);
-    J.col(0).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(1);
+    J.col(0).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(1);
+    J.col(0).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(1);
     
     /** Motor encoders **/
-    J.col(1).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(0);
+    J.col(1).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(0);
     
-    J.col(2).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(0);
+    J.col(2).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(0);
         
-    J.col(3).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(0);
+    J.col(3).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(0);
     
-    J.col(4).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(0);
+    J.col(4).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(0);
     
     /** Contact angle for RL wheel **/
-    J.col(5).block<2*NUMAXIS,1>(0, 0) = jacobRL.col(5);
+    J.col(5).block<2*localization::NUMAXIS,1>(0, 0) = jacobRL.col(5);
     
     /** Contact angle for RR wheel **/
-    J.col(6).block<2*NUMAXIS,1>(2*NUMAXIS, 0) = jacobRR.col(5);
+    J.col(6).block<2*localization::NUMAXIS,1>(2*localization::NUMAXIS, 0) = jacobRR.col(5);
     
     /** Contact angle for FR wheel **/
-    J.col(7).block<2*NUMAXIS,1>(2*(2*NUMAXIS), 0) = jacobFR.col(4);
+    J.col(7).block<2*localization::NUMAXIS,1>(2*(2*localization::NUMAXIS), 0) = jacobFR.col(4);
     
     /** Contact angle for FL wheel **/
-    J.col(8).block<2*NUMAXIS,1>(3*(2*NUMAXIS), 0) = jacobFL.col(4);
+    J.col(8).block<2*localization::NUMAXIS,1>(3*(2*localization::NUMAXIS), 0) = jacobFL.col(4);
     
     #ifdef DEBUG_PRINTS
     std::cout<< "J is of size "<<J.rows()<<"x"<<J.cols()<<"\n";
@@ -2339,8 +2339,8 @@ void Task::compositeNavJacobians(Eigen::Matrix< double, NUMBER_OF_WHEELS*(2*NUMA
     #endif
     
     /** Form the matrices for the Navigation Kinematics **/
-    A.block<NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS>(0,0) = -J.block<NUMBER_WHEELS*(2*NUMAXIS), NUMBER_WHEELS>(0,(1+NUMBER_WHEELS));
-    B.block<NUMBER_WHEELS*(2*NUMAXIS), (2*NUMAXIS)>(0,0) = -E;
-    B.block<NUMBER_WHEELS*(2*NUMAXIS), (1+NUMBER_WHEELS)>(0,(2*NUMAXIS)) = J.block<NUMBER_WHEELS*(2*NUMAXIS), (1+NUMBER_WHEELS)>(0,NUMBER_WHEELS);
+    A.block<NUMBER_WHEELS*(2*localization::NUMAXIS), NUMBER_WHEELS>(0,0) = -J.block<NUMBER_WHEELS*(2*localization::NUMAXIS), NUMBER_WHEELS>(0,(1+NUMBER_WHEELS));
+    B.block<NUMBER_WHEELS*(2*localization::NUMAXIS), (2*localization::NUMAXIS)>(0,0) = -E;
+    B.block<NUMBER_WHEELS*(2*localization::NUMAXIS), (1+NUMBER_WHEELS)>(0,(2*localization::NUMAXIS)) = J.block<NUMBER_WHEELS*(2*localization::NUMAXIS), (1+NUMBER_WHEELS)>(0,NUMBER_WHEELS);
 
 }
