@@ -32,7 +32,8 @@ Orocos.run 'rover_localization::Task' => 'rover_localization' do
     
      # connect the tasks to the logs
     log_replay = Orocos::Log::Replay.open( ARGV[0] ) 
-    
+    log_replay.transformer_broadcaster.rename("old_transformer_broadcaster")
+
     #Mapping the inputs ports in the navigation tasks
     if viz[:proprio]
 	log_replay.propriocessing.hbridge_samples_out.connect_to(asguard_localization_task.hbridge_samples, :type => :buffer, :size => 200 )

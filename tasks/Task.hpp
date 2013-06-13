@@ -92,7 +92,7 @@ namespace rover_localization {
  	unsigned int numberTorqueSamples; /** number of  Torque info samples for the resampling **/
  	unsigned int numberForceSamples; /** number of Ground Force info samples for the resampling **/
  	unsigned int numberPose; /** number of pose information comming from external measurement **/
- 	
+	
  	/** Current counter of samples arrived to each port **/
  	unsigned int counterHbridgeSamples; /** counter for Hbridge samples**/
  	unsigned int counterAsguardStatusSamples; /** counter for Asguard status samples  **/
@@ -100,7 +100,7 @@ namespace rover_localization {
  	unsigned int counterTorqueSamples; /** counter for  Torque info samples **/
  	unsigned int counterForceSamples; /** conter of Ground Force info samples for the resampling **/
  	unsigned int counterPose; /** counter of pose information comming from external measurement **/
- 	
+	
  	/** Buffer for raw inputs port samples (filtered to the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbHbridges;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguard;

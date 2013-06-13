@@ -388,45 +388,45 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	mysckf.predict(angular_velocity, acc, propagation_delta_t);
 	
 	/** Compare with the measurement number of iterations (to select new Contact Points) **/
-// 	if (this->filteridx == this->measurementiterations)
-// 	{
-// 	    std::vector<int> oldcontactPoints = contactPoints; /** Old contact points **/
-// 	    
-// 	    /** Get the instantaneous inertial values from the measurement **/
-// 	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
-//     
-// 	    #ifdef DEBUG_PRINTS
-// 	    std::cout<<"*********** SELECT CONTACT POINT ***********\n";
-// 	    #endif
-// 	
-// 	    /** Select the Contact Point among the Foot Points **/
-// 	    if ((this->stepvjoints.array() > 0.00).any()) //! If the encoders reading are not zero
-// 	    {
-// 		this->selectCandidatePoints(candidatePoints, stepvjoints);
-// 		this->selectContactPointsCombinatorics(contactPoints, candidatePoints, acc, angular_velocity, stepvjoints);
-// 		
-// 		/** Check if the contact points have changed in order to reset the contact angle **/
-// 		for (unsigned int i=0; i<NUMBER_WHEELS; ++i)
-// 		{
-// 		    if (oldcontactPoints[i] != contactPoints[i])
-// 		    {
-// 			#ifdef DEBUG_PRINTS
-// 			std::cout<<" changed contactPoint["<<i<<"]"<<" with angle: "<<contactAngle[i]<<"\n";
-// 			#endif
-// 			
-// 			contactAngle[i] = 0.00;
-// 		    }
-// 		}
-// 		
-// 		/** Reset the step delta time vjoints vector **/
-// 		stepvjoints.setZero();
-// 		
-// 	    }//!if the encoders reading are zero the jacobian matrices do not change
-// 	}
-// 	else
-// 	{
+ 	if (this->filteridx == this->measurementiterations)
+ 	{
+ 	    std::vector<int> oldcontactPoints = contactPoints; /** Old contact points **/
+ 	    
+ 	    /** Get the instantaneous inertial values from the measurement **/
+ 	    mysckf.measurement.getStepInertialValues (acc, angular_velocity);
+     
+ 	    #ifdef DEBUG_PRINTS
+ 	    std::cout<<"*********** SELECT CONTACT POINT ***********\n";
+ 	    #endif
+ 	
+ 	    /** Select the Contact Point among the Foot Points **/
+ 	    if ((this->stepvjoints.array() > 0.00).any()) //! If the encoders reading are not zero
+ 	    {
+ 		this->selectCandidatePoints(candidatePoints, stepvjoints);
+ 		this->selectContactPointsCombinatorics(contactPoints, candidatePoints, acc, angular_velocity, stepvjoints);
+ 		
+ 		/** Check if the contact points have changed in order to reset the contact angle **/
+ 		for (unsigned int i=0; i<NUMBER_WHEELS; ++i)
+ 		{
+ 		    if (oldcontactPoints[i] != contactPoints[i])
+ 		    {
+ 			#ifdef DEBUG_PRINTS
+ 			std::cout<<" changed contactPoint["<<i<<"]"<<" with angle: "<<contactAngle[i]<<"\n";
+ 			#endif
+ 			
+ 			contactAngle[i] = 0.00;
+ 		    }
+ 		}
+		
+ 		/** Reset the step delta time vjoints vector **/
+ 		stepvjoints.setZero();
+		
+ 	    }//!if the encoders reading are zero the jacobian matrices do not change
+ 	}
+ 	else
+ 	{
 	    /** First time to select the contact point, use the simple method**/
-// 	    if (contactPoints[0] == -1)
+ 	    if (contactPoints[0] == -1)
 		this->selectContactPointsSimple(contactPoints);
 	    
 // 	    stepvjoints += vjoints;
@@ -436,7 +436,7 @@ void Task::hbridge_samplesTransformerCallback(const base::Time &ts, const ::base
 	    wheelRR.calculateWheelJacobian(contactPoints[1]);
 	    wheelFR.calculateWheelJacobian(contactPoints[2]);
 	    wheelFL.calculateWheelJacobian(contactPoints[3]);
-// 	}   
+ 	}   
 	
 	
 	#ifdef DEBUG_PRINTS
@@ -689,7 +689,7 @@ void Task::pose_initTransformerCallback(const base::Time& ts, const base::sample
 	
 	initPosition = true;
     }
-    
+
     poseInitValues = true;
 }
 
@@ -715,7 +715,7 @@ bool Task::configureHook()
     Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Qba; /** Process noise matric of acc bias (bias instability) **/
     Eigen::Matrix <double,localization::ENCODERS_VECTOR_SIZE,localization::ENCODERS_VECTOR_SIZE> Ren; /** Measurement noise of encoders velocity **/
     Eigen::Matrix <double,localization::NUMAXIS,localization::NUMAXIS> Rangvelo; /** Measurement noise for angular velocity in the measurement */
-    
+
     if (! TaskBase::configureHook())
         return false;
     
