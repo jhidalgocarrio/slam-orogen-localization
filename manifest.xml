@@ -22,6 +22,7 @@
   <depend package="asguard/orogen/asguard" />
   <depend package="asguard/orogen/torque_estimator" />
   <depend package="asguard/rover_localization" />
+  <depend package="slam/odometry" />
   <depend package="slam/envire" />
   <depend package="slam/orogen/envire"/>
   <depend package="gui/vizkit" />
