@@ -18,7 +18,11 @@ Orocos.initialize
 
 Orocos.transformer.load_conf('../config/transforms.rb')
 
+# Configuration values
 framework = {:proprio => false, :vicon => false, :proprio_vicon => false, :proprio_vicon_head => true, :viz => true, :envire => false}
+
+# Asguard number of chain = #Trees * #ContactPointsPerTree
+$number_chains = 20
 
 Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::BackEnd' => 'backend', 'rover_localization::Visualization' => 'visualization' do
 
@@ -34,15 +38,15 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
     backend = Orocos.name_service.get 'backend'
 
     if framework[:viz]
-        # get the Visualization
-        visualization = Orocos::Async.name_service.get 'visualization'
+        # get the Visualization in Asynchronous mode
+        visualization = Orocos::Async.proxy 'visualization'
     end
 
     # connect the tasks to the logs
     log_replay = Orocos::Log::Replay.open( ARGV[0] )
     log_replay.transformer_broadcaster.rename("old_transformer_broadcaster")
 
-    #mapping the inputs ports in the navigation tasks
+    #mapping the logs into the inputs ports in the framework frontend
     if framework[:proprio]
 	log_replay.propriocessing.hbridge_samples_out.connect_to(frontend.encoder_samples, :type => :buffer, :size => 200 )
 	log_replay.propriocessing.systemstate_samples_out.connect_to(frontend.systemstate_samples, :type => :buffer, :size => 200 )
@@ -58,6 +62,10 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
     elsif (framework[:proprio_vicon] || framework[:proprio_vicon_head])
 	log_replay.propriocessing.pose_samples_out.connect_to(frontend.pose_init_samples, :type => :buffer, :size => 200 )
     end
+
+    #mapping the frontend outports into the backend inports
+    frontend.pose_samples_out.connect_to(backend.pose_samples, :type => :buffer, :size => 200)
+    frontend.proprioceptive_samples_out.connect_to(backend.proprioceptive_samples, :type => :buffer, :size => 200)
 
     #Configure the frames names
     frontend.inertial_samples.frame = "stim300"
@@ -87,7 +95,7 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
 
     # Configure and Run the Back-End
     backend.configure
-    backend.start
+    #backend.start
 
     #########################
     # VIZKIT VISUALIZATION ##
@@ -97,13 +105,22 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
 
         #Asguard visualization
         asguardViz = Vizkit.default_loader.AsguardVisualization
+        asguardViz.setPluginName("AsguardBodyState")
         asguardViz.setXForward(true)
 
-        #RigidBody of the BodyCenter
-        BC = Vizkit.default_loader.RigidBodyStateVisualization
-        BC.displayCovariance(true)
-        BC.setColor(Eigen::Vector3.new(0, 0, 0))
-        BC.resetModel(0.4)
+        #RigidBody of the BodyCenter from frontend
+        frontendRBS = Vizkit.default_loader.RigidBodyStateVisualization
+        frontendRBS.displayCovariance(true)
+        frontendRBS.setPluginName("FrontEndPose")
+        frontendRBS.setColor(Eigen::Vector3.new(255, 0, 0))#Red
+        frontendRBS.resetModel(0.4)
+
+        #RigidBody of the BodyCenter from backtend
+        backendRBS = Vizkit.default_loader.RigidBodyStateVisualization
+        backendRBS.displayCovariance(true)
+        backendRBS.setPluginName("BackEndPose")
+        backendRBS.setColor(Eigen::Vector3.new(0, 0, 0))#Black
+        backendRBS.resetModel(0.4)
 
         #Contact points FL Wheel (RED)
         c0FL = Vizkit.default_loader.RigidBodyStateVisualization
@@ -229,80 +246,112 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
         c4RR.resetModel(0.1)
         c4RR.displayCovariance(true)
 
-        #Asguard trajectory
-        asguardTrajectory = Vizkit.default_loader.TrajectoryVisualization
-        asguardTrajectory.setColor(Eigen::Vector3.new(255, 0, 0))
+        #FrontEnd Asguard trajectory
+        frontendAsguardTrajectory = Vizkit.default_loader.TrajectoryVisualization
+        frontendAsguardTrajectory.setColor(Eigen::Vector3.new(255, 0, 0))#Red line
+        frontendAsguardTrajectory.setPluginName("FrontEndTrajectory")
 
 
         visualization.on_reachable do
-                Vizkit.display visualization.port('C0FL2body_out'), :widget => c0FL
-                Vizkit.display visualization.port('C1FL2body_out'), :widget => c1FL
-                Vizkit.display visualization.port('C2FL2body_out'), :widget => c2FL
-                Vizkit.display visualization.port('C3FL2body_out'), :widget => c3FL
-                Vizkit.display visualization.port('C4FL2body_out'), :widget => c4FL
 
-                Vizkit.display visualization.port('C0FR2body_out'), :widget => c0FR
-                Vizkit.display visualization.port('C1FR2body_out'), :widget => c1FR
-                Vizkit.display visualization.port('C2FR2body_out'), :widget => c2FR
-                Vizkit.display visualization.port('C3FR2body_out'), :widget => c3FR
-                Vizkit.display visualization.port('C4FR2body_out'), :widget => c4FR
-
-                Vizkit.display visualization.port('C0RL2body_out'), :widget => c0RL
-                Vizkit.display visualization.port('C1RL2body_out'), :widget => c1RL
-                Vizkit.display visualization.port('C2RL2body_out'), :widget => c2RL
-                Vizkit.display visualization.port('C3RL2body_out'), :widget => c3RL
-                Vizkit.display visualization.port('C4RL2body_out'), :widget => c4RL
-
-                Vizkit.display visualization.port('C0RR2body_out'), :widget => c0RR
-                Vizkit.display visualization.port('C1RR2body_out'), :widget => c1RR
-                Vizkit.display visualization.port('C2RR2body_out'), :widget => c2RR
-                Vizkit.display visualization.port('C3RR2body_out'), :widget => c3RR
-                Vizkit.display visualization.port('C4RR2body_out'), :widget => c4RR
-
-                if (framework[:vicon] || framework[:proprio_vicon] || framework[:proprio_vicon_head])
-                    # Trajectory of the ground truth
-                    truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
-                    truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green
-
-                    #RigidBodyState of the ground truth
-                    rbsTruth = Vizkit.default_loader.RigidBodyStateVisualization
-                    rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))
-                    rbsTruth.resetModel(0.4)
-
-                    #Connect to the ground truth output port of the visualization task
-                    Vizkit.display visualization.port('ground_truth_pose_samples_out'), :widget => rbsTruth
-
-                    visualization.port('ground_truth_pose_samples_out').on_data do|ground_truth,_|
-                        truthTrajectory.updateTrajectory(ground_truth.position)
-                    end
-               end
-
-                Vizkit.display visualization.port('optimal_pose_samples_out'), :widget => BC
-
-                visualization.port('optimal_pose_samples_out').on_data do |asguard_rbs,_|
-                    asguardViz.updateRigidBodyState(asguard_rbs)
-                    asguardTrajectory.updateTrajectory(asguard_rbs.position)
+            #mapping the inports for the visualization task
+            visualization.port('frontend_pose_samples').on_reachable do
+                begin
+                    t = TaskContext.get 'visualization'
+                    frontend.pose_samples_out.connect_to(t.frontend_pose_samples, :type => :buffer, :size => 200)
+                rescue Orocos::NotFound
                 end
+            end
 
-                visualization.port('bodystate_samples_out').on_data do |asguard_state,_|
-                    asguardViz.updateBodyState(asguard_state)
+            visualization.port('backend_pose_samples').on_reachable do
+                backend.pose_samples_out.connect_to(visualization.port('backend_pose_samples'), :type => :buffer, :size => 200)
+            end
+
+            visualization.port('ground_truth_pose_samples').on_reachable do
+                frontend.ground_truth_pose_samples_out.connect_to(visualization.port('ground_truth_pose_samples'), :type => :buffer, :size => 200)
+            end
+
+            visualization.port('fkchains_samples').on_reachable do
+                frontend.fkchains_samples_out.connect_to(visualization.port('fkchains_samples'), :type => :buffer, :size => 500)
+            end
+
+            #Access to the chains sub_ports
+            vector_rbs = visualization.port('fkchains_rbs_out')
+
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 0]), :widget => c0FL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 1]), :widget => c1FL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 2]), :widget => c2FL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 3]), :widget => c3FL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 4]), :widget => c4FL
+
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 5]), :widget => c0FR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 6]), :widget => c1FR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 7]), :widget => c2FR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 8]), :widget => c3FR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 9]), :widget => c4FR
+
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 10]), :widget => c0RL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 11]), :widget => c1RL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 12]), :widget => c2RL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 13]), :widget => c3RL
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 14]), :widget => c4RL
+
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 15]), :widget => c0RR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 16]), :widget => c1RR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 17]), :widget => c2RR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 18]), :widget => c3RR
+            Vizkit.display vector_rbs.sub_port([:rbsChain, 19]), :widget => c4RR
+
+           #Vizkit.display vector_rbs.sub_port([:rbsChain, 20]), :widget => Vizkit.default_loader.StructViewer
+
+
+            if (framework[:vicon] || framework[:proprio_vicon] || framework[:proprio_vicon_head])
+                # Trajectory of the ground truth
+                truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
+                truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green line
+                truthTrajectory.setPluginName("GroundTruthTrajectory")
+
+                #RigidBodyState of the ground truth
+                rbsTruth = Vizkit.default_loader.RigidBodyStateVisualization
+                rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))#Green rbs
+                rbsTruth.setPluginName("GroundTruthPose")
+                rbsTruth.resetModel(0.4)
+
+                #Connect to the ground truth output port of the visualization task
+                Vizkit.display visualization.port('ground_truth_pose_samples_out'), :widget => rbsTruth
+
+                visualization.port('ground_truth_pose_samples_out').on_data do|ground_truth,_|
+                    truthTrajectory.updateTrajectory(ground_truth.position)
                 end
+            end
 
-                if framework[:envire]
-                    envire_viz = Vizkit.default_loader.EnvireVisualization
-                end
+            Vizkit.display visualization.port('backend_pose_samples_out'), :widget =>backendRBS
+            Vizkit.display visualization.port('frontend_pose_samples_out'), :widget =>frontendRBS
 
+
+            visualization.port('frontend_pose_samples_out').on_data do |asguard_rbs,_|
+                asguardViz.updateRigidBodyState(asguard_rbs)
+                frontendAsguardTrajectory.updateTrajectory(asguard_rbs.position)
+            end
+
+            visualization.port('bodystate_samples_out').on_data do |asguard_state,_|
+                asguardViz.updateBodyState(asguard_state)
+            end
+
+            if framework[:envire]
+                envire_viz = Vizkit.default_loader.EnvireVisualization
+            end
+
+            #Configure and Run the visualization
+            visualization.configure
+            visualization.start
+
+            #2D plot the instantaneous velocity information
+            #     Vizkit.display visualization.body2world_out,:subfield => ["velocity"],:widget=>"Plot2d"
+            #     Vizkit.display visualization.imu2world_out,:subfield => ["velocity"],:widget=>"Plot2d"
         end
 
-        #Configure and Run the visualization
-        visualization.configure
-        visualization.start
-
     end ##END framework[:viz]
-
-    #2D plot the instantaneous velocity information
-#     Vizkit.display visualization.body2world_out,:subfield => ["velocity"],:widget=>"Plot2d"
-#     Vizkit.display visualization.imu2world_out,:subfield => ["velocity"],:widget=>"Plot2d"
 
     # open the log replay widget
     control = Vizkit.control log_replay
