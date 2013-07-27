@@ -52,19 +52,19 @@ c1FL.setColor(Eigen::Vector3.new(1, 0, 0.2))
 c1FL.resetModel(0.1)
 
 c2FL = Vizkit.default_loader.RigidBodyStateVisualization
-c2FL.displayCovariance(true)
+#c2FL.displayCovariance(true)
 c2FL.setPluginName("FLFoot2")
 c2FL.setColor(Eigen::Vector3.new(1, 0, 0.4))
 c2FL.resetModel(0.1)
 
 c3FL = Vizkit.default_loader.RigidBodyStateVisualization
-c3FL.displayCovariance(true)
+#c3FL.displayCovariance(true)
 c3FL.setPluginName("FLFoot3")
 c3FL.setColor(Eigen::Vector3.new(1, 0, 0.6))
 c3FL.resetModel(0.1)
 
 c4FL = Vizkit.default_loader.RigidBodyStateVisualization
-c4FL.displayCovariance(true)
+#c4FL.displayCovariance(true)
 c4FL.setPluginName("FLFoot4")
 c4FL.setColor(Eigen::Vector3.new(1, 0, 0.8))
 c4FL.resetModel(0.1)
@@ -172,6 +172,7 @@ visualization.on_reachable do
 
     #Access to the chains sub_ports
     vector_rbs = visualization.port('fkchains_rbs_out')
+    vector_rbs.wait
 
     Vizkit.display vector_rbs.sub_port([:rbsChain, 0]), :widget => c0FL
     Vizkit.display vector_rbs.sub_port([:rbsChain, 1]), :widget => c1FL
@@ -212,9 +213,9 @@ visualization.on_reachable do
     rbsTruth.resetModel(0.4)
 
     #Connect to the ground truth output port of the visualization task
-    Vizkit.display visualization.port('ground_truth_pose_samples_out'), :widget => rbsTruth
+    Vizkit.display visualization.port('reference_pose_samples_out'), :widget => rbsTruth
 
-    visualization.port('ground_truth_pose_samples_out').on_data do|ground_truth,_|
+    visualization.port('reference_pose_samples_out').on_data do|ground_truth,_|
         truthTrajectory.updateTrajectory(ground_truth.position)
     end
 
