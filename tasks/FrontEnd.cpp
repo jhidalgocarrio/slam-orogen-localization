@@ -4,7 +4,6 @@
 
 #define DEBUG_PRINTS 1
 
-
 using namespace rover_localization;
 
 FrontEnd::FrontEnd(std::string const& name)
@@ -24,8 +23,16 @@ FrontEnd::FrontEnd(std::string const& name)
     /***************************/
     /** Output port variables **/
     /***************************/
-    pose_out.invalidate();
-    truth_out.invalidate();
+    poseOut.invalidate();
+    referenceOut.invalidate();
+    inertialState.time.fromMicroseconds(base::NaN<uint64_t>());
+    inertialState.acc = base::NaN<double>() * base::Vector3d::Zero();
+    inertialState.gyro = base::NaN<double>() * base::Vector3d::Zero();
+    inertialState.incl = base::NaN<double>() * base::Vector3d::Zero();
+    inertialState.theoretical_g = base::NaN<double>();
+    inertialState.estimated_g = base::NaN<double>();
+    inertialState.abias_onoff = base::NaN<double>() * base::Vector3d::Zero();
+    inertialState.gbias_onoff = base::NaN<double>() * base::Vector3d::Zero();
 
     /**********************************/
     /*** Internal Storage Variables ***/
@@ -47,6 +54,10 @@ FrontEnd::FrontEnd(std::string const& name)
     asguardStatusSamples = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     poseSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    backEndEstimationSamples = boost::circular_buffer<rover_localization::BackEndEstimation> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+
+    /** Default size for the std_vector for the cartesian 6DoF velocities variables **/
+    vectorCartesianVelocities = std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > (DEFAULT_CIRCULAR_BUFFER_SIZE);
 
     /** Set eccentricity to NaN **/
     eccx[0] = base::NaN<double>();
@@ -61,6 +72,10 @@ FrontEnd::FrontEnd(std::string const& name)
     eccz[1] = base::NaN<double>();
     eccz[2] = base::NaN<double>();
 
+    /** Uncertainty matrices for the motion model **/
+    cartesianVelCov = base::NaN<double>() * Eigen::Matrix< double, 6, 6 >::Identity();
+    modelVelCov = base::NaN<double>() * Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, frontEndMotionModel::MODEL_DOF >::Identity();
+
 }
 
 FrontEnd::FrontEnd(std::string const& name, RTT::ExecutionEngine* engine)
@@ -72,9 +87,9 @@ FrontEnd::~FrontEnd()
 {
 }
 
-void FrontEnd::pose_init_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_init_samples_sample)
+void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &reference_pose_samples_sample)
 {
-    poseSamples.push_front(pose_init_samples_sample);
+    poseSamples.push_front(reference_pose_samples_sample);
 
     Eigen::Affine3d tf; /** Transformer transformation **/
     Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
@@ -86,7 +101,7 @@ void FrontEnd::pose_init_samplesTransformerCallback(const base::Time &ts, const 
     qtf = Eigen::Quaternion <double> (tf.rotation());
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [PoseInitCallback]Received poseSamples sample at("<<pose_init_samples_sample.time.toMicroseconds()<<") **\n";
+    std::cout<<"** [FE REFERENCE-POSE]Received poseSamples sample at("<<reference_pose_samples_sample.time.toMicroseconds()<<") **\n";
     #endif
 
     /** Apply the transformer pose offset **/
@@ -98,19 +113,19 @@ void FrontEnd::pose_init_samplesTransformerCallback(const base::Time &ts, const 
 
    if (!initPosition)
     {
-	pose_out.position = poseSamples[0].position;
-	pose_out.velocity.setZero();
+	poseOut.position = poseSamples[0].position;
+	poseOut.velocity.setZero();
 	
 	/** Assume well known starting position **/
-	pose_out.cov_position = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
-	pose_out.cov_velocity = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
+	poseOut.cov_position = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
+	poseOut.cov_velocity = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
 	
 	#ifdef DEBUG_PRINTS
 	Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
 	euler[2] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
 	euler[1] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
 	euler[0] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
- 	std::cout<<"** poseSamples at ("<<poseSamples[0].time.toMicroseconds()<< ")**\n";
+ 	std::cout<<"** [FE REFERENCE-POSE]poseSamples at ("<<poseSamples[0].time.toMicroseconds()<< ")**\n";
 	std::cout<<"** position offset\n"<<tf.translation()<<"\n";
 	std::cout<<"** rotation offset\n"<<tf.rotation()<<"\n";
 	std::cout<<"** position\n"<< poseSamples[0].position<<"\n";
@@ -121,7 +136,7 @@ void FrontEnd::pose_init_samplesTransformerCallback(const base::Time &ts, const 
 	if (initAttitude)
 	{
 	    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
-            Eigen::Quaternion <double> attitude = pose_out.orientation; /** Initial attitude from accelerometers has been already calculated **/
+            Eigen::Quaternion <double> attitude = poseOut.orientation; /** Initial attitude from accelerometers has been already calculated **/
 	
 	    /** Get the initial Yaw from the initialPose and the pitch and roll **/
 	    euler[2] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
@@ -133,26 +148,27 @@ void FrontEnd::pose_init_samplesTransformerCallback(const base::Time &ts, const 
 	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
 	
-	    /**Store the value as the initial one for the pose_out **/
-	    pose_out.orientation = attitude;
+	    /**Store the value as the initial one for the poseOut **/
+	    poseOut.orientation = attitude;
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<< "******** Initial Attitude in poseInit *******"<<"\n";
+            std::cout<< "[FE REFERENCE-POSE]\n";
+	    std::cout<< "******** Initial Attitude in Pose Init Samples *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<"Init Pitch: "<<euler[1]*localization::R2D<<"Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
 	}
 	
 	/** Initial angular velocity **/
-	pose_out.angular_velocity.setZero();
+	poseOut.angular_velocity.setZero();
 	
 	/** Assume very well know initial attitude **/
-	pose_out.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
-	pose_out.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 		
 	initPosition = true;
     }
 
-   flag.poseInitSamples = true;
+   flag.referencePoseSamples = true;
 }
 
 void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample)
@@ -174,7 +190,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
     if (base::isNaN(eccx[0]) && base::isNaN(eccy[0]) && base::isNaN(eccz[0]))
     {
 	#ifdef DEBUG_PRINTS
-	std::cout<<"Eccentricities are NaN\n";
+	std::cout<<"[FE INERTIAL-SAMPLES]\nEccentricities are NaN\n";
 	std::cout<<"Translation:\n"<<tf.translation()<<"\n";
 	std::cout<<"Eccx :\n"<<tf.rotation() * _eccx.value()<<"\n";
 	std::cout<<"Eccy :\n"<<tf.rotation() * _eccy.value()<<"\n";
@@ -186,15 +202,13 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	eccy = tf.translation() + tf.rotation() *_eccy.value();
 	eccz = tf.translation() + tf.rotation() *_eccz.value();
 	
-	/** Set the eccentricity to the filter **/
-	//TO-DO: mysckf.measurement.setEccentricity(eccx, eccy, eccz);
     }
 
     /** If the initial attitude is not defined and the orientation port is not connected **/
     if (!initAttitude)
     {
 	#ifdef DEBUG_PRINTS
-	std::cout<< "Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
+	std::cout<< "[FE INERTIAL-SAMPLES]Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
 	#endif
 	
 	/** Add one acc sample to the buffer **/
@@ -226,7 +240,9 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 
 	
 	    #ifdef DEBUG_PRINTS
+            std::cout<<"*** [FE INERTIAL-SAMPLES]\n";
 	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
+	    std::cout<<"*** Computed mean incl values: "<<meanincl[0]<<" "<<meanincl[1]<<" "<<meanincl[2]<<"\n";
 	    std::cout<<"*** Computed gravity (acc): "<<meanacc.norm()<<"\n";
 	    if (framework.use_inclinometers_leveling)
 	    {
@@ -253,6 +269,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
 
 	    #ifdef DEBUG_PRINTS
+            std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (STIM300 frame)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
@@ -267,6 +284,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+            std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (after applying qtf)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
@@ -274,7 +292,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    attitude.normalize();
 	
 	    /** Check if there is initial pose connected **/
-	    if (_pose_init_samples.connected() && initPosition)
+	    if (_reference_pose_samples.connected() && initPosition)
 	    {
 		/** Alternative method: Align the yaw from the poseSamples Yaw **/
 		attitude = Eigen::Quaternion <double>(Eigen::AngleAxisd(poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0], Eigen::Vector3d::UnitZ())) * attitude;
@@ -284,7 +302,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 		initAttitude = true;
 		
 	    }
-	    else if (!_pose_init_samples.connected() || !initPosition)
+	    else if (!_reference_pose_samples.connected() || !initPosition)
 	    {
 		initAttitude = true;
 	    }
@@ -292,47 +310,59 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    /** Set the initial attitude to the rover rbs **/
 	    if (initAttitude)
 	    {
-		/**Store the value as the initial one for the pose_out **/
-		pose_out.orientation = attitude;
-		pose_out.angular_velocity.setZero();
+                double estimated_g = meanacc.norm();
+
+		/** Store the value as the initial one for the poseOut **/
+		poseOut.orientation = attitude;
+		poseOut.angular_velocity.setZero();
 		
 		/** Assume very well know initial attitude **/
-		pose_out.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
-		pose_out.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
-		
-		/** Set the gravity to the filter to the mean computed **/
-// 		mysckf.setGravity(meanacc.norm());
+		poseOut.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+		poseOut.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 		
 		/** Gravity error between theoretical gravity and estimated **/
-		Eigen::Matrix <double,localization::NUMAXIS,1> g_error;
-		//TO-DO: g_error << 0.00, 0.00, (mysckf.getGravity()-meanacc.norm());
+                /** In this framework error = truth - estimation **/
+                base::Vector3d g_error;
+		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "G_error in world\n"<<g_error <<"\n";
+                std::cout<< "[FE INERTIAL-SAMPELS] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
+		std::cout<< "[FE INERTIAL-SAMPLES] G_error in world\n"<<g_error <<"\n";
 		#endif
 		
 		/** Gravity error in IMU frame **/
-		//TO-DO:g_error = q_world2imu.inverse() * g_error;
+		g_error = q_world2imu.inverse() * g_error; /** g_error_imu = (Tworld_imu)^-1 * g_error_world */
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "G_error in imu\n"<<g_error <<"\n";
+		std::cout<< "[FE INERTIAL-SAMPLES] G_error in imu\n"<<g_error <<"\n";
 		#endif
 		
-		//TO-DO: g_error << 0.00, 0.00, (mysckf.getGravity()-meanacc.norm());
-		
+		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
+
+                /** Attitude is Tworld_body (base frame of body expressed in world frame) **/
+                /** Therefore the inverse of attitude is needed to have g_error in body frame **/
 		g_error = attitude.inverse() * g_error;
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "G_error in body\n"<<g_error <<"\n";
+		std::cout<< "[FE INERTIAL-SAMPLES] G_error in body\n"<<g_error <<"\n";
 		#endif
+
+                /** Set up the initial computed gravity into the inertialState variable **/
+                inertialState.estimated_g = estimated_g;
 		
-		/** Update Bias offset with the estimated error theoretical and computed gravity **/
- 		//TO-DO: mysckf.setBiasOffset(_gbiasof.value(), _abiasof.value()-g_error);
+		/** Set up ON/OFF Bias in the Inertial State **/
+                inertialState.gbias_onoff.setZero(); /** Set to zero (calibrated gyros) */
+
+                /** It is true that error = truth - estimation , however in sensor modelling
+                 * raw_value = truth_value + bias, therefore truth_value = raw_value - bias
+                 * and g_error in body frame goes with negative sign */
+                inertialState.abias_onoff = -g_error;
 		
 		#ifdef DEBUG_PRINTS
                 euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
                 euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	        euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+                std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
 		std::cout<< "******** Initial Attitude *******"<<"\n";
 		std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 		#endif
@@ -347,25 +377,35 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	/** A new sample arrived to the port**/
 	
 	#ifdef DEBUG_PRINTS
-        std::cout<<"** [CallBack Inertial] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+        std::cout<<"** [FE INERTIAL-SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(imu_frame):\n"<<inertial_samples_sample.acc<<"\n";
-	std::cout<<"acc(quat):\n"<<qtf * inertial_samples_sample.acc<<"\n";
-	std::cout<<"acc(Rot):\n"<< tf.rotation() * inertial_samples_sample.acc<<"\n";
+	std::cout<<"acc(quat body_frame ):\n"<<qtf * inertial_samples_sample.acc<<"\n";
+	std::cout<<"acc(Rot body_frame):\n"<< tf.rotation() * inertial_samples_sample.acc<<"\n";
 	std::cout<<"gyro(imu_frame):\n"<<inertial_samples_sample.gyro<<"\n";
+	std::cout<<"gyro(quat body_frame):\n"<<qtf * inertial_samples_sample.gyro<<"\n";
 	std::cout<<"mag(imu_frame):\n"<<inertial_samples_sample.mag<<"\n";
-        std::cout<<"mag(quat):\n"<<qtf * inertial_samples_sample.mag<<"\n";
+        std::cout<<"mag(quat body_frame):\n"<<qtf * inertial_samples_sample.mag<<"\n";
 	#endif
 	
-	/** Convert the IMU values in the body orientation **/
+	/** Convert the IMU values in the body frame **/
 	imusample.time = inertial_samples_sample.time;
 	imusample.acc = qtf * inertial_samples_sample.acc;
 	imusample.gyro = qtf * inertial_samples_sample.gyro;
 	imusample.mag = qtf * inertial_samples_sample.mag;
 
-        /** TO-DO: Substract Earth rotation from gyros **/
+        /** Substract Earth rotation from gyros **/
+        localization::Util::SubstractEarthRotation(&(imusample.gyro), &(poseOut.orientation), location.latitude);
 
-	
-	/** Push the IMU sensor into the buffer **/
+        /** Eliminate noise from sensor body frame **/
+        imusample.gyro -= backEndEstimationSamples[0].gbias; /** Elminate estimated bias */
+
+        /** Eliminate gravity perturbation from acc in body frame **/
+        Eigen::Matrix <double,3,1>  gtilde_body, gtilde;
+        gtilde << 0.00, 0.00, inertialState.theoretical_g;
+        gtilde_body = poseOut.orientation.inverse() * gtilde;
+        imusample.acc = imusample.acc - backEndEstimationSamples[0].abias - gtilde_body;
+
+	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
 	
 	/** Set the flag of IMU values valid to true **/
@@ -389,7 +429,7 @@ void FrontEnd::ground_forces_samplesTransformerCallback(const base::Time &ts, co
 
 void FrontEnd::systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample)
 {
-     /** A new sample arrived to the port **/
+    /** A new sample arrived to the port **/
     cbAsguardStatusSamples.push_front(systemstate_samples_sample);
 
     /** Set the flag of Asguard Status values valid to true **/
@@ -399,7 +439,7 @@ void FrontEnd::systemstate_samplesTransformerCallback(const base::Time &ts, cons
     counter.asguardStatusSamples ++;
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [CallBack Passive] counter.asguardStatusSamples("<<counter.asguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
+    std::cout<<"** [FE PASSIVE-JOINT] counter.asguardStatusSamples("<<counter.asguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
     std::cout<<"** passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
     #endif
 
@@ -436,20 +476,20 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 	
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [CallBack Encoders] counter.encoderSamples("<<counter.encoderSamples<<") at ("<<encoder_samples_sample.time.toMicroseconds()
+    std::cout<<"** [FE ENCODERS-SAMPLES] counter.encoderSamples("<<counter.encoderSamples<<") at ("<<encoder_samples_sample.time.toMicroseconds()
 	<<") received FR ("<<encoder_samples_sample.states[0].positionExtern<<")**\n";
     #endif
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [Overall] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
+    std::cout<<"** [FE ENCODERS-SAMPLES] [SUMARY] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
     #endif
 
     if (initAttitude && initPosition)
     {
-        if (flag.poseInitSamples && flag.imuSamples && flag.asguardStatusSamples && flag.encoderSamples)
+        if (flag.referencePoseSamples && flag.imuSamples && flag.asguardStatusSamples && flag.encoderSamples)
         {
             #ifdef DEBUG_PRINTS
-            std::cout<<"[ON] ********** [ON] ("<<encoderSamples[0].time.toMicroseconds()<<")\n";
+            std::cout<<"[ON] ** [FE ENCODERS-SAMPLES] ** [ON] ("<<encoderSamples[0].time.toMicroseconds()<<")\n";
        	    #endif
 
             /** Get the correct values from the input ports buffers (data types of the inports) **/
@@ -466,6 +506,16 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
             this->motionModel.navSolver(modelPositions, cartesianVelocities, modelVelocities,
                                         cartesianVelCov, modelVelCov);
 
+            /** Update the cartesian velocities on the std_vector **/
+            this->vectorCartesianVelocities[1] = this->vectorCartesianVelocities[0];
+            this->vectorCartesianVelocities[0] = cartesianVelocities;
+
+            /** Perform the velocities integration to get the pose (Dead Reckoning) **/
+            localization::DeadReckon::updatePose (static_cast<const double>(1.0/framework.frontend_frequency),
+                    this->vectorCartesianVelocities, cartesianVelCov, poseOut, poseOut);
+
+            /** Out port the information of the Front-End **/
+            this->outputPortSamples (encoderSamples[0].time, modelPositions, cartesianVelocities, modelVelocities);
 
             /** Reset back the counters and the flags **/
             counter.reset();
@@ -475,6 +525,12 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
     }
 }
 
+void FrontEnd::backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample)
+{
+    /** A new sample arrived to the inport **/
+    backEndEstimationSamples.push_front(backend_estimation_samples_sample);
+
+}
 
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See FrontEnd.hpp for more detailed
@@ -482,8 +538,6 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 
 bool FrontEnd::configureHook()
 {
-    double theoretical_g; /** Ideal gravity value **/
-
     if (! FrontEndBase::configureHook())
         return false;
 
@@ -492,31 +546,33 @@ bool FrontEnd::configureHook()
     /************************/
     location = _location.value();
     framework = _framework.value();
+    propriosensor = _proprioceptive_sensors.value();
+
 
     /******************/
     /** Initial Pose **/
     /******************/
 
     /** Set the initial pose to the Geographic frame **/
-    pose_out.invalidate();
-    pose_out.sourceFrame = "Body Frame";
-    pose_out.targetFrame = "Geographic_Frame (North-West-Up)";
+    poseOut.invalidate();
+    poseOut.sourceFrame = "Body Frame";
+    poseOut.targetFrame = "Geographic_Frame (North-West-Up)";
 
     /** If there is not an external init position **/
-    if (!_pose_init_samples.connected())
+    if (!_reference_pose_samples.connected())
     {
 	/** set zero position **/
-	pose_out.position.setZero();
-	pose_out.velocity.setZero();
-	pose_out.angular_velocity.setZero();
+	poseOut.position.setZero();
+	poseOut.velocity.setZero();
+	poseOut.angular_velocity.setZero();
 	
 	/** Assume very well know initial attitude **/
-	pose_out.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
-	pose_out.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_orientation = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_angular_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 	
 	/** Assume well known starting position **/
-	pose_out.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
-	pose_out.cov_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_position = Eigen::Matrix <double, 3 , 3>::Zero();
+	poseOut.cov_velocity = Eigen::Matrix <double, 3 , 3>::Zero();
 	
 	initPosition = true;
     }
@@ -551,13 +607,13 @@ bool FrontEnd::configureHook()
 	number.asguardStatusSamples = (1.0/_systemstate_samples_period.value())/framework.frontend_frequency;
 	number.forceSamples = (1.0/_ground_forces_samples_period.value())/framework.frontend_frequency;
 	number.torqueSamples = (1.0/_torque_samples_period.value())/framework.frontend_frequency;
-	number.poseInitSamples = (1.0/_pose_init_samples_period.value())/framework.frontend_frequency;
+	number.referencePoseSamples = (1.0/_reference_pose_samples_period.value())/framework.frontend_frequency;
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FrontEnd configure] cbEncoderSamples has init capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] cbAsguardStatusSamples has init capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] cbImuSamples has init capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbEncoderSamples has init capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbAsguardStatusSamples has init capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbImuSamples has init capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
     #endif
 
     /** Set the capacity of the circular_buffer according to the sampling rate **/
@@ -572,9 +628,9 @@ bool FrontEnd::configureHook()
 
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FrontEnd configure] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] cbAsguardStatusSamples has capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] cbImuSamples has capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbAsguardStatusSamples has capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] cbImuSamples has capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
     #endif
 
     /** Initialize the samples for the filtered buffer hbridge values **/
@@ -605,22 +661,42 @@ bool FrontEnd::configureHook()
 	imuSamples[i].mag = imuSamples[0].acc;
     }
 
-    /** Initialize the samples for the filtered buffer poseInit values **/
+    /** Initialize the samples for the filtered buffer poseSamples values **/
     for(register unsigned int i=0; i<poseSamples.size(); ++i)
     {
 	/** Pose Init **/
 	poseSamples[i].invalidate();
     }
 
+    /** Initialize the samples for the filtered buffer poseSamples values **/
+    for(register unsigned int i=0; i<backEndEstimationSamples.size(); ++i)
+    {
+	/** Pose Init **/
+	backEndEstimationSamples[i].time.fromMicroseconds (base::NaN<uint64_t>());
+	backEndEstimationSamples[i].statek_i.setZero();
+    }
+
+
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FrontEnd configure] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
-    std::cout<<"[FrontEnd configure] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
+    std::cout<<"[FE CONFIGURE] backEndEstimationSamples has capacity "<<backEndEstimationSamples.capacity()<<" and size "<<backEndEstimationSamples.size()<<"\n";
     #endif
 
-    /** Gravitational value according to the location **/
-    theoretical_g = localization::MeasurementItem::GravityModel (location.latitude, location.altitude);
+    for (register unsigned int i=0; i<vectorCartesianVelocities.size(); ++i)
+    {
+        /** cartesian Velocities Init **/
+        vectorCartesianVelocities[i].setZero();
+    }
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[FE CONFIGURE] vectorCartesianVelocities has capacity "<<vectorCartesianVelocities.capacity()<<" and size "<<vectorCartesianVelocities.size()<<"\n";
+    #endif
+
+    /** Gravitational value according to the location. Ideal theoretical value **/
+    inertialState.theoretical_g = localization::Util::GravityModel (location.latitude, location.altitude);
 
     /*********************************************/
     /** Configure the Motion Model of the Robot **/
@@ -629,13 +705,41 @@ bool FrontEnd::configureHook()
     /** TO-DO: Make this loading part general for any robot **/
 
     /** Robot Kinematics Model **/
-    robotKinematics.reset(new asguard::AsguardKinematicKDL (asguard::NUMBER_OF_WHEELS, asguard::FEET_PER_WHEEL));
+    robotKinematics.reset(new asguard::AsguardKinematicModel (asguard::NUMBER_OF_WHEELS, asguard::FEET_PER_WHEEL));
 
     /** Create the Motion Model **/
     bool motionModelStatus;
     motionModel =  frontEndMotionModel(motionModelStatus, frontEndMotionModel::LOWEST_POINT , robotKinematics);
 
-    /** Noise Parameter for the Motion Model **/
+    /*****************************/
+    /** Sensor Noise Covariance **/
+    /*****************************/
+    double sqrtdelta_t; /** Square root of delta time interval */
+
+    /** Select the right delta_t to compute the noise matrices **/
+    if ((1.0/framework.frontend_frequency) > (1.0/propriosensor.bandwidth))
+        sqrtdelta_t = sqrt((1.0/framework.frontend_frequency));
+    else
+        sqrtdelta_t = sqrt((1.0/propriosensor.bandwidth));
+
+    /** Angular velocity comming from gyros **/
+    cartesianVelCov.setZero(); modelVelCov.setZero();
+
+    cartesianVelCov(3,3) = pow(propriosensor.gyrorw[0]/sqrtdelta_t,2);
+    cartesianVelCov(4,4) = pow(propriosensor.gyrorw[1]/sqrtdelta_t,2);
+    cartesianVelCov(5,5) = pow(propriosensor.gyrorw[2]/sqrtdelta_t,2);
+
+    /** Encoders reading from the joints **/
+    Eigen::Matrix<double, asguard::ASGUARD_JOINT_DOF, 1> encodersNoiseVector;
+    encodersNoiseVector = Eigen::Map<const Eigen::Matrix <double, asguard::ASGUARD_JOINT_DOF, 1> >
+                        (&(propriosensor.encodersrw[0]), propriosensor.encodersrw.size());
+    modelVelCov.block<asguard::ASGUARD_JOINT_DOF, asguard::ASGUARD_JOINT_DOF> (0,0) = encodersNoiseVector.asDiagonal();
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[FE CONFIGURE] cartesianVelCov:\n"<< cartesianVelCov <<"\n";
+    std::cout<<"[FE CONFIGURE] modelVelCov:\n"<< modelVelCov <<"\n";
+    #endif
+
 
     /*******************************************/
     /** Info and Warnings about the Framework **/
@@ -643,88 +747,93 @@ bool FrontEnd::configureHook()
 
     if (_inertial_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] IMU Samples connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] IMU Samples connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] IMU samples NO connected." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Malfunction on the task!!" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] IMU samples NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Malfunction on the task!!" << RTT::endlog();
     }
 
     if (_encoder_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] Encoders Samples connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Encoders Samples connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] Encoders samples NO connected." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Malfunction on the task!!" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Encoders samples NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Malfunction on the task!!" << RTT::endlog();
     }
 
     if (_systemstate_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] System State Samples connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] System State Samples connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] System State samples NO connected." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Malfunction on the task!!" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] System State samples NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Malfunction on the task!!" << RTT::endlog();
     }
 
     if (_torque_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] Wheel Torque samples connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Wheel Torque samples connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] Wheel Torque samples NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Wheel Torque samples NO connected." << RTT::endlog();
     }
 
     if (_ground_forces_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] Wheel ground force estimation samples connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Wheel ground force estimation samples connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] Wheel ground force estimation samples NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Wheel ground force estimation samples NO connected." << RTT::endlog();
     }
 
-    if (_pose_init_samples.connected())
+    if (_reference_pose_samples.connected())
     {
-	RTT::log(RTT::Warning) << "[Info] Initial pose connected" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Initial pose/Ground Truth connected" << RTT::endlog();
     }
     else
     {
-	RTT::log(RTT::Warning) << "[Info] Initial orientation NO connected." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Initial orientation is not provided."<< RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Zero Yaw angle pointing to North is then assumed." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info] Pitch and Roll are taken from accelerometers assuming static body at Initial phase of this task." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Initial orientation/Ground Truth NO connected." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Initial orientation is not provided."<< RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Zero Yaw angle pointing to North is then assumed." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Pitch and Roll are taken from accelerometers assuming static body at Initial phase of this task." << RTT::endlog();
     }
 
-    RTT::log(RTT::Warning)<<"[Info] Frequency of IMU samples[Hertz]: "<<(1.0/_inertial_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Frequency of Encoders Samples[Hertz]: "<<(1.0/_encoder_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Frequency of Asguard Status Samples[Hertz]: "<<(1.0/_systemstate_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Frequency of Torque Samples[Hertz]: "<<(1.0/_torque_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Frequency of Ground Force Samples[Hertz]: "<<(1.0/_ground_forces_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Front-End running at Frequency[Hertz]: "<<framework.frontend_frequency<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Back-End  running at Frequency[Hertz]: "<<framework.backend_frequency<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Visualization at Frequency[Hertz]: "<<framework.visualization_frequency<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Initial leveling time[Seconds]: "<<framework.init_leveling_time<<" which at "<<_inertial_samples_period.value()
+    RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of IMU samples[Hertz]: "<<(1.0/_inertial_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of Encoders Samples[Hertz]: "<<(1.0/_encoder_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of Asguard Status Samples[Hertz]: "<<(1.0/_systemstate_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of Torque Samples[Hertz]: "<<(1.0/_torque_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of Ground Force Samples[Hertz]: "<<(1.0/_ground_forces_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Front-End running at Frequency[Hertz]: "<<framework.frontend_frequency<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Back-End  running at Frequency[Hertz]: "<<framework.backend_frequency<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Visualization at Frequency[Hertz]: "<<framework.visualization_frequency<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] Initial leveling time[Seconds]: "<<framework.init_leveling_time<<" which at "<<(1.0)/_inertial_samples_period.value()
         <<" Hertz are "<<init_leveling_size<<" #Samples"<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] number.imuSamples: "<<number.imuSamples<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] number.encoderSamples: "<<number.encoderSamples<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] number.asguardStatusSamples: "<<number.asguardStatusSamples<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] number.forceSamples: "<<number.forceSamples<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] number.torqueSamples: "<<number.torqueSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] number.imuSamples: "<<number.imuSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] number.encoderSamples: "<<number.encoderSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] number.asguardStatusSamples: "<<number.asguardStatusSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] number.forceSamples: "<<number.forceSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info Front-End] number.torqueSamples: "<<number.torqueSamples<<RTT::endlog();
 
     if ((number.encoderSamples == 0)||(number.asguardStatusSamples == 0)||(number.imuSamples == 0))
     {
-        RTT::log(RTT::Warning)<<"[FATAL ERROR] Front-End frequency cannot be higher than proprioceptive sensors."<<RTT::endlog();
+        RTT::log(RTT::Warning)<<"[FRONT-END FATAL ERROR] Front-End frequency cannot be higher than proprioceptive sensors frequency."<<RTT::endlog();
         return false;
     }
     else if (!motionModelStatus)
     {
-        RTT::log(RTT::Warning)<<"[FATAL ERROR] Motion Model returned false at Configure phase (Constructor)."<<RTT::endlog();
+        RTT::log(RTT::Warning)<<"[FRONT-END FATAL ERROR] Motion Model returned false at Configure phase (Constructor)."<<RTT::endlog();
+        return false;
+    }
+    else if (framework.frontend_frequency < framework.backend_frequency)
+    {
+        RTT::log(RTT::Warning)<<"[FRONT-END FATAL ERROR]  Back-End frequency cannot be higher than Front-End frequency."<<RTT::endlog();
         return false;
     }
 
@@ -765,7 +874,7 @@ void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODE
     sysmon::SystemStatus asguardStatus;
     base::samples::IMUSensors imu;
 
-    /** sizing hbridge **/
+    /** sizing the encoders **/
     encoder.resize(asguard::NUMBER_OF_WHEELS);
 
     #ifdef DEBUG_PRINTS
@@ -869,7 +978,7 @@ void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODE
     modelPositions[0] = asguardStatusSamples[0].asguardJointEncoder;
     for (register int i=0; i<static_cast<int> (asguard::NUMBER_OF_WHEELS); ++i)
     {
-        modelPositions[i] = encoderSamples[0].states[i].positionExtern;
+        modelPositions[i+1] = encoderSamples[0].states[i].positionExtern;
     }
 
 
@@ -885,6 +994,7 @@ void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODE
 
 void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelocities, Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities)
 {
+    double delta_t = (1.0/framework.frontend_frequency);
     base::Time encoderDelta_t = encoderSamples[0].time - encoderSamples[1].time;
     base::Time asguardStatusDelta_t = asguardStatusSamples[0].time - asguardStatusSamples[1].time;
     base::Time imuDelta_t = imuSamples[0].time - imuSamples[1].time;
@@ -907,12 +1017,12 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
         derivationAsguardStatusSamples.setZero();
 	
 	#ifdef DEBUG_PRINTS
-        std::cout<<"[CALCULATING_VELO] ********************************************* \n";
-	std::cout<<"[CALCULATING_VELO] Timestamp New(asguardStatus): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[CALCULATING_VELO] Delta time(asguardStatus): "<< asguardStatusDelta_t.toSeconds()<<"\n";
-	std::cout<<"[CALCULATING_VELO] Timestamp New(IMU): "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[CALCULATING_VELO] Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
-	std::cout<<"[CALCULATING_VELO] asguardStatus(passive Joint): "<< asguardStatusSamples[0].asguardJointEncoder <<" Prev: "<<asguardStatusSamples[1].asguardJointEncoder<<"\n";
+        std::cout<<"[FE CALCULATING_VELO] ********************************************* \n";
+	std::cout<<"[FE CALCULATING_VELO] Timestamp New(asguardStatus): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] Delta time(asguardStatus): "<< asguardStatusDelta_t.toSeconds()<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] Timestamp New(IMU): "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] asguardStatus(passive Joint): "<< asguardStatusSamples[0].asguardJointEncoder <<" Prev: "<<asguardStatusSamples[1].asguardJointEncoder<<"\n";
 	#endif
 
 	/** Fill the derivative vector **/
@@ -922,23 +1032,23 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 	}
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[CALCULATING_VELO] passiveJoint old velocity: "<<(asguardStatusSamples[0].asguardJointEncoder - asguardStatusSamples[1].asguardJointEncoder)/framework.frontend_frequency<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] passiveJoint old velocity: "<<(asguardStatusSamples[0].asguardJointEncoder - asguardStatusSamples[1].asguardJointEncoder)/delta_t<<"\n";
 	#endif
 		
 	/** Passive joint velocity **/
-	modelVelocities[0] = localization::MeasurementItem::finiteDifference (derivationAsguardStatusSamples, framework.frontend_frequency); //passive joints speed
+	modelVelocities[0] = localization::Util::finiteDifference (derivationAsguardStatusSamples, delta_t); //passive joints speed
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[CALCULATING_VELO] passiveJoint new velocity: "<<modelVelocities[0]<<"\n";
+	std::cout<<"[FE CALCULATING_VELO] passiveJoint new velocity: "<<modelVelocities[0]<<"\n";
 	#endif
-	
+
 	/** Velocities for the vector **/
 	for (register int i = 0; i<static_cast<int>(asguard::NUMBER_OF_WHEELS); ++i)
 	{
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[CALCULATING_VELO] Timestamp New(encoders): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
-	    std::cout<<"[CALCULATING_VELO] Delta time(encoders): "<< encoderDelta_t.toSeconds()<<"\n";
-	    std::cout<<"[CALCULATING_VELO] ["<<i<<"] New: "<< encoderSamples[0].states[i].positionExtern <<" Prev: "<<encoderSamples[1].states[i].positionExtern<<"\n";
+	    std::cout<<"[FE CALCULATING_VELO] Timestamp New(encoders): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
+	    std::cout<<"[FE CALCULATING_VELO] Delta time(encoders): "<< encoderDelta_t.toSeconds()<<"\n";
+	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] New: "<< encoderSamples[0].states[i].positionExtern <<" Prev: "<<encoderSamples[1].states[i].positionExtern<<"\n";
 	    #endif
 	
 	    derivationEncoderSamples.setZero();//!Set to zero
@@ -950,14 +1060,14 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 	    }
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[CALCULATING_VELO] ["<<i<<"] encoderSamples old velocity: "<<(encoderSamples[0].states[i].positionExtern - encoderSamples[1].states[i].positionExtern)/framework.frontend_frequency<<"\n";
+	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] encoderSamples old velocity: "<<(encoderSamples[0].states[i].positionExtern - encoderSamples[1].states[i].positionExtern)/delta_t<<"\n";
 	    #endif
 	
 	    /** Motor joint velocity **/
-	    modelVelocities[i+1] = localization::MeasurementItem::finiteDifference(derivationEncoderSamples, framework.frontend_frequency); //!wheel rotation speed
+	    modelVelocities[i+1] = localization::Util::finiteDifference(derivationEncoderSamples, delta_t); //!wheel rotation speed
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<modelVelocities[i+1]<<"\n";
+	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<modelVelocities[i+1]<<"\n";
 	    #endif
 
 	}
@@ -973,16 +1083,90 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
         /** TO-DO: remove this debug info ports **/
 	_angular_position.write(encoderSamples[0].states[3].positionExtern);
 	_angular_rate.write(modelVelocities[3]); //!Front Left
-	_angular_rate_old.write((encoderSamples[0].states[3].positionExtern - encoderSamples[1].states[3].positionExtern)/framework.frontend_frequency);
+	_angular_rate_old.write((encoderSamples[0].states[3].positionExtern - encoderSamples[1].states[3].positionExtern)/delta_t);
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[CALCULATING_VELO]: Model\n"<<modelVelocities<<"\n";
-    std::cout<<"[CALCULATING_VELO]: Cartesian\n"<<cartesianVelocities<<"\n";
-    std::cout<<"[CALCULATING_VELO] ******************** END ******************** \n";
+    std::cout<<"[FE CALCULATING_VELO]: Model\n"<<modelVelocities<<"\n";
+    std::cout<<"[FE CALCULATING_VELO]: Cartesian\n"<<cartesianVelocities<<"\n";
+    std::cout<<"[FE CALCULATING_VELO] ******************** END ******************** \n";
     #endif
 
     return;
 }
 
+void FrontEnd::outputPortSamples(const base::Time &timestamp,
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
+                                const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities)
+{
+    std::vector<Eigen::Affine3d> fkRobot;
+    RobotContactPoints robotChains;
+
+    /***************************************/
+    /** Port out the OutPorts information **/
+    /***************************************/
+
+    /** The Front-End Estimated pose **/
+    poseOut.time = timestamp;
+    _pose_samples_out.write(poseOut);
+
+    /** Ground Truth if available **/
+    if (_reference_pose_samples.connected())
+    {
+        /** Port Out the info comming from the ground truth **/
+        referenceOut = poseSamples[0];
+        referenceOut.velocity = poseOut.orientation.inverse() * poseSamples[0].velocity; //velocity in body frame
+        referenceOut.time = timestamp;
+        _reference_pose_samples_out.write(referenceOut);
+
+        /** Delta increments of the ground truth at delta_t given by the frontend_frequency **/
+        referenceOut.position = poseSamples[0].position - poseSamples[1].position;
+        referenceOut.cov_position = poseSamples[0].cov_position - poseSamples[1].cov_position;
+        referenceOut.velocity = poseOut.orientation.inverse() * (poseSamples[0].velocity - poseSamples[1].velocity);//in body frame
+        referenceOut.cov_velocity = poseOut.orientation.inverse() * (poseSamples[0].cov_velocity - poseSamples[1].cov_velocity);
+        _incre_reference_pose_samples_out.write(referenceOut);
+    }
+
+    /** Proprioceptive sensors (IMU) **/
+    inertialState.time = timestamp;
+    inertialState.orientation = poseOut.orientation; /** Both (poseOut and inertialState) have the orientation from the IMU */
+    inertialState.acc = imuSamples[0].acc; /** Bias and gravity corrected acceleration */
+    inertialState.gyro = imuSamples[0].gyro; /** bias and Eartj rotation corrected angular velocity */
+    inertialState.incl = imuSamples[0].mag; /** Raw inclinometers values (with gravity perturbation) */
+    _inertial_samples_out.write(inertialState);
+
+
+    /** The Forward Kinematics information **/
+    if (_fkchains_samples_out.connected())
+    {
+        robotChains.time = timestamp;//time stamp
+        this->motionModel.getKinematics(fkRobot, robotChains.cov);//Get the Forward Kinematics from the model
+
+        robotChains.chain.resize(fkRobot.size());
+        for (std::vector<int>::size_type i = 0; i < fkRobot.size(); ++i)
+        {
+            robotChains.chain[i] = fkRobot[i].matrix();
+        }
+
+        /** Joints positions in std_vector form **/
+        robotChains.modelPositions.resize(modelPositions.size());
+        Eigen::Map <Eigen::Matrix <double, frontEndMotionModel::MODEL_DOF, 1> > (&(robotChains.modelPositions[0]), frontEndMotionModel::MODEL_DOF) = modelPositions;
+
+        /** Contact Points **/
+        robotChains.contactPoints = this->motionModel.getPointsInContact();
+
+        _fkchains_samples_out.write(robotChains);
+    }
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[FE OUTPUT_PORTS]: poseOut.position\n"<<poseOut.position<<"\n";
+    std::cout<<"[FE OUTPUT_PORTS]: poseOut.velocity\n"<<poseOut.velocity<<"\n";
+    std::cout<<"[FE OUTPUT_PORTS]: referenceOut.position\n"<<referenceOut.velocity<<"\n";
+    std::cout<<"[FE OUTPUT_PORTS] ******************** END ******************** \n";
+    #endif
+    /** Store the Debug OutPorts information **/
+
+    return;
+}
 

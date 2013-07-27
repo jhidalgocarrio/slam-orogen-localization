@@ -5,13 +5,14 @@
 
 #include "rover_localization/FrontEndBase.hpp"
 
-/** Asguard dependent includes **/
+/** Asguard dependences includes **/
 #include <asguard/AsguardKinematicModel.hpp> /** Analytical model **/
 #include <asguard/AsguardKinematicKDL.hpp> /** KDL model **/
-#include <asguard/BodyState.hpp>
+#include <asguard/BodyState.hpp> /** BodyState representation and constants **/
 
 /** Framework Library includes **/
-#include <rover_localization/MeasurementItem.hpp>
+#include <rover_localization/Util.hpp>
+#include <rover_localization/DeadReckon.hpp>
 #include <rover_localization/DataTypes.hpp>
 
 /** Odometry include for the Motion Model **/
@@ -31,7 +32,7 @@
 namespace rover_localization {
 
     /** Current counter of samples arrived to each port **/
-    struct CounterInputPorts
+    struct CounterInputPortsFrontEnd
     {
         void reset()
         {
@@ -40,7 +41,7 @@ namespace rover_localization {
             imuSamples = 0;
             torqueSamples = 0;
             forceSamples = 0;
-            poseInitSamples = 0;
+            referencePoseSamples = 0;
             return;
         }
 
@@ -49,12 +50,12 @@ namespace rover_localization {
  	unsigned int imuSamples; /** counter of inertial sensors samples **/
  	unsigned int torqueSamples; /** counter for  Torque info samples **/
  	unsigned int forceSamples; /** conter of Ground Force info samples for the resampling **/
- 	unsigned int poseInitSamples; /** counter of pose information comming from external measurement **/
+ 	unsigned int referencePoseSamples; /** counter of pose information comming from external measurement **/
 
     };
 
     /** Number of samples to process in the callback function **/
-    struct NumberInputPorts
+    struct NumberInputPortsFrontEnd
     {
         void reset()
         {
@@ -63,7 +64,7 @@ namespace rover_localization {
             imuSamples = 0;
             torqueSamples = 0;
             forceSamples = 0;
-            poseInitSamples = 0;
+            referencePoseSamples = 0;
             return;
         }
 
@@ -72,11 +73,11 @@ namespace rover_localization {
  	unsigned int imuSamples; /** number of inertial sensors samples **/
  	unsigned int torqueSamples; /** number of  Torque info samples for the resampling **/
  	unsigned int forceSamples; /** number of Ground Force info samples for the resampling **/
- 	unsigned int poseInitSamples; /** number of pose information comming from external measurement **/
+ 	unsigned int referencePoseSamples; /** number of pose information comming from external measurement **/
     };
 
     /** Inport samples arrived ON/OFF flags **/
-    struct FlagInputPorts
+    struct FlagInputPortsFrontEnd
     {
         void reset()
         {
@@ -85,7 +86,7 @@ namespace rover_localization {
             imuSamples = false;
             torqueSamples = false;
             forceSamples = false;
-            poseInitSamples = false;
+            referencePoseSamples = false;
             return;
         }
 
@@ -94,7 +95,7 @@ namespace rover_localization {
         bool imuSamples;//Inertial sensors
         bool torqueSamples;//Torque
         bool forceSamples;//Ground Force
-        bool poseInitSamples;//Initial pose
+        bool referencePoseSamples;//Initial pose
     };
 
     /** Data types definition **/
@@ -139,18 +140,27 @@ namespace rover_localization {
         /** Number acceleration samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
         int init_leveling_size;
 
+        /** Number of samples to process in the inports callback function **/
+        NumberInputPortsFrontEnd number;
+
+ 	/** Current counter of samples arrived to each inport **/
+        CounterInputPortsFrontEnd counter;
+
         /** Data arrived ON/OFF Flag **/
-        FlagInputPorts flag;
+        FlagInputPortsFrontEnd flag;
 
         /**************************/
         /*** Property Variables ***/
         /**************************/
 
-        /** Location configuratin variables **/
+        /** Location configuration variables **/
         LocationConfiguration location;
 
         /** Framework configuration values **/
         FrameworkConfiguration framework;
+
+        /** Propioceptive sensors configuration variables **/
+        ProprioceptiveSensorProperties propriosensor;
 
         /******************************************/
         /*** General Internal Storage Variables ***/
@@ -165,12 +175,6 @@ namespace rover_localization {
         /** Accelerometers eccentricity **/
 	Eigen::Matrix<double, localization::NUMAXIS,1> eccx, eccy, eccz;
 
-        /** Number of samples to process in the inports callback function **/
-        NumberInputPorts number;
-
- 	/** Current counter of samples arrived to each inport **/
-        CounterInputPorts counter;
-
         /** Robot Kinematic Model **/
         boost::shared_ptr< frontEndKinematicModel > robotKinematics;
 
@@ -180,8 +184,11 @@ namespace rover_localization {
         /** Joint encoders, Slip and Contact Angle velocities NOTE: The order of the storage needs to be coincident if used as input for the motionModel **/
         Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, frontEndMotionModel::MODEL_DOF > modelVelCov;
 
-        /** Linear and Angular velocities NOTE: The order of the storage needs to be coincident if used as input for the motionModel **/
+        /** Linear and Angular velocities NOTE: The order of the storage needs to be coincident to be used as input for the motionModel **/
         Eigen::Matrix< double, 6, 6  > cartesianVelCov;
+
+        /** Buffer for the storage of cartesianVelocities variables  (for integration assuming constant accelartion) **/
+        std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > vectorCartesianVelocities;
 
         /***********************************/
         /** Input ports dependent buffers **/
@@ -192,27 +199,31 @@ namespace rover_localization {
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguardStatusSamples;
 	boost::circular_buffer<base::samples::IMUSensors> cbImuSamples;
 	
- 	/** Buffer for filtered Inputs port samples (Store the samples for the FrontEnd) **/
+ 	/** Buffer for filtered Inputs port samples (Store the samples for the FrontEnd and compute the velocities) **/
 	boost::circular_buffer<base::actuators::Status> encoderSamples; /** Encoder Status information  **/
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
 	boost::circular_buffer<base::samples::RigidBodyState> poseSamples; /** Pose information (init and debug)**/
+	boost::circular_buffer<rover_localization::BackEndEstimation> backEndEstimationSamples; /** Pose information (init and debug)**/
 
         /***************************/
         /** Output port variables **/
         /***************************/
 
-        /** Body Center w.r.t the World Coordinate system **/
-	base::samples::RigidBodyState pose_out;
+        /** Body Center w.r.t the World Coordinate system (using statistical Motion Model and IMU orientation) */
+	base::samples::RigidBodyState poseOut;
 
-        /** Ground truth out coming for an external system (if available like Vicon or GPS) **/
-        base::samples::RigidBodyState truth_out;
+        /** Ground truth out coming for an external system (if available like Vicon or GPS) */
+        base::samples::RigidBodyState referenceOut;
+
+        /** Corrected inertial values **/
+        rover_localization::InertialState inertialState;
 
         /************************/
         /** Callback functions **/
         /************************/
 
-        virtual void pose_init_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_init_samples_sample);
+        virtual void reference_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &reference_pose_samples_sample);
 
         virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
 
@@ -222,7 +233,9 @@ namespace rover_localization {
 
         virtual void systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample);
 
-        virtual void encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &hbridge_samples_sample);
+        virtual void encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &encoder_samples_sample);
+
+        virtual void backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample);
 
     public:
         /** TaskContext constructor for FrontEnd
@@ -306,7 +319,14 @@ namespace rover_localization {
 
         /** \brief Compute Cartesian and Model velocities 
 	 */
-	void calculateVelocities (Eigen::Matrix< double, 6, 1  > &cartesianVelocities, Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities);
+	void calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelocities, Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities);
+
+        /** \brief Store the variables in the Output ports
+         */
+        void outputPortSamples(const base::Time &timestamp,
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
+                                const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities);
 
 
     };

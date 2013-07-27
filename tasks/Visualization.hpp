@@ -5,6 +5,8 @@
 
 #include "rover_localization/VisualizationBase.hpp"
 
+#include <Eigen/Dense> /** For accessing Matrixclock and corner amomg others**/
+
 namespace rover_localization {
 
     /*! \class Visualization 
@@ -26,6 +28,22 @@ namespace rover_localization {
 	friend class VisualizationBase;
     protected:
 
+        base::samples::RigidBodyState pose_frontend;
+        base::samples::RigidBodyState pose_backend;
+        base::samples::RigidBodyState pose_truth;
+        rover_localization::RobotContactPoints robotKineInfo;
+
+        /************************/
+        /** Callback functions **/
+        /************************/
+
+        virtual void frontend_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &frontend_pose_samples_sample);
+
+        virtual void backend_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &backend_pose_samples_sample);
+
+        virtual void reference_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &reference_pose_samples_sample);
+
+        virtual void fkchains_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::RobotContactPoints &fkchains_samples_sample);
 
 
     public:
@@ -33,14 +51,14 @@ namespace rover_localization {
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Visualization(std::string const& name = "rover_localization::Visualization", TaskCore::TaskState initial_state = Stopped);
+        Visualization(std::string const& name = "rover_localization::Visualization");
 
         /** TaskContext constructor for Visualization 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task. 
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Visualization(std::string const& name, RTT::ExecutionEngine* engine, TaskCore::TaskState initial_state = Stopped);
+        Visualization(std::string const& name, RTT::ExecutionEngine* engine);
 
         /** Default deconstructor of Visualization
          */
@@ -103,6 +121,16 @@ namespace rover_localization {
          * before calling start() again.
          */
         void cleanupHook();
+
+        /** \Brief Fill the Asguard BodyState structure
+	 * 
+	 * All the produced information relevant to Asguard BodyState class
+	 * is store in it in order to port out to the correspondent port.
+	 * 
+	 * @return void
+	 */
+	void toAsguardBodyState(rover_localization::RobotContactPoints & robotKineInfo);
+
     };
 }
 

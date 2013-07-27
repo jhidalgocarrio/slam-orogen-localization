@@ -38,7 +38,7 @@ namespace rover_localization
         //or smaller than the sampling rate.
 
         /** Gyroscope Noise **/
-        base::Vector3d gbiasof;//bias offset in static regimen for the Gyroscopes
+        base::Vector3d gbiasoff;//bias offset in static regimen for the Gyroscopes
         base::Vector3d gyrorw;//angle random walk for gyroscopes (rad/sqrt(s))
         base::Vector3d gyrorrw;//rate random walk for gyroscopes (rad/s/sqrt(s))
         base::Vector3d gbiasins; //gyros bias instability (rad/s)
@@ -57,7 +57,7 @@ namespace rover_localization
         /************************************/
 
         /** Encoder Noise **/
-        std::vector<double> encodersrw;//encoders velocity white noise
+        std::vector<double> encodersrw;//encoders position uncertainty (modeled as zero mean white noise pdf)
     };
 
     /** Framework Configuration **/
@@ -83,12 +83,77 @@ namespace rover_localization
     /** Data struct for (internal) ports **/
     /**************************************/
 
-    //Data Type to send to the Visualization component
+    //Data Type about robot kinematics chain status including contact points
     struct RobotContactPoints
     {
         base::Time time;//timestamp
-        std::vector<base::Matrix4d> points;//Transformation matrix of the points wrt body
-        std::vector<base::Matrix6d> cov;//Covariance matrix of the pose wrt body
+        std::vector< double > modelPositions;//Robot joints and model positions values
+        std::vector< int > contactPoints; //Points index in contact per each robot Tree
+        std::vector< base::Matrix4d > chain;//Transformation matrix of the points wrt body
+        std::vector< base::Matrix6d > cov;//Covariance matrix of the pose wrt body
+    };
+
+    //BackEnd optimization problem information
+    struct BackEndEstimation
+    {
+	
+	base::Time time;
+	base::VectorXd statek_i;
+	base::VectorXd estatek_i;
+	base::MatrixXd Pki;
+	base::MatrixXd K;
+	base::MatrixXd Qk;
+	base::MatrixXd Rk;
+	base::VectorXd innovation;
+	base::Matrix3d Hellinger;
+        base::Vector3d abias;
+        base::Vector3d gbias;
+    };
+
+    //Local gravity information (theory and computed at initilization time)
+    struct InertialState
+    {
+        /** Time stamp */
+        base::Time time;
+
+         /** Theoretical gravity value computed from model */
+        double theoretical_g;
+
+        /** Experimental gravity value computed at init time (no-moving robot) */
+        double estimated_g;
+
+        /** Raw orientation (gyros integration **/
+        base::Quaterniond orientation;
+
+        /** Increment in velocity (bounded integration) */
+        base::Vector3d delta_vel;
+
+        /** Corrected accelerometer readings */
+        base::Vector3d acc;
+
+        /** Corrected inclinometer gyro reading*/
+        base::Vector3d gyro;
+
+        /** Raw inclinometer reading*/
+        base::Vector3d incl;
+
+        /** On/Off initial acc bias */
+        base::Vector3d abias_onoff;
+
+        /** On/Off initial gyro bias */
+        base::Vector3d gbias_onoff;
+
+    };
+
+    /***********************************/
+    /** Data struct for visualization **/
+    /***********************************/
+
+    //To visualize the chain forward kinematics(end effector or contact point)
+    struct RobotContactPointsRbs
+    {
+        base::Time time; //timestamp
+        std::vector< base::samples::RigidBodyState > rbsChain; //Rbs with the orientation and position of the contact point
     };
 
 }

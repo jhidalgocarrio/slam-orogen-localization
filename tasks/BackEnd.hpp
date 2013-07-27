@@ -5,7 +5,73 @@
 
 #include "rover_localization/BackEndBase.hpp"
 
+/** Framework Library dependences includes **/
+#include <rover_localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
+#include <rover_localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
+#include <rover_localization/filters/State.hpp> /** Filters State */
+#include <rover_localization/filters/ProcessModels.hpp> /** Filters Process Models */
+#include <rover_localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
+#include <rover_localization/Configuration.hpp> /** Constant values of the library */
+
+/** Eigen **/
+#include <Eigen/Core> /** Core */
+#include <Eigen/StdVector> /** For STL container with Eigen types **/
+
+/** Standard libs **/
+#include <iostream>
+#include <vector>
+
+/** Boost **/
+#include <boost/shared_ptr.hpp> /** For shared pointers **/
+
 namespace rover_localization {
+
+
+    /** Wrap the VectorState **/
+    typedef localization::MtkWrap<localization::VectorState> WVectorState;
+    typedef localization::MtkWrap<localization::SingleState> WSingleState;
+
+    /** Current counter of samples arrived to each port **/
+    struct CounterInputPortsBackEnd
+    {
+        void reset()
+        {
+            frontEndPoseSamples = 0;
+            inertialStateSamples = 0;
+            return;
+        }
+
+	unsigned int frontEndPoseSamples; /** counter of rover pose comming from teh FrontEnd **/
+ 	unsigned int inertialStateSamples; /** counter of of inertial measurements comming from the FrontEnd **/
+    };
+
+    /** Number of samples to process in the callback function **/
+    struct NumberInputPortsBackEnd
+    {
+        void reset()
+        {
+            frontEndPoseSamples = 0;
+            inertialStateSamples = 0;
+            return;
+        }
+
+	unsigned int frontEndPoseSamples; /** number of rover pose comming from teh FrontEnd **/
+ 	unsigned int inertialStateSamples; /** number of inertial measurements comming from the FrontEnd **/
+    };
+
+    /** Inport samples arrived ON/OFF flags **/
+    struct FlagInputPortsBackEnd
+    {
+        void reset()
+        {
+            frontEndPoseSamples = false;
+            inertialStateSamples = false;
+            return;
+        }
+
+	bool frontEndPoseSamples; /** number of rover pose comming from teh FrontEnd **/
+ 	bool inertialStateSamples; /** number of inertial measurements comming from the FrontEnd **/
+    };
 
     /*! \class BackEnd 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -24,17 +90,80 @@ namespace rover_localization {
     class BackEnd : public BackEndBase
     {
 	friend class BackEndBase;
+
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    protected:
+        static const int  DEFAULT_CIRCULAR_BUFFER_SIZE = 2; /** Default number of objects to store regarding the inputs port **/
+
+    protected:
+
+        /******************************/
+        /*** Control Flow Variables ***/
+        /******************************/
+
+	/** Init filter **/
+	bool initFilter;
+
+        /** Delta time for the noise coeff **/
+        double delta_noise;
+
+        /** Number of samples to process in the inports callback function **/
+        NumberInputPortsBackEnd number;
+
+        /** Current counter of samples arrived to each inport **/
+        CounterInputPortsBackEnd counter;
+
+        /** Data arrived ON/OFF Flag **/
+        FlagInputPortsBackEnd flag;
+
+        /**************************/
+        /*** Property Variables ***/
+        /**************************/
+
+        /** Propioceptive sensors configuration variables **/
+        ProprioceptiveSensorProperties sensornoise;
+
+        /** Framework configuration values **/
+        FrameworkConfiguration framework;
+
+        /******************************************/
+        /*** General Internal Storage Variables ***/
+        /******************************************/
+
+        /** The filter uses by the BackEnd **/
+        boost::shared_ptr< localization::Usckf<WVectorState, WSingleState> > filter;
+
+        /** Pose estimation front Front-End **/
+        base::samples::RigidBodyState frontEndPose;
+
+        /** Inertial sensor from Front-End **/
+        rover_localization::InertialState inertialState;
+
+        /**************************/
+        /** Input port variables **/
+        /**************************/
+
+        /** Buffer for input ports samples comming from the front end **/
+        boost::circular_buffer<base::samples::RigidBodyState> frontEndPoseSamples;
+        boost::circular_buffer<rover_localization::InertialState> inertialStateSamples;
+
+        /***************************/
+        /** Output port variables **/
+        /***************************/
+
+
     protected:
 
         virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
 
         virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
 
-        virtual void proprioceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &proprioceptive_samples_sample);
+        virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::InertialState &inertial_samples_sample);
 
         virtual void update_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &update_samples_sample);
 
         virtual void visual_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &visual_samples_sample);
+
 
     public:
         /** TaskContext constructor for BackEnd
@@ -111,6 +240,11 @@ namespace rover_localization {
          * before calling start() again.
          */
         void cleanupHook();
+
+        /**@brief Get the values from the input port samples (prorioceptive and motion model)
+         */
+        void inputPortSamples(base::samples::RigidBodyState &frontEndPose, rover_localization::InertialState &inertialState);
+
     };
 }
 
