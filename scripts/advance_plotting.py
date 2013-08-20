@@ -55,8 +55,9 @@ class ThreeData:
 	sdmin=[]
 	for i in range(0,len(self.data)):
 	    values.append(self.data[i][axis])
-	    sdmax.append(values[i]+(levelconf*sqrt(self.var[i][axis])))
-	    sdmin.append(values[i]-(levelconf*sqrt(self.var[i][axis])))
+	    if False != cov:
+	    	sdmax.append(values[i]+(levelconf*sqrt(self.var[i][axis])))
+	    	sdmin.append(values[i]-(levelconf*sqrt(self.var[i][axis])))
 	    #print i
 	    #print values[i]
 	    
@@ -150,3 +151,23 @@ evelocity.eigenValues()
 ivelbody.plot_axis(7, 0,True, 3, True, [0,0,1])
 velimu.plot_axis(7, 0,True, 3, True, [0,1,0])
 evelocity.plot_axis(6,1,True, 1, True, [1,0,0])
+
+
+#FrontEnd Motion model velocity
+frontendbody100Hz = ThreeData()
+frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.3.data', cov=True)
+frontendbody100Hz.eigenValues()
+
+frontendreference100Hz = ThreeData()
+frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.3.data', cov=True)
+frontendreference100Hz.eigenValues()
+
+frontendbody100Hz.plot_axis(1, 0,False, 1, True, [0,0,1])
+frontendbody100Hz.plot_axis(1, 1,False, 1, True, [0,1,0])
+frontendbody100Hz.plot_axis(1, 2,False, 1, True, [1,0,0])
+
+
+frontendreference100Hz.plot_axis(1, 0,False, 1, True, [0,0,1])
+frontendreference100Hz.plot_axis(1, 1,False, 1, True, [1,0,0])
+
+
