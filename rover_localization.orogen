@@ -123,7 +123,7 @@ task_context "FrontEnd" do
     #******************************
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
 	doc 'Estimated rover pose. Position and velocity is computed from statistical Motion Model.'+
-            'Orientation from raw IMU gyros integration.'
+            'Orientation from IMU gyros integration.'
 
     output_port('inertial_samples_out', 'rover_localization/InertialState').
 	doc 'Corrected proprioceptive inertial samples to connect to the backend.'
@@ -135,7 +135,7 @@ task_context "FrontEnd" do
 	doc 'Delta pose and velocities computed from the ground truth system.'
 
     output_port('fkchains_samples_out', 'rover_localization/RobotContactPoints').
-        doc 'position and orientation of Contact points frame of the robot wrt the Body center'
+        doc 'Position and orientation of Contact points frame of the robot wrt the Body center'
 
 
     #******************************
@@ -206,12 +206,14 @@ task_context "BackEnd" do
     property('framework', 'rover_localization/FrameworkConfiguration').
         doc 'Initial configuration values to run the framework. Look in FrameworkTypes for further details.'
 
+    property('adaptive_filter', 'rover_localization/AdaptiveMeasurementProperties').
+        doc 'Properties for the adaptive estimation of external acceleration. Look in FrameworkTypes for further details.'
 
     #******************************
     #******* Input ports  *********
     #******************************
     input_port('pose_samples', '/base/samples/RigidBodyState').
-        doc 'Front-End estimated rover pose (Odometry => Statictical Motion Model + IMU raw orientation)'
+        doc 'Front-End estimated rover pose (Odometry => Statistical Motion Model + IMU orientation)'
 
     input_port('inertial_samples', 'rover_localization/InertialState').
 	doc 'Corrected proprioceptive inertial samples to predict backend uncertainty.'

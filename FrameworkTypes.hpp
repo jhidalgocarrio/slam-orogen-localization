@@ -79,6 +79,25 @@ namespace rover_localization
         double init_leveling_time;//Time to compute the initial leveling of the robot in order to find the gravity vector.
     };
 
+    /** Adaptive Measurement Configuration. Variables for the attitude estimation inside the algorithm **/
+    struct AdaptiveMeasurementProperties
+    {
+        unsigned int M1; /** Parameter for adaptive algorithm (to estimate Uk with is not directly observale) */
+        unsigned int M2; /** Parameter for adaptive algorithm (to prevent falsering entering in no-external acc mode) */
+        double gamma; /** Parameter for adaptive algorithm. Only entering when Qstart (adaptive cov. matrix) is greater than RHR'+Ra */
+        unsigned int r2count; /** Parameter for adaptive algorithm */
+
+        void reset()
+        {
+            M1 = 0;
+            M2 = 0;
+            gamma = 0.0;
+            r2count = 0;
+            return;
+        }
+
+    };
+
     /**************************************/
     /** Data struct for (internal) ports **/
     /**************************************/
@@ -110,7 +129,7 @@ namespace rover_localization
         base::Vector3d gbias;
     };
 
-    //Local gravity information (theory and computed at initilization time)
+    //Local gravity information (theory and computed at initialization time)
     struct InertialState
     {
         /** Time stamp */
@@ -122,8 +141,8 @@ namespace rover_localization
         /** Experimental gravity value computed at init time (no-moving robot) */
         double estimated_g;
 
-        /** Raw orientation (gyros integration **/
-        base::Quaterniond orientation;
+        /** Increment in orientation (raw gyros integration) **/
+        base::Quaterniond delta_orientation;
 
         /** Increment in velocity (bounded integration) */
         base::Vector3d delta_vel;

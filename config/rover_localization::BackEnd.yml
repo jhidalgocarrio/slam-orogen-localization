@@ -73,3 +73,10 @@ proprioceptive_sensors:
     - 0.0
     - 0.0
 
+# Properties for the adaptive estimation of external acceleration. Look in FrameworkTypes for further details.
+adaptive_filter:
+  M1: 1
+  M2: 5
+  gamma: 0.0005
+  r2count: 100
+
