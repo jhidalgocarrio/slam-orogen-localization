@@ -2,7 +2,7 @@
 
 #include "FrontEnd.hpp"
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -107,9 +107,9 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
     /** Apply the transformer pose offset **/
     poseSamples[0].position += qtf * tf.translation();
     poseSamples[0].orientation = poseSamples[0].orientation * qtf;
-    poseSamples[0].velocity = qtf * poseSamples[0].velocity;
+    /*poseSamples[0].velocity = qtf * poseSamples[0].velocity;
     poseSamples[0].cov_velocity = tf.rotation() * poseSamples[0].cov_velocity;
-    poseSamples[0].cov_angular_velocity = tf.rotation() * poseSamples[0].cov_angular_velocity;
+    poseSamples[0].cov_angular_velocity = tf.rotation() * poseSamples[0].cov_angular_velocity;*/
 
    if (!initPosition)
     {
@@ -143,6 +143,11 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 	
+            /** Check the Initial attitude */
+            if (base::isNaN<double>(euler[0]) || base::isNaN<double>(euler[1]) || base::isNaN<double>(euler[2]))
+                RTT::log(RTT::Fatal)<<"[FRONT-END FATAL ERROR]  Initial Attitude from External Reference is NaN."<<RTT::endlog();
+
+
 	    /** Set the initial attitude with the Yaw provided from the initial pose **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
 	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
@@ -262,7 +267,11 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 		euler[1] = (double) -atan(meanacc[0]/meanacc[2]); //Pitch
 		euler[2] = - M_PI;
 	    }
-	
+
+            /** Check the Initial attitude */
+            if (base::isNaN<double>(euler[0]) || base::isNaN<double>(euler[1]) || base::isNaN<double>(euler[2]))
+                RTT::log(RTT::Fatal)<<"[FRONT-END FATAL ERROR]  Initial Attitude from static leveling is NaN."<<RTT::endlog();
+
 	    /** Set the initial attitude when no initial IMU orientation is provided **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
 	    Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
@@ -270,7 +279,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 
 	    #ifdef DEBUG_PRINTS
             std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
-	    std::cout<< "******** Initial Attitude (STIM300 frame)  *******"<<"\n";
+	    std::cout<< "******** Initial Attitude (IMU frame)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
 	
@@ -407,7 +416,14 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 
 	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
-	
+
+        #ifdef DEBUG_PRINTS
+        std::cout<<"** [FE INERTIAL-SAMPLES] Corrected inertial"<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+	std::cout<<"acc(imu_frame):\n"<<imusample.acc<<"\n";
+	std::cout<<"gyro(imu_frame):\n"<<imusample.gyro<<"\n";
+	std::cout<<"mag(imu_frame):\n"<<imusample.mag<<"\n";
+	#endif
+
 	/** Set the flag of IMU values valid to true **/
 	if (!flag.imuSamples && (cbImuSamples.size() == cbImuSamples.capacity()))
 	    flag.imuSamples = true;
@@ -440,7 +456,7 @@ void FrontEnd::systemstate_samplesTransformerCallback(const base::Time &ts, cons
 
     #ifdef DEBUG_PRINTS
     std::cout<<"** [FE PASSIVE-JOINT] counter.asguardStatusSamples("<<counter.asguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
-    std::cout<<"** passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
+    std::cout<<"** [FE PASSIVE-JOINT] passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
     #endif
 
 }
@@ -481,12 +497,14 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
     #endif
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE ENCODERS-SAMPLES] [SUMARY] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
+    std::cout<<"** [FE ENCODERS-SAMPLES] [COUNTERS] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
+    std::cout<<"** [FE ENCODERS-SAMPLES] [FLAGS] initAttitude ("<<initAttitude<<") initPosition("<<initPosition<<") **\n";
+    std::cout<<"** [FE ENCODERS-SAMPLES] [FLAGS] flagEncoders ("<<flag.encoderSamples<<") flagAsguard("<<flag.asguardStatusSamples<<") flagIMU("<<flag.imuSamples<<") **\n";
     #endif
 
     if (initAttitude && initPosition)
     {
-        if (flag.referencePoseSamples && flag.imuSamples && flag.asguardStatusSamples && flag.encoderSamples)
+        if (flag.imuSamples && flag.asguardStatusSamples && flag.encoderSamples)
         {
             #ifdef DEBUG_PRINTS
             std::cout<<"[ON] ** [FE ENCODERS-SAMPLES] ** [ON] ("<<encoderSamples[0].time.toMicroseconds()<<")\n";
@@ -506,16 +524,21 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
             this->motionModel.navSolver(modelPositions, cartesianVelocities, modelVelocities,
                                         cartesianVelCov, modelVelCov);
 
+            /** Bessel IIR Low-pass filter of the linear cartesianVelocities from the Motion Model **/
+            Eigen::Matrix<double, localization::NUMAXIS, 1> velocity = cartesianVelocities.block<localization::NUMAXIS, 1>(0,0);
+            cartesianVelocities.block<localization::NUMAXIS, 1>(0,0) = this->bessel->perform(velocity);
+
             /** Update the cartesian velocities on the std_vector **/
             this->vectorCartesianVelocities[1] = this->vectorCartesianVelocities[0];
             this->vectorCartesianVelocities[0] = cartesianVelocities;
 
             /** Perform the velocities integration to get the pose (Dead Reckoning) **/
-            localization::DeadReckon::updatePose (static_cast<const double>(1.0/framework.frontend_frequency),
+            base::samples::RigidBodyState deltaPose;
+            deltaPose = localization::DeadReckon::updatePose (static_cast<const double>(1.0/framework.frontend_frequency),
                     this->vectorCartesianVelocities, cartesianVelCov, poseOut, poseOut);
 
             /** Out port the information of the Front-End **/
-            this->outputPortSamples (encoderSamples[0].time, modelPositions, cartesianVelocities, modelVelocities);
+            this->outputPortSamples (encoderSamples[0].time, modelPositions, cartesianVelocities, modelVelocities, deltaPose);
 
             /** Reset back the counters and the flags **/
             counter.reset();
@@ -527,6 +550,10 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 
 void FrontEnd::backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample)
 {
+    #ifdef DEBUG_PRINTS
+    std::cout<<"** [FE BACK-END] received backend info\n";
+    #endif
+
     /** A new sample arrived to the inport **/
     backEndEstimationSamples.push_front(backend_estimation_samples_sample);
 
@@ -669,11 +696,22 @@ bool FrontEnd::configureHook()
     }
 
     /** Initialize the samples for the filtered buffer poseSamples values **/
-    for(register unsigned int i=0; i<backEndEstimationSamples.size(); ++i)
+    for(register unsigned int i=0; i<backEndEstimationSamples.capacity(); ++i)
     {
-	/** Pose Init **/
-	backEndEstimationSamples[i].time.fromMicroseconds (base::NaN<uint64_t>());
-	backEndEstimationSamples[i].statek_i.setZero();
+        rover_localization::BackEndEstimation backend;
+
+        /** Back-End estimation Init **/
+	backend.time.fromMicroseconds (base::NaN<uint64_t>());
+	backend.statek_i.setZero();
+	backend.estatek_i.setZero();
+	backend.abias.setZero();
+	backend.gbias.setZero();
+	backend.Pki.setZero();
+	backend.K.setZero();
+
+        /** Push one **/
+        backEndEstimationSamples.push_front(backend);
+	
     }
 
 
@@ -710,6 +748,32 @@ bool FrontEnd::configureHook()
     /** Create the Motion Model **/
     bool motionModelStatus;
     motionModel =  frontEndMotionModel(motionModelStatus, frontEndMotionModel::LOWEST_POINT , robotKinematics);
+
+    /** Bessel IIR filter Coefficients **/
+    Eigen::Matrix <double, localization::NORDER_BESSEL_FILTER+1, 1> besselBCoeff, besselACoeff;
+
+    besselBCoeff[0] = 0.00467048;
+    besselBCoeff[1] = 0.03736385;
+    besselBCoeff[2] = 0.13077349;
+    besselBCoeff[3] = 0.26154698;
+    besselBCoeff[4] = 0.32693372;
+    besselBCoeff[5] = 0.26154698;
+    besselBCoeff[6] = 0.13077349;
+    besselBCoeff[7] = 0.03736385;
+    besselBCoeff[8] = 0.00467048;
+
+    besselACoeff[0] = 1.00000000e+00;
+    besselACoeff[1] = -3.87747570e-01;
+    besselACoeff[2] = 7.13520818e-01;
+    besselACoeff[3] = -2.49594003e-01;
+    besselACoeff[4] = 1.47736180e-01;
+    besselACoeff[5] = -3.59003821e-02;
+    besselACoeff[6] = 8.56259334e-03;
+    besselACoeff[7] = -9.97047726e-04;
+    besselACoeff[8] = 6.27404353e-05;
+
+    /** Create the Bessel Low-pass filter with the right coeffiecients **/
+    bessel.reset(new localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> (besselBCoeff, besselACoeff));
 
     /*****************************/
     /** Sensor Noise Covariance **/
@@ -861,6 +925,10 @@ void FrontEnd::stopHook()
 void FrontEnd::cleanupHook()
 {
     FrontEndBase::cleanupHook();
+
+    /** Liberate the memory of the shared_ptr **/
+    bessel.reset();
+
 }
 
 void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions)
@@ -982,10 +1050,6 @@ void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODE
     }
 
 
-    /** Increase the index = **/
-    //if (samplesidx < DEFAULT_CIRCULAR_BUFFER_SIZE)
-    //	samplesidx++;
-
     /** Set all counters to zero **/
     counter.reset();
 
@@ -1098,7 +1162,8 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 void FrontEnd::outputPortSamples(const base::Time &timestamp,
                                 const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
                                 const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
-                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities)
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
+                                const base::samples::RigidBodyState &deltaPose)
 {
     std::vector<Eigen::Affine3d> fkRobot;
     RobotContactPoints robotChains;
@@ -1130,9 +1195,10 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
 
     /** Proprioceptive sensors (IMU) **/
     inertialState.time = timestamp;
-    inertialState.orientation = poseOut.orientation; /** Both (poseOut and inertialState) have the orientation from the IMU */
+    inertialState.delta_orientation = deltaPose.orientation; /** Delta orientation from IMU */
     inertialState.acc = imuSamples[0].acc; /** Bias and gravity corrected acceleration */
-    inertialState.gyro = imuSamples[0].gyro; /** bias and Eartj rotation corrected angular velocity */
+    inertialState.delta_vel = imuSamples[0].acc * (1.0/framework.frontend_frequency); /** Delta velocity (acc integration) in body frame */
+    inertialState.gyro = imuSamples[0].gyro; /** Earth rotation corrected angular velocity */
     inertialState.incl = imuSamples[0].mag; /** Raw inclinometers values (with gravity perturbation) */
     _inertial_samples_out.write(inertialState);
 

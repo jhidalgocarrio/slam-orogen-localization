@@ -14,6 +14,7 @@
 #include <rover_localization/Util.hpp>
 #include <rover_localization/DeadReckon.hpp>
 #include <rover_localization/DataTypes.hpp>
+#include <rover_localization/filters/IIR.hpp>
 
 /** Odometry include for the Motion Model **/
 #include <odometry/MotionModel.hpp>
@@ -190,6 +191,10 @@ namespace rover_localization {
         /** Buffer for the storage of cartesianVelocities variables  (for integration assuming constant accelartion) **/
         std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > vectorCartesianVelocities;
 
+        /** Bessel Low-pass IIR filter for the Motion Model velocities
+         * Specification of the Order and Data dimension is required */
+        boost::shared_ptr< localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> > bessel;
+
         /***********************************/
         /** Input ports dependent buffers **/
         /***********************************/
@@ -326,7 +331,8 @@ namespace rover_localization {
         void outputPortSamples(const base::Time &timestamp,
                                 const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
                                 const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
-                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities);
+                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
+                                const base::samples::RigidBodyState &deltaPose);
 
 
     };

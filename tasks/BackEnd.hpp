@@ -41,7 +41,7 @@ namespace rover_localization {
             return;
         }
 
-	unsigned int frontEndPoseSamples; /** counter of rover pose comming from teh FrontEnd **/
+	unsigned int frontEndPoseSamples; /** counter of rover pose comming from the FrontEnd **/
  	unsigned int inertialStateSamples; /** counter of of inertial measurements comming from the FrontEnd **/
     };
 
@@ -126,6 +126,9 @@ namespace rover_localization {
         /** Framework configuration values **/
         FrameworkConfiguration framework;
 
+        /** Adaptive Measurement Configuration **/
+        AdaptiveMeasurementProperties adapValues;
+
         /******************************************/
         /*** General Internal Storage Variables ***/
         /******************************************/
@@ -133,11 +136,14 @@ namespace rover_localization {
         /** The filter uses by the BackEnd **/
         boost::shared_ptr< localization::Usckf<WVectorState, WSingleState> > filter;
 
-        /** Pose estimation front Front-End **/
+        /** Pose estimation from Front-End  (for the filter) **/
         base::samples::RigidBodyState frontEndPose;
 
-        /** Inertial sensor from Front-End **/
+        /** Inertial sensor from Front-End (for the filter) **/
         rover_localization::InertialState inertialState;
+
+        /** Object of Class for Adaptive Measurement of Attitude Covariance Matrix **/
+        boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAtt;
 
         /**************************/
         /** Input port variables **/
@@ -241,9 +247,20 @@ namespace rover_localization {
          */
         void cleanupHook();
 
+        /**@brief Create a vectorized state of a single state vector
+         * but not in the form of Manifold in the for of error quaternion
+         * for the orientation.
+         */
+        WSingleState::vectorized_type getVectorizeSingleState (WSingleState & state);
+
         /**@brief Get the values from the input port samples (prorioceptive and motion model)
          */
         void inputPortSamples(base::samples::RigidBodyState &frontEndPose, rover_localization::InertialState &inertialState);
+
+        /** \brief Store the variables in the Output ports
+         */
+        void outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WVectorState, WSingleState> > filter, const WVectorState &errorVectorState);
+
 
     };
 }
