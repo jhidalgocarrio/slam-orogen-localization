@@ -101,7 +101,7 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
     qtf = Eigen::Quaternion <double> (tf.rotation());
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE REFERENCE-POSE]Received poseSamples sample at("<<reference_pose_samples_sample.time.toMicroseconds()<<") **\n";
+    std::cout<<"** [FRONT-END REFERENCE-POSE]Received poseSamples sample at("<<reference_pose_samples_sample.time.toMicroseconds()<<") **\n";
     #endif
 
     /** Apply the transformer pose offset **/
@@ -125,7 +125,7 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
 	euler[2] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
 	euler[1] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
 	euler[0] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
- 	std::cout<<"** [FE REFERENCE-POSE]poseSamples at ("<<poseSamples[0].time.toMicroseconds()<< ")**\n";
+ 	std::cout<<"** [FRONT-END REFERENCE-POSE]poseSamples at ("<<poseSamples[0].time.toMicroseconds()<< ")**\n";
 	std::cout<<"** position offset\n"<<tf.translation()<<"\n";
 	std::cout<<"** rotation offset\n"<<tf.rotation()<<"\n";
 	std::cout<<"** position\n"<< poseSamples[0].position<<"\n";
@@ -157,7 +157,7 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
 	    poseOut.orientation = attitude;
 	
 	    #ifdef DEBUG_PRINTS
-            std::cout<< "[FE REFERENCE-POSE]\n";
+            std::cout<< "[FRONT-END REFERENCE-POSE]\n";
 	    std::cout<< "******** Initial Attitude in Pose Init Samples *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<"Init Pitch: "<<euler[1]*localization::R2D<<"Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
@@ -195,7 +195,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
     if (base::isNaN(eccx[0]) && base::isNaN(eccy[0]) && base::isNaN(eccz[0]))
     {
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[FE INERTIAL-SAMPLES]\nEccentricities are NaN\n";
+	std::cout<<"[FRONT-END INERTIAL-SAMPLES]\nEccentricities are NaN\n";
 	std::cout<<"Translation:\n"<<tf.translation()<<"\n";
 	std::cout<<"Eccx :\n"<<tf.rotation() * _eccx.value()<<"\n";
 	std::cout<<"Eccy :\n"<<tf.rotation() * _eccy.value()<<"\n";
@@ -213,7 +213,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
     if (!initAttitude)
     {
 	#ifdef DEBUG_PRINTS
-	std::cout<< "[FE INERTIAL-SAMPLES]Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
+	std::cout<< "[FRONT-END INERTIAL-SAMPLES]Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
 	#endif
 	
 	/** Add one acc sample to the buffer **/
@@ -245,7 +245,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 
 	
 	    #ifdef DEBUG_PRINTS
-            std::cout<<"*** [FE INERTIAL-SAMPLES]\n";
+            std::cout<<"*** [FRONT-END INERTIAL-SAMPLES]\n";
 	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
 	    std::cout<<"*** Computed mean incl values: "<<meanincl[0]<<" "<<meanincl[1]<<" "<<meanincl[2]<<"\n";
 	    std::cout<<"*** Computed gravity (acc): "<<meanacc.norm()<<"\n";
@@ -278,7 +278,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
 
 	    #ifdef DEBUG_PRINTS
-            std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
+            std::cout<< "******** [FRONT-END INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (IMU frame)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
@@ -293,7 +293,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	    euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-            std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
+            std::cout<< "******** [FRONT-END INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (after applying qtf)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 	    #endif
@@ -335,15 +335,15 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
 		
 		#ifdef DEBUG_PRINTS
-                std::cout<< "[FE INERTIAL-SAMPELS] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
-		std::cout<< "[FE INERTIAL-SAMPLES] G_error in world\n"<<g_error <<"\n";
+                std::cout<< "[FRONT-END INERTIAL-SAMPELS] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in world\n"<<g_error <<"\n";
 		#endif
 		
 		/** Gravity error in IMU frame **/
 		g_error = q_world2imu.inverse() * g_error; /** g_error_imu = (Tworld_imu)^-1 * g_error_world */
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[FE INERTIAL-SAMPLES] G_error in imu\n"<<g_error <<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in imu\n"<<g_error <<"\n";
 		#endif
 		
 		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
@@ -353,7 +353,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 		g_error = attitude.inverse() * g_error;
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[FE INERTIAL-SAMPLES] G_error in body\n"<<g_error <<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in body\n"<<g_error <<"\n";
 		#endif
 
                 /** Set up the initial computed gravity into the inertialState variable **/
@@ -371,7 +371,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
                 euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
                 euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	        euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-                std::cout<< "******** [FE INERTIAL-SAMPLES]\n";
+                std::cout<< "******** [FRONT-END INERTIAL-SAMPLES]\n";
 		std::cout<< "******** Initial Attitude *******"<<"\n";
 		std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
 		#endif
@@ -386,7 +386,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	/** A new sample arrived to the port**/
 	
 	#ifdef DEBUG_PRINTS
-        std::cout<<"** [FE INERTIAL-SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+        std::cout<<"** [FRONT-END INERTIAL-SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(imu_frame):\n"<<inertial_samples_sample.acc<<"\n";
 	std::cout<<"acc(quat body_frame ):\n"<<qtf * inertial_samples_sample.acc<<"\n";
 	std::cout<<"acc(Rot body_frame):\n"<< tf.rotation() * inertial_samples_sample.acc<<"\n";
@@ -418,7 +418,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	cbImuSamples.push_front(imusample);
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"** [FE INERTIAL-SAMPLES] Corrected inertial"<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+        std::cout<<"** [FRONT-END INERTIAL-SAMPLES] Corrected inertial"<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(imu_frame):\n"<<imusample.acc<<"\n";
 	std::cout<<"gyro(imu_frame):\n"<<imusample.gyro<<"\n";
 	std::cout<<"mag(imu_frame):\n"<<imusample.mag<<"\n";
@@ -455,8 +455,8 @@ void FrontEnd::systemstate_samplesTransformerCallback(const base::Time &ts, cons
     counter.asguardStatusSamples ++;
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE PASSIVE-JOINT] counter.asguardStatusSamples("<<counter.asguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
-    std::cout<<"** [FE PASSIVE-JOINT] passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
+    std::cout<<"** [FRONT-END PASSIVE-JOINT] counter.asguardStatusSamples("<<counter.asguardStatusSamples<<") at ("<<systemstate_samples_sample.time.toMicroseconds()<< ")**\n";
+    std::cout<<"** [FRONT-END PASSIVE-JOINT] passive joint value: "<< systemstate_samples_sample.asguardJointEncoder<<"\n";
     #endif
 
 }
@@ -492,14 +492,14 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 	
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE ENCODERS-SAMPLES] counter.encoderSamples("<<counter.encoderSamples<<") at ("<<encoder_samples_sample.time.toMicroseconds()
+    std::cout<<"** [FRONT-END ENCODERS-SAMPLES] counter.encoderSamples("<<counter.encoderSamples<<") at ("<<encoder_samples_sample.time.toMicroseconds()
 	<<") received FR ("<<encoder_samples_sample.states[0].positionExtern<<")**\n";
     #endif
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE ENCODERS-SAMPLES] [COUNTERS] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
-    std::cout<<"** [FE ENCODERS-SAMPLES] [FLAGS] initAttitude ("<<initAttitude<<") initPosition("<<initPosition<<") **\n";
-    std::cout<<"** [FE ENCODERS-SAMPLES] [FLAGS] flagEncoders ("<<flag.encoderSamples<<") flagAsguard("<<flag.asguardStatusSamples<<") flagIMU("<<flag.imuSamples<<") **\n";
+    std::cout<<"** [FRONT-END ENCODERS-SAMPLES] [COUNTERS] encoderCounter ("<<counter.encoderSamples<<") asguardCounter("<<counter.asguardStatusSamples<<") imuCounter("<<counter.imuSamples<<") **\n";
+    std::cout<<"** [FRONT-END ENCODERS-SAMPLES] [FLAGS] initAttitude ("<<initAttitude<<") initPosition("<<initPosition<<") **\n";
+    std::cout<<"** [FRONT-END ENCODERS-SAMPLES] [FLAGS] flagEncoders ("<<flag.encoderSamples<<") flagAsguard("<<flag.asguardStatusSamples<<") flagIMU("<<flag.imuSamples<<") **\n";
     #endif
 
     if (initAttitude && initPosition)
@@ -507,7 +507,7 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
         if (flag.imuSamples && flag.asguardStatusSamples && flag.encoderSamples)
         {
             #ifdef DEBUG_PRINTS
-            std::cout<<"[ON] ** [FE ENCODERS-SAMPLES] ** [ON] ("<<encoderSamples[0].time.toMicroseconds()<<")\n";
+            std::cout<<"[ON] ** [FRONT-END ENCODERS-SAMPLES] ** [ON] ("<<encoderSamples[0].time.toMicroseconds()<<")\n";
        	    #endif
 
             /** Get the correct values from the input ports buffers (data types of the inports) **/
@@ -551,7 +551,7 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 void FrontEnd::backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample)
 {
     #ifdef DEBUG_PRINTS
-    std::cout<<"** [FE BACK-END] received backend info\n";
+    std::cout<<"** [FRONT-END BACK-END] received backend info\n";
     #endif
 
     /** A new sample arrived to the inport **/
@@ -638,9 +638,9 @@ bool FrontEnd::configureHook()
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CONFIGURE] cbEncoderSamples has init capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] cbAsguardStatusSamples has init capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] cbImuSamples has init capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbEncoderSamples has init capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbAsguardStatusSamples has init capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbImuSamples has init capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
     #endif
 
     /** Set the capacity of the circular_buffer according to the sampling rate **/
@@ -655,9 +655,9 @@ bool FrontEnd::configureHook()
 
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CONFIGURE] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] cbAsguardStatusSamples has capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] cbImuSamples has capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbAsguardStatusSamples has capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cbImuSamples has capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
     #endif
 
     /** Initialize the samples for the filtered buffer hbridge values **/
@@ -716,11 +716,11 @@ bool FrontEnd::configureHook()
 
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
-    std::cout<<"[FE CONFIGURE] backEndEstimationSamples has capacity "<<backEndEstimationSamples.capacity()<<" and size "<<backEndEstimationSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] backEndEstimationSamples has capacity "<<backEndEstimationSamples.capacity()<<" and size "<<backEndEstimationSamples.size()<<"\n";
     #endif
 
     for (register unsigned int i=0; i<vectorCartesianVelocities.size(); ++i)
@@ -730,7 +730,7 @@ bool FrontEnd::configureHook()
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CONFIGURE] vectorCartesianVelocities has capacity "<<vectorCartesianVelocities.capacity()<<" and size "<<vectorCartesianVelocities.size()<<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] vectorCartesianVelocities has capacity "<<vectorCartesianVelocities.capacity()<<" and size "<<vectorCartesianVelocities.size()<<"\n";
     #endif
 
     /** Gravitational value according to the location. Ideal theoretical value **/
@@ -800,8 +800,8 @@ bool FrontEnd::configureHook()
     modelVelCov.block<asguard::ASGUARD_JOINT_DOF, asguard::ASGUARD_JOINT_DOF> (0,0) = encodersNoiseVector.asDiagonal();
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CONFIGURE] cartesianVelCov:\n"<< cartesianVelCov <<"\n";
-    std::cout<<"[FE CONFIGURE] modelVelCov:\n"<< modelVelCov <<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] cartesianVelCov:\n"<< cartesianVelCov <<"\n";
+    std::cout<<"[FRONT-END CONFIGURE] modelVelCov:\n"<< modelVelCov <<"\n";
     #endif
 
 
@@ -877,8 +877,15 @@ bool FrontEnd::configureHook()
     RTT::log(RTT::Warning)<<"[Info Front-End] Front-End running at Frequency[Hertz]: "<<framework.frontend_frequency<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] Back-End  running at Frequency[Hertz]: "<<framework.backend_frequency<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] Visualization at Frequency[Hertz]: "<<framework.visualization_frequency<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info Front-End] Initial leveling time[Seconds]: "<<framework.init_leveling_time<<" which at "<<(1.0)/_inertial_samples_period.value()
+
+    if (framework.use_inclinometers_leveling)
+        RTT::log(RTT::Warning)<<"[Info Front-End] Initial leveling using Inclinometers ";
+    else
+        RTT::log(RTT::Warning)<<"[Info Front-End] Initial leveling using Accelerometers ";
+
+    RTT::log(RTT::Warning)<<"Time[seconds]: "<<framework.init_leveling_time<<" which at "<<(1.0)/_inertial_samples_period.value()
         <<" Hertz are "<<init_leveling_size<<" #Samples"<<RTT::endlog();
+
     RTT::log(RTT::Warning)<<"[Info Front-End] number.imuSamples: "<<number.imuSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] number.encoderSamples: "<<number.encoderSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] number.asguardStatusSamples: "<<number.asguardStatusSamples<<RTT::endlog();
@@ -1081,12 +1088,12 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
         derivationAsguardStatusSamples.setZero();
 	
 	#ifdef DEBUG_PRINTS
-        std::cout<<"[FE CALCULATING_VELO] ********************************************* \n";
-	std::cout<<"[FE CALCULATING_VELO] Timestamp New(asguardStatus): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[FE CALCULATING_VELO] Delta time(asguardStatus): "<< asguardStatusDelta_t.toSeconds()<<"\n";
-	std::cout<<"[FE CALCULATING_VELO] Timestamp New(IMU): "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[FE CALCULATING_VELO] Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
-	std::cout<<"[FE CALCULATING_VELO] asguardStatus(passive Joint): "<< asguardStatusSamples[0].asguardJointEncoder <<" Prev: "<<asguardStatusSamples[1].asguardJointEncoder<<"\n";
+        std::cout<<"[FRONT-END CALCULATING_VELO] ********************************************* \n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] Timestamp New(asguardStatus): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] Delta time(asguardStatus): "<< asguardStatusDelta_t.toSeconds()<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] Timestamp New(IMU): "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] asguardStatus(passive Joint): "<< asguardStatusSamples[0].asguardJointEncoder <<" Prev: "<<asguardStatusSamples[1].asguardJointEncoder<<"\n";
 	#endif
 
 	/** Fill the derivative vector **/
@@ -1096,23 +1103,23 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 	}
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[FE CALCULATING_VELO] passiveJoint old velocity: "<<(asguardStatusSamples[0].asguardJointEncoder - asguardStatusSamples[1].asguardJointEncoder)/delta_t<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] passiveJoint old velocity: "<<(asguardStatusSamples[0].asguardJointEncoder - asguardStatusSamples[1].asguardJointEncoder)/delta_t<<"\n";
 	#endif
 		
 	/** Passive joint velocity **/
 	modelVelocities[0] = localization::Util::finiteDifference (derivationAsguardStatusSamples, delta_t); //passive joints speed
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[FE CALCULATING_VELO] passiveJoint new velocity: "<<modelVelocities[0]<<"\n";
+	std::cout<<"[FRONT-END CALCULATING_VELO] passiveJoint new velocity: "<<modelVelocities[0]<<"\n";
 	#endif
 
 	/** Velocities for the vector **/
 	for (register int i = 0; i<static_cast<int>(asguard::NUMBER_OF_WHEELS); ++i)
 	{
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[FE CALCULATING_VELO] Timestamp New(encoders): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
-	    std::cout<<"[FE CALCULATING_VELO] Delta time(encoders): "<< encoderDelta_t.toSeconds()<<"\n";
-	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] New: "<< encoderSamples[0].states[i].positionExtern <<" Prev: "<<encoderSamples[1].states[i].positionExtern<<"\n";
+	    std::cout<<"[FRONT-END CALCULATING_VELO] Timestamp New(encoders): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
+	    std::cout<<"[FRONT-END CALCULATING_VELO] Delta time(encoders): "<< encoderDelta_t.toSeconds()<<"\n";
+	    std::cout<<"[FRONT-END CALCULATING_VELO] ["<<i<<"] New: "<< encoderSamples[0].states[i].positionExtern <<" Prev: "<<encoderSamples[1].states[i].positionExtern<<"\n";
 	    #endif
 	
 	    derivationEncoderSamples.setZero();//!Set to zero
@@ -1124,14 +1131,14 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 	    }
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] encoderSamples old velocity: "<<(encoderSamples[0].states[i].positionExtern - encoderSamples[1].states[i].positionExtern)/delta_t<<"\n";
+	    std::cout<<"[FRONT-END CALCULATING_VELO] ["<<i<<"] encoderSamples old velocity: "<<(encoderSamples[0].states[i].positionExtern - encoderSamples[1].states[i].positionExtern)/delta_t<<"\n";
 	    #endif
 	
 	    /** Motor joint velocity **/
 	    modelVelocities[i+1] = localization::Util::finiteDifference(derivationEncoderSamples, delta_t); //!wheel rotation speed
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[FE CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<modelVelocities[i+1]<<"\n";
+	    std::cout<<"[FRONT-END CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<modelVelocities[i+1]<<"\n";
 	    #endif
 
 	}
@@ -1151,9 +1158,9 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE CALCULATING_VELO]: Model\n"<<modelVelocities<<"\n";
-    std::cout<<"[FE CALCULATING_VELO]: Cartesian\n"<<cartesianVelocities<<"\n";
-    std::cout<<"[FE CALCULATING_VELO] ******************** END ******************** \n";
+    std::cout<<"[FRONT-END CALCULATING_VELO]: Model\n"<<modelVelocities<<"\n";
+    std::cout<<"[FRONT-END CALCULATING_VELO]: Cartesian\n"<<cartesianVelocities<<"\n";
+    std::cout<<"[FRONT-END CALCULATING_VELO] ******************** END ******************** \n";
     #endif
 
     return;
@@ -1195,6 +1202,10 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
 
     /** Proprioceptive sensors (IMU) **/
     inertialState.time = timestamp;
+
+    /*inertialState.delta_orientation = Eigen::Quaterniond(Eigen::AngleAxisd(0.1 * localization::D2R, Eigen::Vector3d::UnitZ())*
+                Eigen::AngleAxisd(0.1 * localization::D2R, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(0.1 * localization::D2R, Eigen::Vector3d::UnitX()));*/
     inertialState.delta_orientation = deltaPose.orientation; /** Delta orientation from IMU */
     inertialState.acc = imuSamples[0].acc; /** Bias and gravity corrected acceleration */
     inertialState.delta_vel = imuSamples[0].acc * (1.0/framework.frontend_frequency); /** Delta velocity (acc integration) in body frame */
@@ -1226,10 +1237,10 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
     }
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[FE OUTPUT_PORTS]: poseOut.position\n"<<poseOut.position<<"\n";
-    std::cout<<"[FE OUTPUT_PORTS]: poseOut.velocity\n"<<poseOut.velocity<<"\n";
-    std::cout<<"[FE OUTPUT_PORTS]: referenceOut.position\n"<<referenceOut.velocity<<"\n";
-    std::cout<<"[FE OUTPUT_PORTS] ******************** END ******************** \n";
+    std::cout<<"[FRONT-END OUTPUT_PORTS]: poseOut.position\n"<<poseOut.position<<"\n";
+    std::cout<<"[FRONT-END OUTPUT_PORTS]: poseOut.velocity\n"<<poseOut.velocity<<"\n";
+    std::cout<<"[FRONT-END OUTPUT_PORTS]: referenceOut.position\n"<<referenceOut.velocity<<"\n";
+    std::cout<<"[FRONT-END OUTPUT_PORTS] ******************** END ******************** \n";
     #endif
     /** Store the Debug OutPorts information **/
 

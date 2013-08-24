@@ -46,7 +46,7 @@ namespace rover_localization {
             return;
         }
 
-       	unsigned int encoderSamples; /** counter for Hbridge samples**/
+       	unsigned int encoderSamples; /** counter for encoders samples**/
  	unsigned int asguardStatusSamples; /** counter for Asguard status samples  **/
  	unsigned int imuSamples; /** counter of inertial sensors samples **/
  	unsigned int torqueSamples; /** counter for  Torque info samples **/
@@ -69,7 +69,7 @@ namespace rover_localization {
             return;
         }
 
-	unsigned int encoderSamples; /** number of Hbridge samples for the resampling**/
+	unsigned int encoderSamples; /** number of encoders samples for the resampling**/
  	unsigned int asguardStatusSamples; /** number of  Asguard status samples for the resampling **/
  	unsigned int imuSamples; /** number of inertial sensors samples **/
  	unsigned int torqueSamples; /** number of  Torque info samples for the resampling **/
