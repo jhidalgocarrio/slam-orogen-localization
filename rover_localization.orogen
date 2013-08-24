@@ -238,7 +238,7 @@ task_context "BackEnd" do
     #******************************
     #******* Output ports  ********
     #******************************
-    output_port('error_samples_out', '/base/samples/RigidBodyState').
+    output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
 	doc 'Estimated pose error samples'
 
     output_port('pose_samples_out', '/base/samples/RigidBodyState').

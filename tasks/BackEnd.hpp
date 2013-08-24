@@ -16,6 +16,7 @@
 /** Eigen **/
 #include <Eigen/Core> /** Core */
 #include <Eigen/StdVector> /** For STL container with Eigen types **/
+#include <Eigen/Geometry> /** For quaternion and angle-axis representations **/
 
 /** Standard libs **/
 #include <iostream>
@@ -27,9 +28,9 @@
 namespace rover_localization {
 
 
-    /** Wrap the VectorState **/
-    typedef localization::MtkWrap<localization::VectorState> WVectorState;
-    typedef localization::MtkWrap<localization::SingleState> WSingleState;
+    /** Wrap the Augmented and Single State **/
+    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
+    typedef localization::MtkWrap<localization::State> WSingleState;
 
     /** Current counter of samples arrived to each port **/
     struct CounterInputPortsBackEnd
@@ -134,12 +135,12 @@ namespace rover_localization {
         /******************************************/
 
         /** The filter uses by the BackEnd **/
-        boost::shared_ptr< localization::Usckf<WVectorState, WSingleState> > filter;
+        boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter;
 
-        /** Pose estimation from Front-End  (for the filter) **/
+        /** Pose estimation from Front-End  **/
         base::samples::RigidBodyState frontEndPose;
 
-        /** Inertial sensor from Front-End (for the filter) **/
+        /** Inertial sensor from Front-End **/
         rover_localization::InertialState inertialState;
 
         /** Object of Class for Adaptive Measurement of Attitude Covariance Matrix **/
@@ -259,7 +260,7 @@ namespace rover_localization {
 
         /** \brief Store the variables in the Output ports
          */
-        void outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WVectorState, WSingleState> > filter, const WVectorState &errorVectorState);
+        void outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter, const WAugmentedState &errorAugmentedState);
 
 
     };

@@ -174,7 +174,6 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         double delta_t = (1.0/framework.backend_frequency); /** Delta integration time */
         WSingleState statek_i; /** Current robot state (copy from the filter object) */
         WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill wih info coming from FrontEnd) */
-        WSingleState::vectorized_type deltaState; /** Delta in robot state to propagate the state (fill wih info coming from FrontEnd) */
 
         #ifdef DEBUG_PRINTS
         std::cout<<"[BACK-END POSE-SAMPLES] - "<<inertialState.time.toMicroseconds()<<" - Performing Filter@"<< delta_t <<" seconds\n";
@@ -194,14 +193,15 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         std::cout<<"[BACK-END POSE-SAMPLES] position:\n"<<deltaStatek_i.pos<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] velocity:\n"<<deltaStatek_i.vel<<"\n";
         Eigen::Matrix <double,localization::NUMAXIS,1> eulerdelta; /** In euler angles **/
-        eulerdelta[2] = 1.0 * localization::D2R;//deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        eulerdelta[1] = 1.0 * localization::D2R;//deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        eulerdelta[0] = 1.0 * localization::D2R;//deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+        eulerdelta[2] = deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+        eulerdelta[1] = deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+        eulerdelta[0] = deltaStatek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
         std::cout<<"[BACK-END POSE-SAMPLES] Roll: "<<eulerdelta[0]*localization::R2D<<" Pitch: "<<eulerdelta[1]*localization::R2D<<" Yaw: "<<eulerdelta[2]*localization::R2D<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] Roll(rad): "<<eulerdelta[0]<<" Pitch(rad): "<<eulerdelta[1]<<" Yaw(rad): "<<eulerdelta[2]<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] w: "<<deltaStatek_i.orient.w()<<" x: "<<deltaStatek_i.orient.x()<<" y: "<<deltaStatek_i.orient.y()<<" z:"<<deltaStatek_i.orient.z()<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] gbias:\n"<<deltaStatek_i.gbias<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] abias:\n"<<deltaStatek_i.abias<<"\n\n";
+        std::cout<<"[BACK-END POSE-SAMPLES] DELTA_STATE in Vectorized_form:\n"<<deltaStatek_i.getVectorizedState(::localization::State::ERROR_QUATERNION)<<"\n\n";
         #endif
 
         /** Get the current state **/
@@ -221,46 +221,11 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         #endif
 
         //filter->propagate (deltaStatek_i);
-        deltaState.setZero();
-        deltaState.block<localization::vec3::DOF, 1>(0,0) = inertialState.delta_vel * delta_t;
-        deltaState.block<localization::vec3::DOF, 1>(localization::vec3::DOF,0) = inertialState.delta_vel;
-        Eigen::Vector3d qe;
-        //qe << inertialState.delta_orientation.x(), inertialState.delta_orientation.y(), inertialState.delta_orientation.z();
-        Eigen::Quaterniond tempq = Eigen::Quaternion <double> (Eigen::AngleAxisd(eulerdelta[0], Eigen::Vector3d::UnitX())*
-			Eigen::AngleAxisd(eulerdelta[1], Eigen::Vector3d::UnitY()) *
-			Eigen::AngleAxisd(eulerdelta[2], Eigen::Vector3d::UnitZ()));
-
-        qe << eulerdelta[0], eulerdelta[1], eulerdelta[2];
-        Eigen::AngleAxisd angleAxis (tempq);
-        std::cout<<"The angle of rotation is: "<<angleAxis.angle()<<"\n";
-        std::cout<<"The angle of rotation is: "<<(angleAxis.axis() * angleAxis.angle()).norm()<<"\n";
-        std::cout<<"The angle of rotation is (degrees): "<<angleAxis.angle()*localization::R2D<<"\n";
-        std::cout<<"The axis of rotation is:\n"<<angleAxis.axis()<<"\n";
-        deltaState.block<localization::vec3::DOF, 1>(2*localization::vec3::DOF,0) = eulerdelta;//angleAxis.axis()*angleAxis.angle();//qe;
-
-        std::cout<<"[DELTA_STATE]\n"<<deltaState<<"\n";
-
-        Eigen::Quaterniond resultq = statek_i.orient * tempq;
-        Eigen::Matrix <double,localization::NUMAXIS,1> eulerResult; /** In euler angles **/
-        eulerResult[2] = resultq.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        eulerResult[1] = resultq.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        eulerResult[0] = resultq.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        std::cout<<"eulerResult (Quaternion multiplication)\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] Roll: "<<eulerResult[0]*localization::R2D<<" Pitch: "<<eulerResult[1]*localization::R2D<<" Yaw: "<<eulerResult[2]*localization::R2D<<"\n";
-
-        resultq = statek_i.orient * angleAxis;
-        eulerResult[2] = resultq.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        eulerResult[1] = resultq.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        eulerResult[0] = resultq.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        std::cout<<"eulerResult (AngleAxis multiplication) \n";
-        std::cout<<"[BACK-END POSE-SAMPLES] Roll: "<<eulerResult[0]*localization::R2D<<" Pitch: "<<eulerResult[1]*localization::R2D<<" Yaw: "<<eulerResult[2]*localization::R2D<<"\n";
-
-
-        //statek_i += deltaState; filter->setStatek_i(statek_i);
-        statek_i.orient.boxplus(eulerdelta);
+        statek_i = statek_i + deltaStatek_i.getVectorizedState(); filter->setStatek_i(statek_i);
+        //statek_i.orient.boxplus(eulerdelta);
 
         /** Get the current state (after propagation) **/
-        //statek_i = filter->muState().statek_i;
+        statek_i = filter->muState().statek_i;
 
         #ifdef DEBUG_PRINTS
         std::cout<<"\n[BACK-END POSE-SAMPLES] AFTER_PROPAGATION \n";
