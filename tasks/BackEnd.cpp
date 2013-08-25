@@ -168,9 +168,6 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
             initFilter = true;
         }
 
-        /** Typedef for the statek_i covariance type **/
-        typedef localization::Usckf <WAugmentedState, WSingleState>::SingleStateCovariance SingleStateCovariance;
-
         double delta_t = (1.0/framework.backend_frequency); /** Delta integration time */
         WSingleState statek_i; /** Current robot state (copy from the filter object) */
         WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill wih info coming from FrontEnd) */
@@ -245,18 +242,25 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         /** Predict State **/
         /*******************/
 
+        /** Form the process model matrix **/
+        typedef Eigen::Matrix<double, WSingleState::DOF, WSingleState::DOF> SingleStateProcessModelMatrix;
+        SingleStateProcessModelMatrix processModelF = localization::processModel
+                                                < WSingleState, SingleStateProcessModelMatrix>
+                                                (inertialState.gyro, inertialState.acc,
+                                                static_cast<Eigen::Quaterniond&>(statek_i.orient), delta_t);
+
         /** Form the process covariance matrix **/
-        localization::Usckf <WAugmentedState, WSingleState>::SingleStateCovariance processCovQ;
+
+        /** Typedef for the statek_i covariance type **/
+        typedef localization::Usckf <WAugmentedState, WSingleState>::SingleStateCovariance SingleStateCovariance;
+
+        SingleStateCovariance processCovQ;
         processCovQ = localization::processNoiseCov
-                            <WSingleState, SingleStateCovariance > (sensornoise.accrw, sensornoise.gyrorw,
+                            <WSingleState, SingleStateCovariance > (processModelF, sensornoise.accrw, sensornoise.gyrorw,
                                                                     sensornoise.gbiasins, sensornoise.abiasins, static_cast<Eigen::Quaterniond&>(statek_i.orient), delta_t) ;
 
         /** Robot's error state is propagated using the non-linear noise dynamic model (processModel) **/
-        filter->predict(boost::bind(
-                    localization::processModel< WSingleState >,
-                    _1, inertialState.delta_vel,
-                    inertialState.delta_orientation,
-                    static_cast<Eigen::Quaterniond&>(statek_i.orient), delta_t), processCovQ);
+        filter->ekfPredict(processModelF, processCovQ);
 
         /*******************/
         /** Update State **/
