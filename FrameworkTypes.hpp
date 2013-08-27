@@ -118,7 +118,8 @@ namespace rover_localization
 	
 	base::Time time;
 	base::VectorXd statek_i;
-	base::VectorXd estatek_i;
+	base::VectorXd errork_i;
+        base::Orientation orientation;
 	base::MatrixXd Pki;
 	base::MatrixXd K;
 	base::MatrixXd Qk;
@@ -127,6 +128,12 @@ namespace rover_localization
 	base::Matrix3d Hellinger;
         base::Vector3d abias;
         base::Vector3d gbias;
+        base::Vector3d deltaVeloModel;
+        base::Matrix3d deltaVeloModelCov;
+        base::Vector3d deltaVeloInertial;
+        base::Matrix3d deltaVeloInertialCov;
+        base::Vector3d deltaVeloError;
+        base::Matrix3d deltaVeloErrorCov;
     };
 
     //Local gravity information (theory and computed at initialization time)
