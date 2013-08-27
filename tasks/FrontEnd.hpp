@@ -209,7 +209,9 @@ namespace rover_localization {
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
 	boost::circular_buffer<base::samples::RigidBodyState> poseSamples; /** Pose information (init and debug)**/
-	boost::circular_buffer<rover_localization::BackEndEstimation> backEndEstimationSamples; /** Pose information (init and debug)**/
+
+        /** Back-End information (feedback) **/
+	rover_localization::BackEndEstimation backEndEstimationSamples;
 
         /***************************/
         /** Output port variables **/
@@ -239,8 +241,6 @@ namespace rover_localization {
         virtual void systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample);
 
         virtual void encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &encoder_samples_sample);
-
-        virtual void backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample);
 
     public:
         /** TaskContext constructor for FrontEnd

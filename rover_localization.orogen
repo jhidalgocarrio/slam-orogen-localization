@@ -114,8 +114,7 @@ task_context "FrontEnd" do
 	align_port("ground_forces_samples", 0.01)
 	transform "vicon", "body"
 	align_port("reference_pose_samples", 0.01)
-	align_port("backend_estimation_samples", 0.01)
-	max_latency(0.5)
+	max_latency(1.0)
     end
 
     #******************************
@@ -310,7 +309,7 @@ task_context "Visualization" do
     output_port('bodystate_samples_out', '/asguard/BodyState').
 	doc 'timestamped asguard bodystate information'
 
-    # FROWARD KINEMATICS RIGID BODY STATE
+    # FORWARD KINEMATICS RIGID BODY STATE
     output_port('fkchains_rbs_out', 'rover_localization/RobotContactPointsRbs').
         doc 'Rigid Body States with the position and orientation of Contact points frame'+
             'of the robot wrt the world frame'

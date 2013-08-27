@@ -54,7 +54,6 @@ FrontEnd::FrontEnd(std::string const& name)
     asguardStatusSamples = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     poseSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
-    backEndEstimationSamples = boost::circular_buffer<rover_localization::BackEndEstimation> (DEFAULT_CIRCULAR_BUFFER_SIZE);
 
     /** Default size for the std_vector for the cartesian 6DoF velocities variables **/
     vectorCartesianVelocities = std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > (DEFAULT_CIRCULAR_BUFFER_SIZE);
@@ -395,7 +394,22 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	std::cout<<"mag(imu_frame):\n"<<inertial_samples_sample.mag<<"\n";
         std::cout<<"mag(quat body_frame):\n"<<qtf * inertial_samples_sample.mag<<"\n";
 	#endif
-	
+
+        /** If a new sample arrived to the inport of the Back-End Feedback **/
+        if (_backend_estimation_samples.read(backEndEstimationSamples) == RTT::NewData)
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"** [FRONT-END BACK-END-INFO] at "<< backEndEstimationSamples.time.toMicroseconds()<<"\n";
+            std::cout<<"** [FRONT-END BACK-END-INFO] gbias:\n"<<backEndEstimationSamples.gbias<< "\n";
+            std::cout<<"** [FRONT-END BACK-END-INFO] abias:\n"<<backEndEstimationSamples.abias<< "\n";
+            Eigen::Vector3d euler;
+            euler[2] = backEndEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+            euler[1] = backEndEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+            euler[0] = backEndEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+            std::cout<<"** [FRONT-END BACK-END-INFO] Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+            #endif
+        }
+
 	/** Convert the IMU values in the body frame **/
 	imusample.time = inertial_samples_sample.time;
 	imusample.acc = qtf * inertial_samples_sample.acc;
@@ -406,13 +420,13 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
         localization::Util::SubstractEarthRotation(&(imusample.gyro), &(poseOut.orientation), location.latitude);
 
         /** Eliminate noise from sensor body frame **/
-        imusample.gyro -= backEndEstimationSamples[0].gbias; /** Elminate estimated bias */
+        imusample.gyro -= backEndEstimationSamples.gbias; /** Elminate estimated bias */
 
-        /** Eliminate gravity perturbation from acc in body frame **/
+        /** Eliminate gravity perturbation and bias from acc in body frame **/
         Eigen::Matrix <double,3,1>  gtilde_body, gtilde;
         gtilde << 0.00, 0.00, inertialState.theoretical_g;
-        gtilde_body = poseOut.orientation.inverse() * gtilde;
-        imusample.acc = imusample.acc - backEndEstimationSamples[0].abias - gtilde_body;
+        gtilde_body = backEndEstimationSamples.orientation.inverse() * gtilde;
+        imusample.acc = imusample.acc - backEndEstimationSamples.abias - gtilde_body;
 
 	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
@@ -546,17 +560,6 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 
         }
     }
-}
-
-void FrontEnd::backend_estimation_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::BackEndEstimation &backend_estimation_samples_sample)
-{
-    #ifdef DEBUG_PRINTS
-    std::cout<<"** [FRONT-END BACK-END] received backend info\n";
-    #endif
-
-    /** A new sample arrived to the inport **/
-    backEndEstimationSamples.push_front(backend_estimation_samples_sample);
-
 }
 
 /// The following lines are template definitions for the various state machine
@@ -696,31 +699,19 @@ bool FrontEnd::configureHook()
     }
 
     /** Initialize the samples for the filtered buffer poseSamples values **/
-    for(register unsigned int i=0; i<backEndEstimationSamples.capacity(); ++i)
-    {
-        rover_localization::BackEndEstimation backend;
-
-        /** Back-End estimation Init **/
-	backend.time.fromMicroseconds (base::NaN<uint64_t>());
-	backend.statek_i.setZero();
-	backend.estatek_i.setZero();
-	backend.abias.setZero();
-	backend.gbias.setZero();
-	backend.Pki.setZero();
-	backend.K.setZero();
-
-        /** Push one **/
-        backEndEstimationSamples.push_front(backend);
-	
-    }
-
+    backEndEstimationSamples.time.fromMicroseconds (base::NaN<uint64_t>());
+    backEndEstimationSamples.statek_i.setZero();
+    backEndEstimationSamples.errork_i.setZero();
+    backEndEstimationSamples.abias.setZero();
+    backEndEstimationSamples.gbias.setZero();
+    backEndEstimationSamples.Pki.setZero();
+    backEndEstimationSamples.K.setZero();
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[FRONT-END CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
     std::cout<<"[FRONT-END CONFIGURE] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
     std::cout<<"[FRONT-END CONFIGURE] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
     std::cout<<"[FRONT-END CONFIGURE] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
-    std::cout<<"[FRONT-END CONFIGURE] backEndEstimationSamples has capacity "<<backEndEstimationSamples.capacity()<<" and size "<<backEndEstimationSamples.size()<<"\n";
     #endif
 
     for (register unsigned int i=0; i<vectorCartesianVelocities.size(); ++i)

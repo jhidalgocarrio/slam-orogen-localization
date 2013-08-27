@@ -74,100 +74,48 @@ class ThreeData:
 	plt.show()
 	
 
-#Motion model incremental velocity
-ivelbody100Hz = ThreeData()
-ivelbody1Hz = ThreeData()
-ivelbody100Hz.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.slip_gp.5.data', cov=True)
-ivelbody1Hz.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.slip_gp.6.data', cov=True)
-ivelbody100Hz.eigenValues()
-ivelbody1Hz.eigenValues()
-
-#IMU incremental velocity
-velimu100Hz = ThreeData()
-velimu1Hz = ThreeData()
-velimu100Hz.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.slip_gp.5.data', cov=True)
-velimu1Hz.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.slip_gp.6.data', cov=True)
-velimu100Hz.eigenValues()
-velimu1Hz.eigenValues()
-
-
-#Velocity error
-evelocity100Hz = ThreeData()
-evelocity1Hz = ThreeData()
-evelocity100Hz.readData('data/normal_spacehall/spacehall1140.velocity_error.slip_gp.5.data', cov=True)
-evelocity1Hz.readData('data/normal_spacehall/spacehall1140.velocity_error.slip_gp.6.data', cov=True)
-evelocity100Hz.eigenValues()
-evelocity1Hz.eigenValues()
-
-
-#Ploting
-ivelbody100Hz.plot_axis(1, 0,True, 1, True, [0,0,1])
-velimu100Hz.plot_axis(1, 0,True, 1, True, [0,1,0])
-evelocity100Hz.plot_axis(1, 0,True, 1, True, [1,0,0])
-
-ivelbody1Hz.plot_axis(3, 0,True, 2, True, [0,0,1])
-velimu1Hz.plot_axis(3, 0,True, 2, True, [0,1,0])
-#evelocity1Hz.plot_axis(2, 0,True, 1, True, [1,0,0])
-
-
-
-#Motion model incremental velocity
-ivelbody = ThreeData()
-ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.0.data', cov=True)
-ivelbody.eigenValues()
-
-#IMU incremental velocity
-velimu = ThreeData()
-velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.0.data', cov=True)
-velimu.eigenValues()
-
-
-#Velocity error
-evelocity = ThreeData()
-evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.0.data', cov=True)
-evelocity.eigenValues()
-
-ivelbody.plot_axis(3, 0,True, 3, True, [0,0,1])
-velimu.plot_axis(3, 0,True, 3, True, [0,1,0])
-evelocity.plot_axis(3,0,True, 1, True, [1,0,0])
-
-
-#Motion model incremental velocity
-ivelbody = ThreeData()
-ivelbody.readData('data/normal_spacehall/spacehall1140.puremodel_velo.incre.1.data', cov=True)
-ivelbody.eigenValues()
-
-#IMU incremental velocity
-velimu = ThreeData()
-velimu.readData('data/normal_spacehall/spacehall1140.imu_acc_velo.incre.1.data', cov=True)
-velimu.eigenValues()
-
-
-#Velocity error
-evelocity = ThreeData()
-evelocity.readData('data/normal_spacehall/spacehall1140.velocity_error.1.data', cov=True)
-evelocity.eigenValues()
-
-ivelbody.plot_axis(7, 0,True, 3, True, [0,0,1])
-velimu.plot_axis(7, 0,True, 3, True, [0,1,0])
-evelocity.plot_axis(6,1,True, 1, True, [1,0,0])
-
 
 #FrontEnd Motion model velocity
 frontendbody100Hz = ThreeData()
-frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.3.data', cov=True)
+frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.0.data', cov=True)
 frontendbody100Hz.eigenValues()
 
+#FrontEnd reference from Ground Truth
 frontendreference100Hz = ThreeData()
-frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.3.data', cov=True)
+frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.0.data', cov=True)
 frontendreference100Hz.eigenValues()
+
+#DeltaVelocity from MotionModel
+backenddeltamodel10Hz = ThreeData()
+backenddeltamodel10Hz.readData('data/normal_spacehall/backend_delta_velo_model.1154.0.data', cov=True)
+backenddeltamodel10Hz.eigenValues()
+
+#DeltaVelocity from InertialState
+backenddeltainertial10Hz = ThreeData()
+backenddeltainertial10Hz.readData('data/normal_spacehall/backend_delta_velo_inertial.1154.0.data', cov=True)
+backenddeltainertial10Hz.eigenValues()
+
+#DeltaVelocity Error
+backenddeltaerror10Hz = ThreeData()
+backenddeltaerror10Hz.readData('data/normal_spacehall/backend_delta_velo_error.1154.0.data', cov=True)
+backenddeltaerror10Hz.eigenValues()
 
 frontendbody100Hz.plot_axis(1, 0,False, 1, True, [0,0,1])
 frontendbody100Hz.plot_axis(1, 1,False, 1, True, [0,1,0])
 frontendbody100Hz.plot_axis(1, 2,False, 1, True, [1,0,0])
 
-
 frontendreference100Hz.plot_axis(1, 0,False, 1, True, [0,0,1])
 frontendreference100Hz.plot_axis(1, 1,False, 1, True, [1,0,0])
+
+backenddeltamodel10Hz.plot_axis(1, 0, True, 1, True, [0,0,1])
+backenddeltainertial10Hz.plot_axis(1, 0, True, 1, True, [0,1,0])
+
+backenddeltamodel10Hz.plot_axis(2, 1, True, 1, True, [0,0,1])
+backenddeltainertial10Hz.plot_axis(2, 1, True, 1, True, [0,1,0])
+backenddeltaerror10Hz.plot_axis(2, 1, True, 1, True, [1,0,0])
+
+backenddeltamodel10Hz.plot_axis(3, 2, True, 1, True, [0,0,1])
+backenddeltainertial10Hz.plot_axis(3, 2, True, 1, True, [0,1,0])
+
 
 
