@@ -48,6 +48,7 @@ namespace rover_localization
         base::Vector3d accrw;//velocity random walk for accelerometers (m/s/sqrt(s))
         base::Vector3d accrrw;//acceleration random walk for accelerometers (m/s^2/sqrt(s))
         base::Vector3d abiasins;//acc bias instability (m/s^2)
+        base::Vector3d aresolut;//acc resolution (m/s^2)
 
         /** Magnetometers Noise**/
         base::Vector3d magrw; //random walk for magnetometers"
@@ -58,6 +59,14 @@ namespace rover_localization
 
         /** Encoder Noise **/
         std::vector<double> encodersrw;//encoders position uncertainty (modeled as zero mean white noise pdf)
+    };
+
+    /** Coeffcient for the IIR filter in case of implementing it **/
+    struct IIRCoefficients
+    {
+        bool iirON; /** Set to true if want to use it with the following coefficients **/
+        base::VectorXd feedForwardCoeff;
+        base::VectorXd feedBackCoeff;
     };
 
     /** Framework Configuration **/
@@ -82,8 +91,8 @@ namespace rover_localization
     /** Adaptive Measurement Configuration. Variables for the attitude estimation inside the algorithm **/
     struct AdaptiveMeasurementProperties
     {
-        unsigned int M1; /** Parameter for adaptive algorithm (to estimate Uk with is not directly observale) */
-        unsigned int M2; /** Parameter for adaptive algorithm (to prevent falsering entering in no-external acc mode) */
+        unsigned int M1; /** Parameter for adaptive algorithm (to estimate Uk with is not directly observable) */
+        unsigned int M2; /** Parameter for adaptive algorithm (to prevent false entering in no-external acc mode) */
         double gamma; /** Parameter for adaptive algorithm. Only entering when Qstart (adaptive cov. matrix) is greater than RHR'+Ra */
         unsigned int r2count; /** Parameter for adaptive algorithm */
 
@@ -96,6 +105,13 @@ namespace rover_localization
             return;
         }
 
+    };
+
+    struct CenterOfMassConfiguration
+    {
+        bool dynamicOn; /** True if active dynamic weight matrix */
+        base::Vector3d coordinates; /** Center of Mass position in the 2D plane on the platform w.r.t. the body center */
+        base::VectorXd percentage; /** Initial percentage of the robot chain (wheels or legs) */
     };
 
     /**************************************/
@@ -126,14 +142,18 @@ namespace rover_localization
 	base::MatrixXd Rk;
 	base::VectorXd innovation;
 	base::Matrix3d Hellinger;
+	base::Matrix3d Threshold;
+        double mahalanobis;
         base::Vector3d abias;
         base::Vector3d gbias;
-        base::Vector3d deltaVeloModel;
-        base::Matrix3d deltaVeloModelCov;
-        base::Vector3d deltaVeloInertial;
-        base::Matrix3d deltaVeloInertialCov;
-        base::Vector3d deltaVeloError;
-        base::Matrix3d deltaVeloErrorCov;
+        base::Vector3d accModel;
+        base::Matrix3d accModelCov;
+        base::Vector3d accInertial;
+        base::Matrix3d accInertialCov;
+        base::Vector3d accError;
+        base::Matrix3d accErrorCov;
+        base::Vector3d deltaVeloCommon;
+        base::Matrix3d deltaVeloCommonCov;
     };
 
     //Local gravity information (theory and computed at initialization time)
@@ -169,6 +189,13 @@ namespace rover_localization
         /** On/Off initial gyro bias */
         base::Vector3d gbias_onoff;
 
+    };
+
+    struct SensitivityAnalysis
+    {
+        base::Time time;
+        base::VectorXd Tstate; /** Gradient of the state vector w.r.t. the parameter i */
+        base::VectorXd TCovariance;/** Gradiante of the covariance matrix w.r.t. the parameter i */
     };
 
     /***********************************/

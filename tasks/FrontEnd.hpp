@@ -5,13 +5,15 @@
 
 #include "rover_localization/FrontEndBase.hpp"
 
-/** Asguard dependences includes **/
+/** Asguard dependencies includes **/
 #include <asguard/AsguardKinematicModel.hpp> /** Analytical model **/
 #include <asguard/AsguardKinematicKDL.hpp> /** KDL model **/
+#include <asguard/Configuration.hpp> /** For dedicated Asguard variables and const **/
 #include <asguard/BodyState.hpp> /** BodyState representation and constants **/
 
 /** Framework Library includes **/
 #include <rover_localization/Util.hpp>
+#include <rover_localization/Analysis.hpp>
 #include <rover_localization/DeadReckon.hpp>
 #include <rover_localization/DataTypes.hpp>
 #include <rover_localization/filters/IIR.hpp>
@@ -21,10 +23,12 @@
 
 /** General Libraries **/
 #include <math.h> /** For natural Log **/
+#include <vector> /** std vector **/
 
+/** Eigen **/
 #include <Eigen/Core>/** Eigen core library **/
 #include <Eigen/StdVector> /** For STL container with Eigen types **/
-#include <Eigen/Dense> /** for the algebra and transformation matrices **/
+#include <Eigen/Dense> /** Algebra and transformation matrices **/
 
 /** Boost **/
 #include <boost/circular_buffer.hpp> /** For circular buffers **/
@@ -50,8 +54,8 @@ namespace rover_localization {
  	unsigned int asguardStatusSamples; /** counter for Asguard status samples  **/
  	unsigned int imuSamples; /** counter of inertial sensors samples **/
  	unsigned int torqueSamples; /** counter for  Torque info samples **/
- 	unsigned int forceSamples; /** conter of Ground Force info samples for the resampling **/
- 	unsigned int referencePoseSamples; /** counter of pose information comming from external measurement **/
+ 	unsigned int forceSamples; /** counter of Ground Force info samples for the re-sampling **/
+ 	unsigned int referencePoseSamples; /** counter of pose information coming from external measurement **/
 
     };
 
@@ -69,12 +73,12 @@ namespace rover_localization {
             return;
         }
 
-	unsigned int encoderSamples; /** number of encoders samples for the resampling**/
- 	unsigned int asguardStatusSamples; /** number of  Asguard status samples for the resampling **/
+	unsigned int encoderSamples; /** number of encoders samples for the re-sampling**/
+ 	unsigned int asguardStatusSamples; /** number of  Asguard status samples for the re-sampling **/
  	unsigned int imuSamples; /** number of inertial sensors samples **/
- 	unsigned int torqueSamples; /** number of  Torque info samples for the resampling **/
- 	unsigned int forceSamples; /** number of Ground Force info samples for the resampling **/
- 	unsigned int referencePoseSamples; /** number of pose information comming from external measurement **/
+ 	unsigned int torqueSamples; /** number of  Torque info samples for the re-sampling **/
+ 	unsigned int forceSamples; /** number of Ground Force info samples for the re-sampling **/
+ 	unsigned int referencePoseSamples; /** number of pose information coming from external measurement **/
     };
 
     /** Inport samples arrived ON/OFF flags **/
@@ -102,6 +106,7 @@ namespace rover_localization {
     /** Data types definition **/
     typedef odometry::KinematicModel< double, asguard::NUMBER_OF_WHEELS, asguard::ASGUARD_JOINT_DOF, asguard::SLIP_VECTOR_SIZE, asguard::CONTACT_POINT_DOF > frontEndKinematicModel;
     typedef odometry::MotionModel< double, asguard::NUMBER_OF_WHEELS, asguard::ASGUARD_JOINT_DOF, asguard::SLIP_VECTOR_SIZE, asguard::CONTACT_POINT_DOF > frontEndMotionModel;
+    typedef Eigen::Matrix<double, 6*asguard::NUMBER_OF_WHEELS, 6*asguard::NUMBER_OF_WHEELS> WeightingMatrix;
 
     /*! \class FrontEnd 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -160,17 +165,23 @@ namespace rover_localization {
         /** Framework configuration values **/
         FrameworkConfiguration framework;
 
-        /** Propioceptive sensors configuration variables **/
+        /** Proprioceptive sensors configuration variables **/
         ProprioceptiveSensorProperties propriosensor;
+
+        /** IIR filter configuration structure **/
+        IIRCoefficients iirConfig;
+
+        /** Center of Mass location of the robot **/
+        CenterOfMassConfiguration centerOfMass;
 
         /******************************************/
         /*** General Internal Storage Variables ***/
         /******************************************/
 
-	/** Initial values of Accelerometers for Picth and Roll calculation */
+	/** Initial values of Accelerometers for Pitch and Roll calculation */
 	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_leveling_acc;
 	
-	/** Initial values of Accelerometers (Inclinometers) for Picth and Roll calculation */
+	/** Initial values of Accelerometers (Inclinometers) for Pitch and Roll calculation */
 	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_leveling_incl;
 
         /** Accelerometers eccentricity **/
@@ -194,6 +205,12 @@ namespace rover_localization {
         /** Bessel Low-pass IIR filter for the Motion Model velocities
          * Specification of the Order and Data dimension is required */
         boost::shared_ptr< localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> > bessel;
+
+        /** Sensitivity analysis **/
+        localization::Analysis <3, 3+asguard::ASGUARD_JOINT_DOF> modelAnalysis; //! DoF of the analysis is 8
+
+        /** Weighting Matrix for the Motion Model  **/
+        WeightingMatrix WeightMatrix;
 
         /***********************************/
         /** Input ports dependent buffers **/
@@ -241,6 +258,9 @@ namespace rover_localization {
         virtual void systemstate_samplesTransformerCallback(const base::Time &ts, const ::sysmon::SystemStatus &systemstate_samples_sample);
 
         virtual void encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &encoder_samples_sample);
+
+        /** Weight matrix for the Asguard Robot **/
+        WeightingMatrix dynamicWeightMatrix (CenterOfMassConfiguration &centerOfMass, base::Orientation &orientation);
 
     public:
         /** TaskContext constructor for FrontEnd
@@ -328,11 +348,11 @@ namespace rover_localization {
 
         /** \brief Store the variables in the Output ports
          */
-        void outputPortSamples(const base::Time &timestamp,
-                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
+        void outputPortSamples(const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
                                 const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
                                 const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
-                                const base::samples::RigidBodyState &deltaPose);
+                                const base::samples::RigidBodyState &deltaPose,
+                                const rover_localization::SensitivityAnalysis &sensitivityAnalysis);
 
 
     };

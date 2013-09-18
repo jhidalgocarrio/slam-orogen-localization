@@ -2,9 +2,9 @@
 # Initial configuration values to run the framework. Look in FrameworkTypes for further details.
 framework:
   frontend_frequency: 100.0 #Hertz
-  backend_frequency: 10.0 #Hertz
+  backend_frequency: 100.0 #Hertz
   visualization_frequency: 100.0 #Hertz
-  use_inclinometers_leveling: true
+  use_inclinometers_leveling: false #true
   init_leveling_time: 5.0 #Seconds
 
 # Time in s between reference_pose_samples readings
@@ -37,6 +37,22 @@ imu_frame: imu
 # the global name that should be used for the internal vicon frame
 vicon_frame: vicon
 
+#Configuration values to calculate Center of Gravity of the robot.
+#Used for the Weight matrix of the Motion Model.
+robot_CoM:
+  dynamicOn: true #true if active dynamic weight matrix is required
+  coordinates: #Center of Mass position in the 2D plane on the platform
+    data:
+    - -0.1275
+    - 0.00 #0.059
+    - 0.00
+  percentage: #Initial percentage for Asguard Wheels
+    data:
+    - 0.16 #Rear left (index = 0)
+    - 0.16 #Rear right (index = 1)
+    - 0.34 #Front right (index = 2)
+    - 0.34 #Front left (index = 3)
+
 # Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame).
 eccx:
   data:
@@ -56,23 +72,15 @@ eccz:
   - -0.01603
   - 0.00681
 
-# Quaternion to specify the projection of the center of mass to the rover X-Y plane (center of gravity).Identity quaternion means the weight is equally distributed.
-q_weight_distribution:
-  im:
-  - 0.0
-  - 0.07201969328078207 #0.158675 #Whitout GPS
-  - 0.0
-  re: 0.9974032102313197 #0.987331 #Whitout GPS
-
 # Proprioceptive Sensors property. Asguard Encoder sensor characterization. 5 encoders (4 + passive joint).
-# Asguard has encodesr with 2000 CPR or 500CPR to know the angle position of the wheel.
+# Asguard has encoders with 2000 CPR or 500CPR to know the angle position of the wheel.
 # For 2000 CPR the std. deviation is 0.00314(rad) and the var is 9.8596e-06
 # For 500 CPR the std. deviation is 0.01256(rad) and the var is 1.58e-04
 proprioceptive_sensors:
   encodersrw: [1.58e-04, 1.58e-04, 1.58e-04, 1.58e-04, 1.58e-04]
 
 --- name:bremen
-# Localization properties related to the geographic place (i.e: latitudem longitude, magnetic declination).Look in FrameworkTypes for further details
+# Localization properties related to the geographic place (i.e: latitude longitude, magnetic declination).Look in FrameworkTypes for further details
 location:
   latitude: 0.926478944
   longitude: 0.153588974
@@ -94,9 +102,9 @@ proprioceptive_sensors:
     - 0.0 #-0.00045970399412453427
   gyrorw:
     data:
-    - 7.0e-05 #4.320343e-05
-    - 7.0e-05 #4.175001e-05
-    - 7.0e-05 #4.060973e-05
+    - 4.320343e-05 #7.0e-05
+    - 4.175001e-05
+    - 4.060973e-05
   gyrorrw:
     data:
     - 0.0
@@ -132,4 +140,62 @@ proprioceptive_sensors:
     - 0.0
     - 0.0
     - 0.0
+  aresolut:
+    data:
+    - 0.005886 #0.6mg
+    - 0.005886 #0.6mg
+    - 0.005886 #0.6mg
 
+--- name:bessel
+#Configuration values to run Infinite Impulse Response (IIR). Look in FrameworkTypes for further details.
+iir_filter:
+  iirON: true  #True of false
+  feedForwardCoeff:
+    data:
+    - 0.00467048
+    - 0.03736385
+    - 0.13077349
+    - 0.26154698
+    - 0.32693372
+    - 0.26154698
+    - 0.13077349
+    - 0.03736385
+    - 0.00467048
+  feedBackCoeff:
+    data:
+    - 1.00000000e+00
+    - -3.87747570e-01
+    - 7.13520818e-01
+    - -2.49594003e-01
+    - 1.47736180e-01
+    - -3.59003821e-02
+    - 8.56259334e-03
+    - -9.97047726e-04
+    - 6.27404353e-05
+
+--- name:bessel50
+#Configuration values to run Infinite Impulse Response (IIR). Look in FrameworkTypes for further details.
+iir_filter:
+  iirON: true  #True of false
+  feedForwardCoeff:
+    data:
+    - 0.00796458
+    - 0.06371664
+    - 0.22300822
+    - 0.44601645
+    - 0.55752056
+    - 0.44601645
+    - 0.22300822
+    - 0.06371664
+    - 0.00796458
+  feedBackCoeff:
+    data:
+    - 1.00000000e+00
+    - 2.25372213e-01
+    - 6.59616658e-01
+    - 4.22917994e-02
+    - 1.09027593e-01
+    - -2.00686265e-03
+    - 4.77799850e-03
+    - -1.74151766e-04
+    - 2.70798275e-05

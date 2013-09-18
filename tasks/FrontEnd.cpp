@@ -55,8 +55,11 @@ FrontEnd::FrontEnd(std::string const& name)
     imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     poseSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
 
-    /** Default size for the std_vector for the cartesian 6DoF velocities variables **/
+    /** Default size for the std_vector for the Cartesian 6DoF velocities variables **/
     vectorCartesianVelocities = std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > (DEFAULT_CIRCULAR_BUFFER_SIZE);
+
+    /** Weighting Matrix Initialization **/
+    WeightMatrix =  base::NaN<double>() * Eigen::Matrix<double, 6*asguard::NUMBER_OF_WHEELS, 6*asguard::NUMBER_OF_WHEELS, 1>::Identity();
 
     /** Set eccentricity to NaN **/
     eccx[0] = base::NaN<double>();
@@ -201,7 +204,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	std::cout<<"Eccz :\n"<<tf.rotation() * _eccz.value()<<"\n";
 	#endif
 	
-	/** Store the excentricity **/
+	/** Store the eccentricity **/
 	eccx = tf.translation() + tf.rotation() *_eccx.value();
 	eccy = tf.translation() + tf.rotation() *_eccy.value();
 	eccz = tf.translation() + tf.rotation() *_eccz.value();
@@ -223,7 +226,7 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	
 	init_leveling_accidx++;
 	
-	/** Chekc if the number of stores acceleration corresponds to the initial leveling **/
+	/** Check if the number of stores acceleration corresponds to the initial leveling **/
 	if (init_leveling_accidx == this->init_leveling_size)
 	{
 	    Eigen::Matrix <double,localization::NUMAXIS,1> meanacc; /** Mean value of accelerometers **/
@@ -492,6 +495,11 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
     /** A new sample arrived to the inport **/
     cbEncoderSamples.push_front(encoder_samples_sample);
 
+    /** Sensitivity Analysis Variable **/
+    rover_localization::SensitivityAnalysis sensitivity;
+    sensitivity.Tstate.resize(3+asguard::ASGUARD_JOINT_DOF, 1);
+    sensitivity.TCovariance.resize(3+asguard::ASGUARD_JOINT_DOF, 1);
+
     counter.encoderSamples++;
 
     if (counter.encoderSamples == number.encoderSamples)
@@ -534,13 +542,26 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
             /** Update the Motion Model (Forward Kinematics and Contact Points) **/
             this->motionModel.updateKinematics(modelPositions);
 
+            /** Compute dynamic Weight matrix depending on the attitude **/
+            if ((centerOfMass.dynamicOn)||(!localization::Util::isnotnan(WeightMatrix)))
+            {
+                this->WeightMatrix = dynamicWeightMatrix(centerOfMass, poseOut.orientation);
+            }
+
             /** Solve the navigation kinematics **/
             this->motionModel.navSolver(modelPositions, cartesianVelocities, modelVelocities,
-                                        cartesianVelCov, modelVelCov);
+                                        cartesianVelCov, modelVelCov, WeightMatrix);
 
             /** Bessel IIR Low-pass filter of the linear cartesianVelocities from the Motion Model **/
-            Eigen::Matrix<double, localization::NUMAXIS, 1> velocity = cartesianVelocities.block<localization::NUMAXIS, 1>(0,0);
-            cartesianVelocities.block<localization::NUMAXIS, 1>(0,0) = this->bessel->perform(velocity);
+            if (iirConfig.iirON)
+            {
+                Eigen::Matrix<double, localization::NUMAXIS, 1> velocity = cartesianVelocities.block<localization::NUMAXIS, 1>(0,0);
+                Eigen::Matrix<double, localization::NUMAXIS, localization::NUMAXIS> velocityCov = cartesianVelCov.block<localization::NUMAXIS, localization::NUMAXIS>(0,0);
+                cartesianVelocities.block<localization::NUMAXIS, 1>(0,0) = this->bessel->perform(velocity, velocityCov, false);
+
+                /** Store the filtered velocity uncertainty **/
+                cartesianVelCov.block<localization::NUMAXIS, localization::NUMAXIS>(0,0) = velocityCov;
+            }
 
             /** Update the cartesian velocities on the std_vector **/
             this->vectorCartesianVelocities[1] = this->vectorCartesianVelocities[0];
@@ -549,16 +570,35 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
             /** Perform the velocities integration to get the pose (Dead Reckoning) **/
             base::samples::RigidBodyState deltaPose;
             deltaPose = localization::DeadReckon::updatePose (static_cast<const double>(1.0/framework.frontend_frequency),
-                    this->vectorCartesianVelocities, cartesianVelCov, poseOut, poseOut);
+                    this->vectorCartesianVelocities, cartesianVelCov, poseOut, poseOut, false);
+
+            /** Compute the Model Sensitivity Analysis **/
+            Eigen::Matrix<double, 3+asguard::ASGUARD_JOINT_DOF, 1> parameter;
+            Eigen::Matrix<double, 3+asguard::ASGUARD_JOINT_DOF, 1> Tstate, TCov;
+            parameter.block<3, 1> (0,0) = cartesianVelocities.block<3,1>(3,0); //!Angular velocities
+            parameter.block<asguard::ASGUARD_JOINT_DOF, 1> (3,0) = modelVelocities.block<asguard::ASGUARD_JOINT_DOF, 1>(0,0);//!Joint velocities
+
+            Tstate = modelAnalysis.solve(cartesianVelocities.block<3,1> (0,0), cartesianVelCov.block<3,3>(0,0),
+                    parameter, TCov);
+
+            sensitivity.time = encoderSamples[0].time; //!timestamp
+            sensitivity.Tstate = Tstate;
+            sensitivity.TCovariance = TCov;
+
 
             /** Out port the information of the Front-End **/
-            this->outputPortSamples (encoderSamples[0].time, modelPositions, cartesianVelocities, modelVelocities, deltaPose);
+            this->outputPortSamples (modelPositions, cartesianVelocities, modelVelocities, deltaPose, sensitivity);
 
             /** Reset back the counters and the flags **/
             counter.reset();
             flag.reset();
 
         }
+
+        /** Reset counter in case of inconsistency **/
+        if (counter.encoderSamples > cbEncoderSamples.size())
+            counter.encoderSamples = 0;
+
     }
 }
 
@@ -577,6 +617,8 @@ bool FrontEnd::configureHook()
     location = _location.value();
     framework = _framework.value();
     propriosensor = _proprioceptive_sensors.value();
+    iirConfig = _iir_filter.value();
+    centerOfMass = _robot_CoM.value();
 
 
     /******************/
@@ -740,28 +782,9 @@ bool FrontEnd::configureHook()
     bool motionModelStatus;
     motionModel =  frontEndMotionModel(motionModelStatus, frontEndMotionModel::LOWEST_POINT , robotKinematics);
 
-    /** Bessel IIR filter Coefficients **/
     Eigen::Matrix <double, localization::NORDER_BESSEL_FILTER+1, 1> besselBCoeff, besselACoeff;
-
-    besselBCoeff[0] = 0.00467048;
-    besselBCoeff[1] = 0.03736385;
-    besselBCoeff[2] = 0.13077349;
-    besselBCoeff[3] = 0.26154698;
-    besselBCoeff[4] = 0.32693372;
-    besselBCoeff[5] = 0.26154698;
-    besselBCoeff[6] = 0.13077349;
-    besselBCoeff[7] = 0.03736385;
-    besselBCoeff[8] = 0.00467048;
-
-    besselACoeff[0] = 1.00000000e+00;
-    besselACoeff[1] = -3.87747570e-01;
-    besselACoeff[2] = 7.13520818e-01;
-    besselACoeff[3] = -2.49594003e-01;
-    besselACoeff[4] = 1.47736180e-01;
-    besselACoeff[5] = -3.59003821e-02;
-    besselACoeff[6] = 8.56259334e-03;
-    besselACoeff[7] = -9.97047726e-04;
-    besselACoeff[8] = 6.27404353e-05;
+    besselBCoeff = iirConfig.feedForwardCoeff;
+    besselACoeff = iirConfig.feedBackCoeff;
 
     /** Create the Bessel Low-pass filter with the right coeffiecients **/
     bessel.reset(new localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> (besselBCoeff, besselACoeff));
@@ -857,7 +880,7 @@ bool FrontEnd::configureHook()
 	RTT::log(RTT::Warning) << "[Info Front-End] Initial orientation/Ground Truth NO connected." << RTT::endlog();
 	RTT::log(RTT::Warning) << "[Info Front-End] Initial orientation is not provided."<< RTT::endlog();
 	RTT::log(RTT::Warning) << "[Info Front-End] Zero Yaw angle pointing to North is then assumed." << RTT::endlog();
-	RTT::log(RTT::Warning) << "[Info Front-End] Pitch and Roll are taken from accelerometers assuming static body at Initial phase of this task." << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info Front-End] Pitch and Roll are taken from inertial sensors assuming static body at Initial phase of this task." << RTT::endlog();
     }
 
     RTT::log(RTT::Warning)<<"[Info Front-End] Frequency of IMU samples[Hertz]: "<<(1.0/_inertial_samples_period.value())<<RTT::endlog();
@@ -882,6 +905,12 @@ bool FrontEnd::configureHook()
     RTT::log(RTT::Warning)<<"[Info Front-End] number.asguardStatusSamples: "<<number.asguardStatusSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] number.forceSamples: "<<number.forceSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info Front-End] number.torqueSamples: "<<number.torqueSamples<<RTT::endlog();
+
+    /** Info with regard to the Dynamic Weighting Matrix **/
+    if (centerOfMass.dynamicOn)
+        RTT::log(RTT::Warning)<<"[Info Front-End] Dynamic Weight Matrix [ON]"<<RTT::endlog();
+    else
+        RTT::log(RTT::Warning)<<"[Info Front-End] Dynamic Weight Matrix [OFF]"<<RTT::endlog();
 
     if ((number.encoderSamples == 0)||(number.asguardStatusSamples == 0)||(number.imuSamples == 0))
     {
@@ -925,8 +954,79 @@ void FrontEnd::cleanupHook()
     FrontEndBase::cleanupHook();
 
     /** Liberate the memory of the shared_ptr **/
+    robotKinematics.reset();
     bessel.reset();
 
+}
+
+WeightingMatrix FrontEnd::dynamicWeightMatrix (CenterOfMassConfiguration &centerOfMass, base::Orientation &orientation)
+{
+    std::vector< Eigen::Affine3d > fkRobot; /** Robot kinematics */
+    std::vector< base::Matrix6d > cov; /** Covariance of the kinematics **/
+    WeightingMatrix weightLocal; /** Local variable to return */
+    std::vector< int > contactPoints; /** Contact points */
+    std::vector< Eigen::Matrix<double, 3, 1> , Eigen::aligned_allocator < Eigen::Matrix<double, 3, 1> > > chainPosition; /** Chain position of contact points **/
+    Eigen::Matrix<double, asguard::NUMBER_OF_WHEELS, 1> forces; /** forces to calculate */
+
+    /** Set to the identity **/
+    weightLocal.setIdentity();
+
+    if (centerOfMass.dynamicOn)
+    {
+        /** Get the Forward Kinematics from the model  **/
+        motionModel.getKinematics(fkRobot, cov);
+
+        /** Points in contact **/
+        contactPoints = motionModel.getPointsInContact();
+
+        /** Resize the chainPosition **/
+        chainPosition.resize(contactPoints.size());
+
+        /** Form the chainPosition vector **/
+        for (std::vector<int>::size_type i = 0; i < contactPoints.size(); ++i)
+        {
+            for (register int j = 0; j < static_cast<int>(asguard::FEET_PER_WHEEL); ++j)
+            {
+                /** The foot is in contact **/
+                if (j == contactPoints[i])
+                {
+                    #ifdef debug_prints
+                    std::cout<<"[WEIGHT-MATRIX] contact point"j<<" == "<< contactPoints[i]<<"\n";
+                    std::cout<<"[WEIGHT-MATRIX] fkRobot of "<<(i*asguard::FEET_PER_WHEEL)+j<<"\n";
+                    #endif
+
+                    chainPosition[i] = fkRobot[(i*asguard::FEET_PER_WHEEL)+j].translation();
+                    break;
+                }
+            }
+        }
+
+        /** Compute the forces **/
+        asguard::BodyState::forceAnalysis(centerOfMass.coordinates, chainPosition, static_cast<Eigen::Quaterniond>(orientation), inertialState.theoretical_g, forces);
+
+        /** Compute the percentages **/
+        for (register int i=0; i<static_cast<int>(asguard::NUMBER_OF_WHEELS); ++i)
+        {
+            if (forces[i] > 0.00)
+                centerOfMass.percentage[i] = forces[i] / inertialState.theoretical_g;
+            else
+                centerOfMass.percentage[i] = 0.001; //Almost zero value to this wheel.zero cannot be because there is not solution to the motion model
+        }
+    }
+
+    /** Form the weighting Matrix **/
+    for (register int i=0; i<static_cast<int>(asguard::NUMBER_OF_WHEELS); ++i)
+    {
+        weightLocal.block<6,6>(6*i, 6*i) = centerOfMass.percentage[i] * Eigen::Matrix<double, 6, 6>::Identity();
+    }
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[WEIGHT-MATRIX] forces:\n"<< forces <<"\n";
+    std::cout<<"[WEIGHT-MATRIX] percentage:\n"<< centerOfMass.percentage<<"\n";
+    std::cout<<"[WEIGHT-MATRIX] Weighting Matrix:\n"<< weightLocal<<"\n";
+    #endif
+
+    return weightLocal;
 }
 
 void FrontEnd::inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions)
@@ -1157,11 +1257,11 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
     return;
 }
 
-void FrontEnd::outputPortSamples(const base::Time &timestamp,
-                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
+void FrontEnd::outputPortSamples(const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
                                 const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
                                 const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
-                                const base::samples::RigidBodyState &deltaPose)
+                                const base::samples::RigidBodyState &deltaPose,
+                                const rover_localization::SensitivityAnalysis &sensitivityAnalysis)
 {
     std::vector<Eigen::Affine3d> fkRobot;
     RobotContactPoints robotChains;
@@ -1171,16 +1271,16 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
     /***************************************/
 
     /** The Front-End Estimated pose **/
-    poseOut.time = timestamp;
+    poseOut.time = encoderSamples[0].time;//timestamp;
     _pose_samples_out.write(poseOut);
 
     /** Ground Truth if available **/
     if (_reference_pose_samples.connected())
     {
-        /** Port Out the info comming from the ground truth **/
+        /** Port Out the info coming from the ground truth **/
         referenceOut = poseSamples[0];
         referenceOut.velocity = poseOut.orientation.inverse() * poseSamples[0].velocity; //velocity in body frame
-        referenceOut.time = timestamp;
+        referenceOut.time = encoderSamples[0].time;
         _reference_pose_samples_out.write(referenceOut);
 
         /** Delta increments of the ground truth at delta_t given by the frontend_frequency **/
@@ -1192,7 +1292,7 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
     }
 
     /** Proprioceptive sensors (IMU) **/
-    inertialState.time = timestamp;
+    inertialState.time = imuSamples[0].time;
 
     /*inertialState.delta_orientation = Eigen::Quaterniond(Eigen::AngleAxisd(0.1 * localization::D2R, Eigen::Vector3d::UnitZ())*
                 Eigen::AngleAxisd(0.1 * localization::D2R, Eigen::Vector3d::UnitY()) *
@@ -1208,7 +1308,7 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
     /** The Forward Kinematics information **/
     if (_fkchains_samples_out.connected())
     {
-        robotChains.time = timestamp;//time stamp
+        robotChains.time = encoderSamples[0].time;//timestamp
         this->motionModel.getKinematics(fkRobot, robotChains.cov);//Get the Forward Kinematics from the model
 
         robotChains.chain.resize(fkRobot.size());
@@ -1226,6 +1326,9 @@ void FrontEnd::outputPortSamples(const base::Time &timestamp,
 
         _fkchains_samples_out.write(robotChains);
     }
+
+    /** Sensitivity Analysis **/
+    _sensitivity_analysis.write(sensitivityAnalysis);
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[FRONT-END OUTPUT_PORTS]: poseOut.position\n"<<poseOut.position<<"\n";

@@ -5,7 +5,7 @@
 
 #include "rover_localization/BackEndBase.hpp"
 
-/** Framework Library dependences includes **/
+/** Framework Library dependencies includes **/
 #include <rover_localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
 #include <rover_localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
 #include <rover_localization/filters/State.hpp> /** Filters State */
@@ -33,6 +33,7 @@ namespace rover_localization {
     /** Wrap the Augmented and Single State **/
     typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
     typedef localization::MtkWrap<localization::State> WSingleState;
+    typedef localization::Usckf<WAugmentedState, WSingleState> BackEndFilter;
 
     /** Current counter of samples arrived to each port **/
     struct CounterInputPortsBackEnd
@@ -137,7 +138,7 @@ namespace rover_localization {
         /******************************************/
 
         /** The filter uses by the BackEnd **/
-        boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter;
+        boost::shared_ptr<BackEndFilter> filter;
 
         /** Pose estimation from Front-End  **/
         boost::circular_buffer<base::samples::RigidBodyState> frontEndPose;
@@ -149,7 +150,7 @@ namespace rover_localization {
         boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAtt;
 
         /** Variable in DataModel form for the differences in velocities **/
-        localization::DataModel<double, 3> deltaVeloModel, deltaVeloInertial;
+        localization::DataModel<double, 3> accModel, accInertial;
 
         /**************************/
         /** Input port variables **/
@@ -257,19 +258,26 @@ namespace rover_localization {
         void inputPortSamples(boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                             boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
+        /**@brief Initialize the filter used in the BackEnd
+         */
+        void initBackEndFilter(boost::shared_ptr<BackEndFilter> filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+                boost::circular_buffer<rover_localization::InertialState> &inertialState);
+
         /**@brief Get the values from the input port samples
          */
         localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                                 const boost::circular_buffer<rover_localization::InertialState> &inertialState,
                                 localization::DataModel<double, 3> &deltaVeloModel,
-                                localization::DataModel<double, 3> &deltaVeloInertial);
+                                localization::DataModel<double, 3> &deltaVeloInertial,
+                                Eigen::Matrix3d &Hellinger);
 
 
         /** \brief Store the variables in the Output ports
          */
         void outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
                                 const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial,
-                                const localization::DataModel<double, 3> &deltaVeloError);
+                                const localization::DataModel<double, 3> &deltaVeloError,
+                                const Eigen::Matrix3d &Hellinger);
 
 
     };

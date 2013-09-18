@@ -2,10 +2,8 @@
 # Initial configuration values to run the framework. Look in FrameworkTypes for further details.
 framework:
   frontend_frequency: 100.0
-  backend_frequency: 10.0
+  backend_frequency: 100.0
   visualization_frequency: 100.0
-  use_inclinometers_leveling: true
-  init_leveling_time: 5.0
 
 # Time in s between exteroceptive_samples readings
 exteroceptive_samples_period: 0.01

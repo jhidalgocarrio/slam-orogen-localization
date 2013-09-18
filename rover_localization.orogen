@@ -57,15 +57,21 @@ task_context "FrontEnd" do
     #******************************
     #**** Rover Properties ********
     #******************************
-    property('q_weight_distribution', '/base/Quaterniond').
-	doc 'Quaternion to specify the projection of the center of mass to the rover X-Y plane (center of gravity).' +
-	    'Identity quaternion means the weight is equally distributed.'
+    property('robot_CoM', 'rover_localization/CenterOfMassConfiguration').
+        doc 'Configuration values of robot Center of Mass to computhe the Center of Gravity. Used for the Weight matrix of the Motion Model.'+
+        'Look in FrameworkTypes for further details.'
 
     #******************************
     #**** Framework Properties ****
     #******************************
     property('framework', 'rover_localization/FrameworkConfiguration').
         doc 'Initial configuration values to run the framework. Look in FrameworkTypes for further details.'
+
+    #******************************
+    #**** Framework Properties ****
+    #******************************
+    property('iir_filter', 'rover_localization/IIRCoefficients').
+        doc 'Configuration values to run the Infinite Impulse Response (IIR). Look in FrameworkTypes for further details.'
 
     #******************************
     #******* Input ports  *********
@@ -136,6 +142,8 @@ task_context "FrontEnd" do
     output_port('fkchains_samples_out', 'rover_localization/RobotContactPoints').
         doc 'Position and orientation of Contact points frame of the robot wrt the Body center'
 
+    output_port('sensitivity_analysis', 'rover_localization/SensitivityAnalysis').
+        doc 'Deterministic sensitivity analysis values'
 
     #******************************
     #******* Debug OutPorts *******
