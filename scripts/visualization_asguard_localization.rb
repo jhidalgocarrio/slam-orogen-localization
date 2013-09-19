@@ -27,15 +27,15 @@ asguardViz.setXForward(true)
 #RigidBody of the BodyCenter from frontend
 frontendRBS = Vizkit.default_loader.RigidBodyStateVisualization
 frontendRBS.displayCovariance(true)
-frontendRBS.setPluginName("FrontEndPose")
+frontendRBS.setPluginName("Front-End Pose")
 frontendRBS.setColor(Eigen::Vector3.new(255, 0, 0))#Red
 frontendRBS.resetModel(0.4)
 
 #RigidBody of the BodyCenter from backtend
 backendRBS = Vizkit.default_loader.RigidBodyStateVisualization
 backendRBS.displayCovariance(true)
-backendRBS.setPluginName("BackEndPose")
-backendRBS.setColor(Eigen::Vector3.new(0, 0, 0))#Black
+backendRBS.setPluginName("Back-End Pose")
+backendRBS.setColor(Eigen::Vector3.new(10, 0, 255))#Blue
 backendRBS.resetModel(0.4)
 
 #Contact points FL Wheel (RED)
@@ -162,11 +162,15 @@ c4RR.setPluginName("RRFoot4")
 c4RR.resetModel(0.1)
 c4RR.displayCovariance(true)
 
-#FrontEnd Asguard trajectory
+#Front-End Asguard trajectory
 frontendAsguardTrajectory = Vizkit.default_loader.TrajectoryVisualization
 frontendAsguardTrajectory.setColor(Eigen::Vector3.new(255, 0, 0))#Red line
-frontendAsguardTrajectory.setPluginName("FrontEndTrajectory")
+frontendAsguardTrajectory.setPluginName("Front-End Trajectory")
 
+#Back-End Asguard trajectory
+backendAsguardTrajectory = Vizkit.default_loader.TrajectoryVisualization
+backendAsguardTrajectory.setColor(Eigen::Vector3.new(10, 0, 255))#Blue line
+backendAsguardTrajectory.setPluginName("Back-End Trajectory")
 
 visualization.on_reachable do
 
@@ -204,12 +208,12 @@ visualization.on_reachable do
     # Trajectory of the ground truth
     truthTrajectory = Vizkit.default_loader.TrajectoryVisualization
     truthTrajectory.setColor(Eigen::Vector3.new(0, 255, 0)) #Green line
-    truthTrajectory.setPluginName("GroundTruthTrajectory")
+    truthTrajectory.setPluginName("Ground-Truth Trajectory")
 
     #RigidBodyState of the ground truth
     rbsTruth = Vizkit.default_loader.RigidBodyStateVisualization
     rbsTruth.setColor(Eigen::Vector3.new(0, 255, 0))#Green rbs
-    rbsTruth.setPluginName("GroundTruthPose")
+    rbsTruth.setPluginName("Ground-Truth Pose")
     rbsTruth.resetModel(0.4)
 
     #Connect to the ground truth output port of the visualization task
@@ -226,6 +230,10 @@ visualization.on_reachable do
     visualization.port('frontend_pose_samples_out').on_data do |asguard_rbs,_|
         asguardViz.updateRigidBodyState(asguard_rbs)
         frontendAsguardTrajectory.updateTrajectory(asguard_rbs.position)
+    end
+
+    visualization.port('backend_pose_samples_out').on_data do |asguard_rbs,_|
+        backendAsguardTrajectory.updateTrajectory(asguard_rbs.position)
     end
 
     visualization.port('bodystate_samples_out').on_data do |asguard_state,_|

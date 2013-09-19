@@ -47,8 +47,8 @@ namespace rover_localization
         base::Vector3d abiasoff;//bias offset in static regimen for the Accelerometers
         base::Vector3d accrw;//velocity random walk for accelerometers (m/s/sqrt(s))
         base::Vector3d accrrw;//acceleration random walk for accelerometers (m/s^2/sqrt(s))
-        base::Vector3d abiasins;//acc bias instability (m/s^2)
-        base::Vector3d aresolut;//acc resolution (m/s^2)
+        base::Vector3d abiasins;//accelerometers bias instability (m/s^2)
+        base::Vector3d aresolut;//minimum accelerometers resolution (m/s^2)
 
         /** Magnetometers Noise**/
         base::Vector3d magrw; //random walk for magnetometers"
@@ -61,7 +61,7 @@ namespace rover_localization
         std::vector<double> encodersrw;//encoders position uncertainty (modeled as zero mean white noise pdf)
     };
 
-    /** Coeffcient for the IIR filter in case of implementing it **/
+    /** Coefficient for the IIR filter in case of implementing it **/
     struct IIRCoefficients
     {
         bool iirON; /** Set to true if want to use it with the following coefficients **/
@@ -156,7 +156,7 @@ namespace rover_localization
         base::Matrix3d deltaVeloCommonCov;
     };
 
-    //Local gravity information (theory and computed at initialization time)
+    //Inertial sensor and extra information (without noise)
     struct InertialState
     {
         /** Time stamp */
@@ -183,7 +183,7 @@ namespace rover_localization
         /** Raw inclinometer reading*/
         base::Vector3d incl;
 
-        /** On/Off initial acc bias */
+        /** On/Off initial accelerometers bias */
         base::Vector3d abias_onoff;
 
         /** On/Off initial gyro bias */
@@ -195,7 +195,7 @@ namespace rover_localization
     {
         base::Time time;
         base::VectorXd Tstate; /** Gradient of the state vector w.r.t. the parameter i */
-        base::VectorXd TCovariance;/** Gradiante of the covariance matrix w.r.t. the parameter i */
+        base::VectorXd TCovariance;/** Gradient of the covariance matrix w.r.t. the parameter i */
     };
 
     /***********************************/
