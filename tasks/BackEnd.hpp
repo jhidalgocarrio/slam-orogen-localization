@@ -258,26 +258,21 @@ namespace rover_localization {
         void inputPortSamples(boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                             boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
-        /**@brief Initialize the filter used in the BackEnd
+        /**@brief Initialize the filter used in the Back-End
          */
-        void initBackEndFilter(boost::shared_ptr<BackEndFilter> filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+        void initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                 boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
         /**@brief Get the values from the input port samples
          */
         localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                const boost::circular_buffer<rover_localization::InertialState> &inertialState,
-                                localization::DataModel<double, 3> &deltaVeloModel,
-                                localization::DataModel<double, 3> &deltaVeloInertial,
-                                Eigen::Matrix3d &Hellinger);
+                                                        const boost::shared_ptr< BackEndFilter > filter, double mahalanobis);
 
 
         /** \brief Store the variables in the Output ports
          */
-        void outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
-                                const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial,
-                                const localization::DataModel<double, 3> &deltaVeloError,
-                                const Eigen::Matrix3d &Hellinger);
+        void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
+                                const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
 
 
     };

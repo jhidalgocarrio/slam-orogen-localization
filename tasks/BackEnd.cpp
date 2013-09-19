@@ -2,7 +2,7 @@
 
 #include "BackEnd.hpp"
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -54,7 +54,7 @@ void BackEnd::pose_samplesTransformerCallback(const base::Time &ts, const ::base
     if (!flag.frontEndPoseSamples && (frontEndPoseSamples.size() == frontEndPoseSamples.capacity()))
         flag.frontEndPoseSamples = true;
 
-    /** Reset counter in case of unconsistency **/
+    /** Reset counter in case of inconsistency **/
     if (counter.frontEndPoseSamples > frontEndPoseSamples.size())
         counter.frontEndPoseSamples = 0;
 }
@@ -72,22 +72,22 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
     #endif
 
     if (counter.inertialStateSamples == number.inertialStateSamples)
+    {
         flag.inertialStateSamples = true;
+        counter.inertialStateSamples = 0;
+    }
     else
         flag.inertialStateSamples = false;
 
     if (flag.frontEndPoseSamples && flag.inertialStateSamples)
     {
-        /** Get the correct values from the input port at the desired BackEnd frequency **/
+        /** Get the correct values from the input port at the desired Back-End frequency **/
         this->inputPortSamples(frontEndPose, inertialState);
 
-        Eigen::Matrix3d Hellinger;
+        /***************************/
+        /** Filter Initialization **/
+        /***************************/
 
-        /** Delta Velocity Error comparing InertialState and FrontEndPose **/
-        localization::DataModel<double,3>
-            accError = this->velocityError(frontEndPose, inertialState, accModel, accInertial, Hellinger);
-
-        /** If filter is not initialized do it here */
         if(!initFilter)
         {
             #ifdef DEBUG_PRINTS
@@ -97,12 +97,16 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
             /** Initialization of the Back-End Filter **/
             this->initBackEndFilter (filter, frontEndPose, inertialState);
 
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[DONE]\n";
+            #endif
+
             initFilter = true;
         }
 
         double delta_t = (1.0/framework.backend_frequency); /** Delta integration time */
         WSingleState statek_i; /** Current robot state (copy from the filter object) */
-        WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill wih info coming from FrontEnd) */
+        WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill with info coming from FrontEnd) */
 
         #ifdef DEBUG_PRINTS
         std::cout<<"[BACK-END POSE-SAMPLES] - "<<inertialState[0].time.toMicroseconds()<<" - Performing Filter@"<< delta_t <<" seconds\n";
@@ -131,7 +135,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         #endif
 
         /** Robot's state estimate is propagated using the non-linear equation **/
-        deltaStatek_i.pos = (statek_i.vel + inertialState[0].delta_vel) * delta_t; //! Increment in position
+        deltaStatek_i.pos = (statek_i.vel + (frontEndPose[0].orientation * inertialState[0].delta_vel)) * delta_t; //! Increment in position
         deltaStatek_i.vel = inertialState[0].delta_vel; //! Increment in velocity using inertial sensors.
         deltaStatek_i.orient = static_cast< MTK::SO3<double> > (inertialState[0].delta_orientation); //! Delta in orientation coming from Front End
 
@@ -183,10 +187,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
                                                 static_cast<Eigen::Quaterniond&>(statek_i.orient), delta_t);
 
         /** Form the process covariance matrix **/
-
-        /** Typedef for the statek_i covariance type **/
-        typedef localization::Usckf <WAugmentedState, WSingleState>::SingleStateCovariance SingleStateCovariance;
-
+        typedef BackEndFilter::SingleStateCovariance SingleStateCovariance;//! Typedef for the statek_i covariance type
         SingleStateCovariance processCovQ;
         processCovQ = localization::processNoiseCov
                             <WSingleState, SingleStateCovariance > (processModelF, sensornoise.accrw, sensornoise.gyrorw,
@@ -204,78 +205,70 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         Eigen::Matrix<double, 6, WSingleState::DOF> H;/** Observation matrix H (measurement model) */
         H = localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
 
+        /** Create the measurement **/
+        typedef Eigen::Matrix<double, 6, 1> MeasurementVector;
+        MeasurementVector z;/** Unified measurement vector (velocity and acceleration) */
+        double mahalanobis; /** Mahalanobis distance */
+        localization::DataModel<double, 3> veloError = this->velocityError(frontEndPose, filter, mahalanobis);
+
+        /** Fill the measurement vector **/
+        if (mahalanobis < 5.99)
+            z.block<3,1>(0,0) = veloError.data;
+        else
+            z.block<3,1>(0,0).setZero();
+
+        z.block<3,1>(3,0) = inertialState[0].acc;
+
         /** Form the measurement covariance matrix **/
         Eigen::Matrix<double, 6, 6> measuCovR;
-        measuCovR = localization::proprioceptiveMeasurementNoiseCov(sensornoise.accrw, delta_t);
+        measuCovR = localization::proprioceptiveMeasurementNoiseCov(veloError.Cov, sensornoise.accrw, delta_t);
 
         /** Adaptive part of the measurement covariance needs the cov of the process  **/
-        localization::Usckf<WAugmentedState, WSingleState>::SingleStateCovariance Pksingle; /** covariance of the single state */
-        localization::Usckf<WAugmentedState, WSingleState>::AugmentedStateCovariance Pk; /** covarianec of the whole state (stochastic clonning states) */
+        BackEndFilter::SingleStateCovariance Pksingle; /** covariance of the single state */
 
         /** Fill the covariance matrix **/
-        Pk = filter->PkAugmentedState();
-        Pksingle = MTK::subblock (Pk, &WAugmentedState::statek_i, &WAugmentedState::statek_i);
+        Pksingle = filter->PkSingleState();
 
         /** Get the error state **/
         WSingleState errork_i = filter->muError().statek_i;
 
         /** Adaptive covariance matrix of the measurememt (3x3 bottomRight matrix part) **/
-        /*measuCovR.bottomRightCorner<3,3>() = adapAtt->matrix<WSingleState::DOF>
+        measuCovR.bottomRightCorner<3,3>() = adapAtt->matrix<WSingleState::DOF>
             (errork_i.getVectorizedState(::localization::State::ERROR_QUATERNION),
              Pksingle, inertialState[0].acc,
              H.block<3, WSingleState::DOF>(3,0),
-             measuCovR.bottomRightCorner<3,3>());*/
+             measuCovR.bottomRightCorner<3,3>());
 
 
-        /** Update attitude using accelerometers and the velocity using the statistical motion
-         * model comming from the FrontEnd */
-        typedef Eigen::Matrix<double, 6, 1> MeasurementVector;
-        MeasurementVector z;/** Unified measurement vector (delta velocity and acc) */
-
-        /** Delta velocity from Motion Model **/
-        Eigen::Vector3d deltaVelocity;
-        deltaVelocity.setZero(); //!TO-DO: take the statisticalMotion model
-
-        /** Fill the measurement vector **/
-        z.block<3,1>(0,0) = deltaVelocity;
-        z.block<3,1>(3,0) = inertialState[0].acc;
-
-        /** Perform the update **/
-        //filter->singleUpdate (z, boost::bind (localization::proprioceptiveMeasurementModel
-        //            < WSingleState, MeasurementVector >, _1, H), measuCovR);
-
-        /** Peform the update in a EKF form **/
-        //filter->ekfUpdate < Eigen::Matrix<double,6,1>,
-        //                    Eigen::Matrix<double,6, WSingleState::DOF>,
-        //                    Eigen::Matrix<double,6,6>
-        //                        > (vxk_i, z, H, measuCovR);
+        /** Perform the update in an EKF form **/
+        filter->ekfUpdate < Eigen::Matrix<double,6,1>,
+                            Eigen::Matrix<double,6, WSingleState::DOF>,
+                            Eigen::Matrix<double,6,6> > (z, H, measuCovR);
 
         /** Copy the error state to port it out */
         WAugmentedState errorAugmentedState = filter->muError();
 
         /** Reset the error vector state and perform cloning */
         filter->muErrorSingleReset();
-        filter->clonning();
-
-        /** Get the corrected state **/
-        statek_i = filter->muState().statek_i;
-
-        #ifdef DEBUG_PRINTS
-        std::cout<<"\n[BACK-END POSE-SAMPLES] AFTER_CORRECTION \n";
-        std::cout<<"[BACK-END POSE-SAMPLES] position:\n"<<statek_i.pos<<"\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
-        euler[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        euler[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        euler[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        std::cout<<"[BACK-END POSE-SAMPLES] Roll: "<<euler[0]*localization::R2D<<" Pitch: "<<euler[1]*localization::R2D<<" Yaw: "<<euler[2]*localization::R2D<<"\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] gbias:\n"<<statek_i.gbias<<"\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
-        #endif
+//        filter->clonning();
+//
+//        /** Get the corrected state **/
+//        statek_i = filter->muState().statek_i;
+//
+//        #ifdef DEBUG_PRINTS
+//        std::cout<<"\n[BACK-END POSE-SAMPLES] AFTER_CORRECTION \n";
+//        std::cout<<"[BACK-END POSE-SAMPLES] position:\n"<<statek_i.pos<<"\n";
+//        std::cout<<"[BACK-END POSE-SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
+//        euler[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+//        euler[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+//        euler[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+//        std::cout<<"[BACK-END POSE-SAMPLES] Roll: "<<euler[0]*localization::R2D<<" Pitch: "<<euler[1]*localization::R2D<<" Yaw: "<<euler[2]*localization::R2D<<"\n";
+//        std::cout<<"[BACK-END POSE-SAMPLES] gbias:\n"<<statek_i.gbias<<"\n";
+//        std::cout<<"[BACK-END POSE-SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
+//        #endif
 
         /** Out port the information of the Back-End **/
-        this->outputPortSamples (inertialState[0].time, filter,
-                errorAugmentedState, accModel, accInertial,
-                accError, Hellinger);
+        this->outputPortSamples (filter, errorAugmentedState, accModel, accInertial);
 
         flag.reset();
     }
@@ -283,6 +276,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
     /** Reset counter in case of inconsistency **/
     if (counter.inertialStateSamples > inertialStateSamples.size())
         counter.inertialStateSamples = 0;
+
     /** CAUTION: check how if the rover velocity  comes in the body or in the world frame **/
 
 }
@@ -471,7 +465,7 @@ void BackEnd::inputPortSamples(boost::circular_buffer<base::samples::RigidBodySt
     return;
 }
 
-void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                 boost::circular_buffer<rover_localization::InertialState> &inertialState)
 {
     /** The filter vector state variables one for the nav. quantities the other for the error **/
@@ -536,7 +530,7 @@ void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> filter, boost::
                                     static_cast<const BackEndFilter::AugmentedStateCovariance> (P0)));
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[DONE]\n**[FILTER_INITIALIZATION]**\n";
+    std::cout<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] Single P0|0 is of size " <<P0single.rows()<<" x "<<P0single.cols()<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] Single P0|0:\n"<<P0single<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] P0|0 is of size " <<P0.rows()<<" x "<<P0.cols()<<"\n";
@@ -555,68 +549,34 @@ void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> filter, boost::
 }
 
 
-localization::DataModel<double, 3> BackEnd::velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPoseSamples,
-                                const boost::circular_buffer<rover_localization::InertialState> &inertialStateSamples,
-                                localization::DataModel<double, 3> &accModel,
-                                localization::DataModel<double, 3> &accInertial,
-                                Eigen::Matrix3d &Hellinger)
+localization::DataModel<double, 3> BackEnd::velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+                                                        const boost::shared_ptr< BackEndFilter > filter, double mahalanobis)
 {
-    double sqrtdelta_t = sqrt(this->delta_noise); /** Square root of delta time interval */
-    double delta_backend = (1.0/framework.backend_frequency); /** BackEnd delta interval */
-    localization::DataModel<double, 3> accError; /** Acc error **/
+    localization::DataModel<double, 3> veloError, stateVelocity, frontEndVelocity; /** Velocity **/
 
-    /** Compute incremental velocity from Motion Model in the BackEnd time interval **/
-    accModel.data = (frontEndPose[0].velocity - frontEndPose[1].velocity)/delta_backend;
+    /** Store the velocity in the Data Model types **/
+    stateVelocity.data = filter->muState().statek_i.vel;
+    stateVelocity.Cov = filter->PkSingleState().block<3,3>(3,3);
+    if (localization::Util::isnotnan(frontEndPose[0].velocity))
+        frontEndVelocity.data = frontEndPose[0].velocity;
+    if (localization::Util::isnotnan(frontEndPose[0].cov_velocity))
+        frontEndVelocity.Cov = frontEndPose[0].cov_velocity;
+    else
+        frontEndVelocity.Cov.setZero();
 
-    /** Compute the cov. matrix for the increment velocity from the MotionModel **/
-    accModel.Cov = (frontEndPose[0].cov_velocity + frontEndPose[1].cov_velocity)/(delta_backend*delta_backend);
-
-    /** Get the incremental velocity for the IMU from the BackEnd time interval **/
-    accInertial.data = inertialState[0].acc;
-
-    /** Get the cov. matrix for the incremental velocity from the IMU **/
-    Eigen::Matrix3d Qa;
-    Qa.setZero();
-    Qa(0,0) = pow(this->sensornoise.accrw[0]/sqrtdelta_t,2);
-    Qa(1,1) = pow(this->sensornoise.accrw[1]/sqrtdelta_t,2);
-    Qa(2,2) = pow(this->sensornoise.accrw[2]/sqrtdelta_t,2);
-    accInertial.Cov = /*TO-DO: orient.matrix() if it is in world/odometry frame*/Qa * delta_backend;
-
-    /** Check to not have negative uncertainty values in the covariance matrices **/
-    /** TO-DO: change for guaranteeSPD **/
-    for (register int i=0; i<3;++i)
-    {
-	for (register int j=0; j<3;++j)
-	{
-	    if (accModel.Cov(i,j) < 0.00)
-		accModel.Cov(i,j) = 0.00;
-	    if (accInertial.Cov(i,j) < 0.00)
-		accInertial.Cov(i,j) = 0.00;
-	}	
-    }
-
-    /** Compute the error in the incremental velocity **/
-    accError = accInertial - accModel;
-
-    /** Compute the Bhattacharyya distance to have
-     * the Hellinger coefficient for statistical evidence **/
-    Eigen::Matrix3d BC;
+    /** Compute the error in velocity **/
+    veloError = frontEndVelocity - stateVelocity;
 
     /** There is only error in velocity if there is enough statistical evidence **/
-    BC = localization::Util::bhattacharyya<double, 3> (accModel, accInertial);
-
-    Hellinger = Eigen::Matrix3d::Identity() - BC;
-
-    /** Apply the Hellinger factor **/
-    accError.data = Hellinger * accError.data;
-
-    return accError;
+    mahalanobis = localization::Util::mahalanobis<double, 3> (stateVelocity, frontEndVelocity);
+//    #ifdef DEBUG_PRINTS
+    std::cout<<"[BACK-END VELO-ERROR] mahalanobis: "<<mahalanobis<<"\n";
+//    #endif
+    return veloError;
 }
 
-void BackEnd::outputPortSamples (const base::Time &timestamp, const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
-                            const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial,
-                            const localization::DataModel<double, 3> &deltaVeloError,
-                            const Eigen::Matrix3d &Hellinger)
+void BackEnd::outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
+                            const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial)
 {
     base::samples::RigidBodyState poseOut; /** Robot pose to port out **/
     WSingleState statek_i; /** Current robot state */
@@ -638,17 +598,20 @@ void BackEnd::outputPortSamples (const base::Time &timestamp, const boost::share
     /***************************************/
 
     /** The Back-End Estimated pose **/
-    poseOut.time = timestamp;
+    poseOut.time = frontEndPose[0].time;
     poseOut.position = statek_i.pos;
+    poseOut.cov_position = filter->PkSingleState().block<3,3>(0,0);
     poseOut.velocity = statek_i.vel;
+    poseOut.cov_velocity = filter->PkSingleState().block<3,3>(3,3);
     poseOut.orientation = statek_i.orient;
+    poseOut.cov_orientation = filter->PkSingleState().block<3,3>(6,6);
     _pose_samples_out.write(poseOut);
 
     /** Port out the estimated error in this sample interval **/
 
 
     /** Port out the filter information **/
-    backEndEstimationSamples.time = timestamp;
+    backEndEstimationSamples.time = frontEndPose[0].time;
     backEndEstimationSamples.statek_i = static_cast<WAugmentedState>(filter->muState()).statek_i.getVectorizedState();
     backEndEstimationSamples.errork_i = static_cast<WAugmentedState>(errorAugmentedState).statek_i.getVectorizedState();
     backEndEstimationSamples.orientation = filter->muState().statek_i.orient;
@@ -659,9 +622,9 @@ void BackEnd::outputPortSamples (const base::Time &timestamp, const boost::share
     backEndEstimationSamples.accModelCov = deltaVeloModel.Cov;
     backEndEstimationSamples.accInertial = deltaVeloInertial.data;
     backEndEstimationSamples.accInertialCov = deltaVeloInertial.Cov;
-    backEndEstimationSamples.accError = deltaVeloError.data;
-    backEndEstimationSamples.accErrorCov = deltaVeloError.Cov;
-    backEndEstimationSamples.Hellinger = Hellinger;
+//    backEndEstimationSamples.accError = deltaVeloError.data;
+//    backEndEstimationSamples.accErrorCov = deltaVeloError.Cov;
+//    backEndEstimationSamples.Hellinger = Hellinger;
     backEndEstimationSamples.mahalanobis = localization::Util::mahalanobis<double, 3> (deltaVeloModel, deltaVeloInertial);
     backEndEstimationSamples.Threshold = (deltaVeloModel.Cov + deltaVeloInertial.Cov).inverse();
 //    backEndEstimationSamples.deltaVeloCommon = deltaVeloCommon.data;
