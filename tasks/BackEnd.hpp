@@ -263,10 +263,16 @@ namespace rover_localization {
         void initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                 boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
-        /**@brief Get the values from the input port samples
+        /**@brief Calculates position error
+         */
+        localization::DataModel<double, 3> positionError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+                                                        const boost::shared_ptr< BackEndFilter > filter);
+
+
+        /**@brief Calculates velocity error
          */
         localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                                        const boost::shared_ptr< BackEndFilter > filter, double mahalanobis);
+                                                        const boost::shared_ptr< BackEndFilter > filter);
 
 
         /** \brief Store the variables in the Output ports

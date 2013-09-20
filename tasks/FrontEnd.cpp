@@ -786,7 +786,7 @@ bool FrontEnd::configureHook()
     besselBCoeff = iirConfig.feedForwardCoeff;
     besselACoeff = iirConfig.feedBackCoeff;
 
-    /** Create the Bessel Low-pass filter with the right coeffiecients **/
+    /** Create the Bessel Low-pass filter with the right coefficients **/
     bessel.reset(new localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> (besselBCoeff, besselACoeff));
 
     /*****************************/
@@ -800,7 +800,7 @@ bool FrontEnd::configureHook()
     else
         sqrtdelta_t = sqrt((1.0/propriosensor.bandwidth));
 
-    /** Angular velocity comming from gyros **/
+    /** Angular velocity coming from gyros **/
     cartesianVelCov.setZero(); modelVelCov.setZero();
 
     cartesianVelCov(3,3) = pow(propriosensor.gyrorw[0]/sqrtdelta_t,2);
@@ -1279,15 +1279,15 @@ void FrontEnd::outputPortSamples(const Eigen::Matrix< double, frontEndMotionMode
     {
         /** Port Out the info coming from the ground truth **/
         referenceOut = poseSamples[0];
-        referenceOut.velocity = poseSamples[0].velocity; //velocity in world frame
+        referenceOut.velocity = poseOut.orientation.inverse() * poseSamples[0].velocity; //velocity in body frame
         referenceOut.time = encoderSamples[0].time;
         _reference_pose_samples_out.write(referenceOut);
 
         /** Delta increments of the ground truth at delta_t given by the frontend_frequency **/
         referenceOut.position = poseSamples[0].position - poseSamples[1].position;
-        referenceOut.cov_position = poseSamples[0].cov_position - poseSamples[1].cov_position;
-        referenceOut.velocity = poseSamples[0].velocity - poseSamples[1].velocity;//in world frame
-        referenceOut.cov_velocity = poseSamples[0].cov_velocity - poseSamples[1].cov_velocity;
+        referenceOut.cov_position = poseSamples[0].cov_position + poseSamples[1].cov_position;
+        referenceOut.velocity = poseOut.orientation.inverse() * (poseSamples[0].velocity - poseSamples[1].velocity);//in body frame
+        referenceOut.cov_velocity = poseOut.orientation.inverse() * (poseSamples[0].cov_velocity + poseSamples[1].cov_velocity);
         _incre_reference_pose_samples_out.write(referenceOut);
     }
 

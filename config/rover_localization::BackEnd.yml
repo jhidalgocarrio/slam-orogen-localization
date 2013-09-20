@@ -70,13 +70,18 @@ proprioceptive_sensors:
     - 0.0
     - 0.0
     - 0.0
+  aresolut:
+    data:
+    - 0.005886 #0.6mg
+    - 0.005886 #0.6mg
+    - 0.005886 #0.6mg
 
 # Properties for the adaptive estimation of external acceleration. Look in FrameworkTypes for further details.
 adaptive_filter:
-  M1: 1 #Parameter for adaptive algorithm (to estimate Uk which is not directly observale)
-  M2: 5 #Parameter for adaptive algorithm (to prevent falsering entering in no-external acc mode)
+  M1: 1 #Parameter for adaptive algorithm (to estimate Uk which is not directly observable)
+  M2: 5 #Parameter for adaptive algorithm (to prevent falser entering in no-external acc mode)
         #If it previously is in external-acc mode. It needs at least M2 consecutive times to exit and enter in non-external-acc mode
-  gamma: 0.0005 #Parameter for adaptive algorithm (only entering when Qstart is this value greater than HPH'+Ra)
-                #This is to prevent that the external acc noise cov is affected by normal acc fructuation
-  r2count: 100 #Parameter for adaptive algorithm (No enterring r2count times at the begining )when enetring once r2count is set to zero.
+  gamma: 0.017658 #Parameter for adaptive algorithm (only entering when Qstart is this value greater than HPH'+Ra)
+                #This is to prevent that the external acc noise cov is affected by normal acc fluctuation
+  r2count: 100 #Parameter for adaptive algorithm (No entering r2count times at the beginning)when entering once r2count is set to zero.
 

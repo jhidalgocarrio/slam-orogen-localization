@@ -216,12 +216,12 @@ namespace rover_localization {
         /** Input ports dependent buffers **/
         /***********************************/
 
-        /** Buffer for raw inputs port samples (FrontEnd to the desired filter frequency) **/
+        /** Buffer for raw inputs port samples (Front-End to the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbEncoderSamples;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguardStatusSamples;
 	boost::circular_buffer<base::samples::IMUSensors> cbImuSamples;
 	
- 	/** Buffer for filtered Inputs port samples (Store the samples for the FrontEnd and compute the velocities) **/
+ 	/** Buffer for filtered Inputs port samples (Store the samples for the Front-End and compute the velocities) **/
 	boost::circular_buffer<base::actuators::Status> encoderSamples; /** Encoder Status information  **/
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
