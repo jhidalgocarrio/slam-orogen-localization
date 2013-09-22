@@ -263,6 +263,20 @@ namespace rover_localization {
         void initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                 boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
+        /**@brief Calculate the delta of the state over the delta interval
+         */
+        inline WSingleState deltaState (const double delta_t, const WSingleState &currentState, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose, boost::circular_buffer<rover_localization::InertialState> &inertialState);
+
+        /**@brief Method to encapsulate the filter predict step
+         */
+        inline void statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<rover_localization::InertialState> &inertialState);
+
+        /**@brief Method to encapsulate the filter update (attitude and velocity)
+         */
+        inline void attitudeAndVelocityUpdate(const double delta_t, const WSingleState &statek_i,
+                                    boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+                                    boost::circular_buffer<rover_localization::InertialState> &inertialState);
+
         /**@brief Calculates position error
          */
         localization::DataModel<double, 3> positionError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
@@ -278,7 +292,7 @@ namespace rover_localization {
         /** \brief Store the variables in the Output ports
          */
         void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
-                                const WAugmentedState &errorAugmentedState, const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
+                                const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
 
 
     };
