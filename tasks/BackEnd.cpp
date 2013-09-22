@@ -213,8 +213,8 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
 
         /** Fill the measurement vector **/
         z.block<3,1>(0,0) = posError.data;
-        z.block<3,1>(3,0).setZero() = veloError.data;
-        z.block<3,1>(6,0).setZero();// = inertialState[0].acc;
+        z.block<3,1>(3,0) = veloError.data;
+        z.block<3,1>(6,0) = inertialState[0].acc;
 
         /** Form the measurement covariance matrix **/
         Eigen::Matrix<double, 9, 9> measuCovR;
@@ -227,11 +227,11 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         /** Get the error state **/
         WSingleState errork_i = filter->muError().statek_i;
 
-        /** Adaptive covariance matrix of the measurememt (3x3 bottomRight matrix part) **/
+        /** Adaptive covariance matrix of the measurement (3x3 bottomRight matrix part) **/
         measuCovR.bottomRightCorner<3,3>() = adapAtt->matrix<WSingleState::DOF>
             (errork_i.getVectorizedState(::localization::State::ERROR_QUATERNION),
              Pksingle, inertialState[0].acc,
-             H.block<3, WSingleState::DOF>(3,0),
+             H.block<3, WSingleState::DOF>(6,0),
              measuCovR.bottomRightCorner<3,3>());
 
 
