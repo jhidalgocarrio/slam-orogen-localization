@@ -45,8 +45,8 @@ namespace rover_localization {
             return;
         }
 
-	unsigned int frontEndPoseSamples; /** counter of rover pose comming from the FrontEnd **/
- 	unsigned int inertialStateSamples; /** counter of of inertial measurements comming from the FrontEnd **/
+	unsigned int frontEndPoseSamples; /** counter of rover pose coming from the Front-End **/
+ 	unsigned int inertialStateSamples; /** counter of of inertial measurements coming from the Front-End **/
     };
 
     /** Number of samples to process in the callback function **/
@@ -59,8 +59,8 @@ namespace rover_localization {
             return;
         }
 
-	unsigned int frontEndPoseSamples; /** number of rover pose comming from teh FrontEnd **/
- 	unsigned int inertialStateSamples; /** number of inertial measurements comming from the FrontEnd **/
+	unsigned int frontEndPoseSamples; /** number of rover pose coming from the Front-End **/
+ 	unsigned int inertialStateSamples; /** number of inertial measurements coming from the Front-End **/
     };
 
     /** Inport samples arrived ON/OFF flags **/
@@ -73,8 +73,8 @@ namespace rover_localization {
             return;
         }
 
-	bool frontEndPoseSamples; /** number of rover pose comming from teh FrontEnd **/
- 	bool inertialStateSamples; /** number of inertial measurements comming from the FrontEnd **/
+	bool frontEndPoseSamples; /** number of rover pose coming from the Front-End **/
+ 	bool inertialStateSamples; /** number of inertial measurements coming from the Front-End **/
     };
 
     /*! \class BackEnd 
@@ -148,6 +148,9 @@ namespace rover_localization {
 
         /** Object of Class for Adaptive Measurement of Attitude Covariance Matrix **/
         boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAtt;
+
+        /** Object of Class for Bumps in Z-Axis Velocity of Accelerometers Covariance Matrix **/
+        boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAcc;
 
         /** Variable in DataModel form for the differences in velocities **/
         localization::DataModel<double, 3> accModel, accInertial;
@@ -269,7 +272,7 @@ namespace rover_localization {
 
         /**@brief Method to encapsulate the filter predict step
          */
-        inline void statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<rover_localization::InertialState> &inertialState);
+        inline void statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose, boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
         /**@brief Method to encapsulate the filter update (attitude and velocity)
          */
@@ -277,10 +280,9 @@ namespace rover_localization {
                                     boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                                     boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
-        /**@brief Calculates position error
+        /**@brief Calculates relative position
          */
-        localization::DataModel<double, 3> positionError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                                        const boost::shared_ptr< BackEndFilter > filter);
+        localization::DataModel<double, 3> relativePosition(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose);
 
 
         /**@brief Calculates velocity error

@@ -108,11 +108,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill with info coming from FrontEnd) */
         double delta_t = (1.0/framework.frontend_frequency); /** Delta integration time */
 
-        #ifdef DEBUG_PRINTS
-        std::cout<<"[BACK-END POSE-SAMPLES] - "<<inertialState[0].time.toMicroseconds()<<" - Performing Filter@"<< delta_t <<" seconds\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] acc:\n"<<inertialState[0].acc<<"\n";
-        std::cout<<"[BACK-END POSE-SAMPLES] gyro:\n"<<inertialState[0].gyro<<"\n";
-        #endif
+        std::cout<<"[BACK-END POSE-SAMPLES] - Performing Filter@"<< delta_t <<" seconds\n";
 
         /**********************************************/
         /** Propagation of the navigation quantities **/
@@ -150,7 +146,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         std::cout<<"\n[BACK-END POSE-SAMPLES] AFTER_PROPAGATION \n";
         std::cout<<"[BACK-END POSE-SAMPLES] position:\n"<<statek_i.pos<<"\n";
         std::cout<<"[BACK-END POSE-SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
-        Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
+        Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
         euler[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
         euler[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
         euler[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
@@ -165,7 +161,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         /*******************/
         /** Predict State **/
         /*******************/
-        this->statePredict(delta_t, statek_i, inertialStateSamples);
+        this->statePredict(delta_t, statek_i, frontEndPoseSamples, inertialStateSamples);
 
         /*******************/
         /** Update State **/
@@ -183,12 +179,36 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
 
     if (flag.frontEndPoseSamples && flag.inertialStateSamples)
     {
+        double delta_t = (1.0/framework.backend_frequency); /** Position correction delta time */
+
         /** Get the correct values from the input port at the desired Back-End frequency **/
         this->inputPortSamples(frontEndPose, inertialState);
 
-        
-        //        filter->cloning();
-//
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[BACK-END POSE-SAMPLES] - "<<inertialState[0].time.toMicroseconds()<<" - Position correction@"<< delta_t <<" seconds\n";
+        std::cout<<"[BACK-END POSE-SAMPLES] acc:\n"<<inertialState[0].acc<<"\n";
+        std::cout<<"[BACK-END POSE-SAMPLES] gyro:\n"<<inertialState[0].gyro<<"\n";
+        #endif
+
+        /***************************/
+        /** Delay Position Update **/
+        /***************************/
+
+        /** Observation matrix H (measurement model) **/
+        Eigen::Matrix<double, 3, WAugmentedState::DOF> H;/** Observation matrix H (measurement model) */
+        H = localization::delayPositionMeasurementMatrix<WAugmentedState, WSingleState>();
+        /** Create the measurement and the covariance **/
+        typedef Eigen::Matrix<double, 3, 1> MeasurementVector;
+        localization::DataModel<double, 3> relativePos = this->relativePosition(frontEndPose);
+        MeasurementVector z = relativePos.data; /** Relative position measurement vector */
+
+        /** Update the filter **/
+        filter->ekfUpdate <MeasurementVector,
+                        Eigen::Matrix<double, 3, WAugmentedState::DOF>,
+                        Eigen::Matrix<double, 3, 3> > (z, H, relativePos.Cov);
+
+        filter->cloning();
+
 //        /** Get the corrected state **/
 //        statek_i = filter->muState().statek_i;
 //
@@ -204,7 +224,7 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
 //        std::cout<<"[BACK-END POSE-SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
 //        #endif
 
-        
+
         flag.reset();
     }
 
@@ -278,7 +298,7 @@ bool BackEnd::configureHook()
     /** Set the delta time for the noise calculation */
     /*  To choose the maximum between sensor bandwidth and backend delta time **/
     double delta_bandwidth = (1.0/sensornoise.bandwidth); /** Bandwidth delta interval */
-    double delta_backend = (1.0/framework.backend_frequency); /** BackEnd delta interval */
+    double delta_backend = (1.0/framework.backend_frequency); /** Back-End delta interval */
 
     if (delta_backend > delta_bandwidth)
         this->delta_noise = sqrt(delta_backend);
@@ -287,6 +307,9 @@ bool BackEnd::configureHook()
 
     /** Create the class for the adaptive measurement update of the orientation **/
     adapAtt.reset (new localization::AdaptiveAttitudeCov (adapValues.M1, adapValues.M2, adapValues.gamma, adapValues.r2count));
+
+    /** Create the class for the adaptive measurement update of the orientation **/
+    adapAcc.reset (new localization::AdaptiveAttitudeCov (adapValues.M1, adapValues.M2, adapValues.gamma/3.0, adapValues.r2count));
 
     /*******************************************/
     /** Info and Warnings about the Framework **/
@@ -326,6 +349,7 @@ void BackEnd::cleanupHook()
     /** Liberate the memory of the shared_ptr **/
     filter.reset();
     adapAtt.reset();
+    adapAcc.reset();
 }
 
 inline WSingleState BackEnd::deltaState (const double delta_t, const WSingleState &currentState,
@@ -363,7 +387,9 @@ inline WSingleState BackEnd::deltaState (const double delta_t, const WSingleStat
 
 }
 
-inline void BackEnd::statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<rover_localization::InertialState> &inertialState)
+inline void BackEnd::statePredict(const double delta_t, const WSingleState &statek_i,
+        boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+        boost::circular_buffer<rover_localization::InertialState> &inertialState)
 {
     /** Form the process model matrix **/
     typedef Eigen::Matrix<double, WSingleState::DOF, WSingleState::DOF> SingleStateProcessModelMatrix;
@@ -379,6 +405,26 @@ inline void BackEnd::statePredict(const double delta_t, const WSingleState &stat
                         <WSingleState, SingleStateCovariance > (processModelF, sensornoise.accrw, sensornoise.aresolut,
                                                                 sensornoise.gyrorw, sensornoise.gbiasins, sensornoise.abiasins,
                                                                 static_cast<const Eigen::Quaterniond&>(statek_i.orient), delta_t) ;
+
+    /** Adaptive Covariance of Accelerometers **/
+
+    /** Observation matrix H (anticipate the measurement model) **/
+    Eigen::Matrix<double, 6, WSingleState::DOF> H;/** Observation matrix H (measurement model) */
+    H = localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
+
+    localization::DataModel<double, 3> veloError = this->velocityError(frontEndPose, filter);
+    veloError.data[0] = 0.00; veloError.data[1] = 0.00; //! Only perturbation in Z-Axis
+
+    BackEndFilter::SingleStateCovariance Pksingle = filter->PkSingleState(); /** covariance of the single state */
+
+    /** Get the error state **/
+    WSingleState errork_i = filter->muError().statek_i;
+
+    ::MTK::subblock (processCovQ, &WSingleState::vel)  = adapAcc->matrix<WSingleState::DOF>
+        (errork_i.getVectorizedState(::localization::State::ERROR_QUATERNION),
+         Pksingle, veloError.data,
+         H.block<3, WSingleState::DOF>(0,0),
+         ::MTK::subblock (processCovQ, &WSingleState::vel));
 
     /** Robot's error state is propagated using the non-linear noise dynamic model (processModel) **/
     filter->ekfPredict(processModelF, processCovQ);
@@ -396,7 +442,7 @@ inline void BackEnd::attitudeAndVelocityUpdate(const double delta_t, const WSing
 
     /** Create the measurement **/
     typedef Eigen::Matrix<double, 6, 1> MeasurementVector;
-    MeasurementVector z;/** Unified measurement vector (velocity and acceleration) */
+    MeasurementVector z; /** Unified measurement vector (velocity and acceleration) */
     localization::DataModel<double, 3> veloError = this->velocityError(frontEndPose, filter);
 
     /** Fill the measurement vector **/
@@ -423,7 +469,7 @@ inline void BackEnd::attitudeAndVelocityUpdate(const double delta_t, const WSing
 
 
     /** Perform the update in an EKF form **/
-    filter->ekfSingleUpdate < Eigen::Matrix<double,6,1>,
+    filter->ekfSingleUpdate < MeasurementVector,
                         Eigen::Matrix<double,6, WSingleState::DOF>,
                         Eigen::Matrix<double,6,6> > (z, H, measuCovR);
 
@@ -448,7 +494,7 @@ void BackEnd::inputPortSamples(boost::circular_buffer<base::samples::RigidBodySt
     std::cout<<"[BACK-END GET_INPORT] inertialStateSamples has capacity "<<inertialStateSamples.capacity()<<" and size "<<inertialStateSamples.size()<<"\n";
     #endif
 
-    /** Set the position comming from the FrontEnd **/
+    /** Set the position coming from the Front-End **/
     pose = frontEndPoseSamples[0];
     pose.velocity.setZero();
     pose.cov_velocity.setZero();
@@ -460,14 +506,14 @@ void BackEnd::inputPortSamples(boost::circular_buffer<base::samples::RigidBodySt
         pose.cov_velocity += frontEndPoseSamples[i].cov_velocity;
     }
 
-    /** Velocity average over the BakcEnd time interval **/
+    /** Velocity average over the Back-End time interval **/
     pose.velocity /= frontEndPoseSamplesSize;
     pose.cov_velocity /= frontEndPoseSamplesSize;
 
-    /** Push the pose into the buffer of FrontEnd poses **/
+    /** Push the pose into the buffer of Front-End poses **/
     frontEndPose.push_front(pose);
 
-    /** Set the inertial measurements comming from the FrontEnd **/
+    /** Set the inertial measurements coming from the Front-End **/
     inertial = inertialStateSamples[0];
     inertial.acc.setZero();
     inertial.gyro.setZero();
@@ -572,9 +618,10 @@ void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost:
     std::cout<<"[BACK-END POSE-SAMPLES] Single P0|0:\n"<<P0single<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] P0|0 is of size " <<P0.rows()<<" x "<<P0.cols()<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] P0|0:\n"<<P0<<"\n";
+    std::cout<<"[BACK-END POSE-SAMPLES] state:\n"<<vstate.getVectorizedState()<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] position:\n"<<vstate.statek_i.pos<<"\n";
     std::cout<<"[BACK-END POSE-SAMPLES] velocity:\n"<<vstate.statek_i.vel<<"\n";
-    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
+    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
     euler[2] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
     euler[1] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
     euler[0] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
@@ -585,25 +632,25 @@ void BackEnd::initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost:
     return;
 }
 
-localization::DataModel<double, 3> BackEnd::positionError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                                        const boost::shared_ptr< BackEndFilter > filter)
+localization::DataModel<double, 3> BackEnd::relativePosition(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose)
 {
-    localization::DataModel<double, 3> posError, statePosition, frontEndPosition; /** Velocity **/
+    localization::DataModel<double, 3> deltaPosition; /** Relative position **/
 
-    /** Store the velocity in the Data Model types **/
-    statePosition.data = filter->muState().statek_i.pos;
-    statePosition.Cov = filter->PkSingleState().block<3,3>(0,0);
-    if (localization::Util::isnotnan(frontEndPose[0].position))
-        frontEndPosition.data = frontEndPose[0].position;
-    if (localization::Util::isnotnan(frontEndPose[0].cov_position))
-        frontEndPosition.Cov = frontEndPose[0].cov_position;
+    if (frontEndPose.size() > 1)
+    {
+        deltaPosition.data = frontEndPose[0].position - frontEndPose[1].position;
+        deltaPosition.Cov = frontEndPose[0].cov_position - frontEndPose[1].cov_position;
+    }
     else
-        frontEndPosition.Cov.setZero();
+    {
+        deltaPosition.data.setZero();
+        deltaPosition.Cov = frontEndPose[0].cov_position;
+    }
 
-    /** Compute the error in velocity **/
-    posError = frontEndPosition - statePosition;
+    std::cout<<"frontEndPose[0].position\n"<<frontEndPose[0].position<<"\n";
+    std::cout<<"frontEndPose[0].cov_position\n"<<frontEndPose[0].cov_position<<"\n";
 
-    return posError;
+    return deltaPosition;
 }
 
 localization::DataModel<double, 3> BackEnd::velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
@@ -652,7 +699,7 @@ void BackEnd::outputPortSamples (const boost::shared_ptr< localization::Usckf<WA
     /***************************************/
 
     /** The Back-End Estimated pose **/
-    poseOut.time = frontEndPose[0].time;
+    poseOut.time = frontEndPoseSamples[0].time;
     poseOut.position = statek_i.pos;
     poseOut.cov_position = filter->PkSingleState().block<3,3>(0,0);
     poseOut.velocity = statek_i.vel;
@@ -665,7 +712,7 @@ void BackEnd::outputPortSamples (const boost::shared_ptr< localization::Usckf<WA
 
 
     /** Port out the filter information **/
-    backEndEstimationSamples.time = frontEndPose[0].time;
+    backEndEstimationSamples.time = frontEndPoseSamples[0].time;
     backEndEstimationSamples.statek_i = static_cast<WAugmentedState>(filter->muState()).statek_i.getVectorizedState();
     backEndEstimationSamples.errork_i = static_cast<WAugmentedState>(errorAugmentedState).statek_i.getVectorizedState();
     backEndEstimationSamples.orientation = filter->muState().statek_i.orient;
