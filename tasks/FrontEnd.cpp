@@ -2,7 +2,7 @@
 
 #include "FrontEnd.hpp"
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -108,10 +108,10 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
 
     /** Apply the transformer pose offset **/
     poseSamples[0].position += qtf * tf.translation();
-    poseSamples[0].orientation = poseSamples[0].orientation * qtf;
-    /*poseSamples[0].velocity = qtf * poseSamples[0].velocity;
-    poseSamples[0].cov_velocity = tf.rotation() * poseSamples[0].cov_velocity;
-    poseSamples[0].cov_angular_velocity = tf.rotation() * poseSamples[0].cov_angular_velocity;*/
+    poseSamples[0].orientation = poseSamples[0].orientation * qtf; //world_2_body = world_2_vicon_subject * vicon_subject_2_body
+    /*poseSamples[0].velocity = qtf.inverse() * poseSamples[0].velocity;
+    poseSamples[0].cov_velocity = tf.rotation().inverse() * poseSamples[0].cov_velocity;
+    poseSamples[0].cov_angular_velocity = tf.rotation().inverse() * poseSamples[0].cov_angular_velocity;*/
 
    if (!initPosition)
     {
@@ -333,29 +333,29 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 		
 		/** Gravity error between theoretical gravity and estimated **/
                 /** In this framework error = truth - estimation **/
-                base::Vector3d g_error;
-		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
+                base::Vector3d gravity;
+		gravity << 0.00, 0.00, (inertialState.theoretical_g);
 		
 		#ifdef DEBUG_PRINTS
-                std::cout<< "[FRONT-END INERTIAL-SAMPELS] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
-		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in world\n"<<g_error <<"\n";
+                std::cout<< "[FRONT-END INERTIAL-SAMPLES] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] Gravity in world\n"<<gravity <<"\n";
 		#endif
 		
-		/** Gravity error in IMU frame **/
-		g_error = q_world2imu.inverse() * g_error; /** g_error_imu = (Tworld_imu)^-1 * g_error_world */
+		/** Gravity in IMU frame **/
+		gravity = q_world2imu.inverse() * gravity; /** g_error_imu = (Tworld_imu)^-1 * g_error_world */
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in imu\n"<<g_error <<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] Gravity in imu\n"<<gravity <<"\n";
 		#endif
 		
-		g_error << 0.00, 0.00, (inertialState.theoretical_g - estimated_g);
+		gravity << 0.00, 0.00, (inertialState.theoretical_g);
 
                 /** Attitude is Tworld_body (base frame of body expressed in world frame) **/
                 /** Therefore the inverse of attitude is needed to have g_error in body frame **/
-		g_error = attitude.inverse() * g_error;
+		gravity = attitude.inverse() * gravity;
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[FRONT-END INERTIAL-SAMPLES] G_error in body\n"<<g_error <<"\n";
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] Gravity in body\n"<<gravity <<"\n";
 		#endif
 
                 /** Set up the initial computed gravity into the inertialState variable **/
@@ -367,8 +367,12 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
                 /** It is true that error = truth - estimation , however in sensor modelling
                  * raw_value = truth_value + bias, therefore truth_value = raw_value - bias
                  * and g_error in body frame goes with negative sign */
-                inertialState.abias_onoff = -g_error;
-		
+                inertialState.abias_onoff = - (gravity - (qtf.inverse() * meanacc));
+
+		#ifdef DEBUG_PRINTS
+		std::cout<< "[FRONT-END INERTIAL-SAMPLES] ON-OFF bias:\n"<<inertialState.abias_onoff<<"\n";
+		#endif
+
 		#ifdef DEBUG_PRINTS
                 euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
                 euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
@@ -390,12 +394,12 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 	#ifdef DEBUG_PRINTS
         std::cout<<"** [FRONT-END INERTIAL-SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(imu_frame):\n"<<inertial_samples_sample.acc<<"\n";
-	std::cout<<"acc(quat body_frame ):\n"<<qtf * inertial_samples_sample.acc<<"\n";
-	std::cout<<"acc(Rot body_frame):\n"<< tf.rotation() * inertial_samples_sample.acc<<"\n";
+	std::cout<<"acc(quat body_frame ):\n"<<qtf.inverse() * inertial_samples_sample.acc<<"\n";
+	std::cout<<"acc(Rot body_frame):\n"<< tf.rotation().inverse() * inertial_samples_sample.acc<<"\n";
 	std::cout<<"gyro(imu_frame):\n"<<inertial_samples_sample.gyro<<"\n";
-	std::cout<<"gyro(quat body_frame):\n"<<qtf * inertial_samples_sample.gyro<<"\n";
+	std::cout<<"gyro(quat body_frame):\n"<<qtf.inverse() * inertial_samples_sample.gyro<<"\n";
 	std::cout<<"mag(imu_frame):\n"<<inertial_samples_sample.mag<<"\n";
-        std::cout<<"mag(quat body_frame):\n"<<qtf * inertial_samples_sample.mag<<"\n";
+        std::cout<<"mag(quat body_frame):\n"<<qtf.inverse() * inertial_samples_sample.mag<<"\n";
 	#endif
 
         /** If a new sample arrived to the inport of the Back-End Feedback **/
@@ -415,30 +419,30 @@ void FrontEnd::inertial_samplesTransformerCallback(const base::Time &ts, const :
 
 	/** Convert the IMU values in the body frame **/
 	imusample.time = inertial_samples_sample.time;
-	imusample.acc = qtf * inertial_samples_sample.acc;
-	imusample.gyro = qtf * inertial_samples_sample.gyro;
-	imusample.mag = qtf * inertial_samples_sample.mag;
+	imusample.acc = qtf.inverse() * inertial_samples_sample.acc;
+	imusample.gyro = qtf.inverse() * inertial_samples_sample.gyro;
+	imusample.mag = qtf.inverse() * inertial_samples_sample.mag;
 
         /** Substract Earth rotation from gyros **/
         localization::Util::SubstractEarthRotation(&(imusample.gyro), &(poseOut.orientation), location.latitude);
 
         /** Eliminate noise from sensor body frame **/
-        imusample.gyro -= backEndEstimationSamples.gbias; /** Elminate estimated bias */
+        imusample.gyro -= backEndEstimationSamples.gbias; /** Eliminate estimated bias */
 
         /** Eliminate gravity perturbation and bias from acc in body frame **/
         Eigen::Matrix <double,3,1>  gtilde_body, gtilde;
         gtilde << 0.00, 0.00, inertialState.theoretical_g;
-        gtilde_body = backEndEstimationSamples.orientation.inverse() * gtilde;
+        gtilde_body = backEndEstimationSamples.orientation.inverse() * gtilde;//!gravity in body frame
         imusample.acc = imusample.acc - backEndEstimationSamples.abias - gtilde_body;
 
 	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"** [FRONT-END INERTIAL-SAMPLES] Corrected inertial"<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
-	std::cout<<"acc(imu_frame):\n"<<imusample.acc<<"\n";
-	std::cout<<"gyro(imu_frame):\n"<<imusample.gyro<<"\n";
-	std::cout<<"mag(imu_frame):\n"<<imusample.mag<<"\n";
+        std::cout<<"** [FRONT-END INERTIAL-SAMPLES] Corrected inertial ("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+	std::cout<<"acc(body_frame):\n"<<imusample.acc<<"\n";
+	std::cout<<"gyro(body_frame):\n"<<imusample.gyro<<"\n";
+	std::cout<<"mag(body_frame):\n"<<imusample.mag<<"\n";
 	#endif
 
 	/** Set the flag of IMU values valid to true **/
