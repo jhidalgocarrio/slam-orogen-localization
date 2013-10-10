@@ -137,7 +137,7 @@ namespace rover_localization {
         /*** General Internal Storage Variables ***/
         /******************************************/
 
-        /** The filter uses by the BackEnd **/
+        /** The filter uses by the Back-End **/
         boost::shared_ptr<BackEndFilter> filter;
 
         /** Pose estimation from Front-End  **/
@@ -155,11 +155,14 @@ namespace rover_localization {
         /** Variable in DataModel form for the differences in velocities **/
         localization::DataModel<double, 3> accModel, accInertial;
 
+        /** SlipVector in Eigen class **/
+        localization::DataModel <double, 3> slipVector;
+
         /**************************/
         /** Input port variables **/
         /**************************/
 
-        /** Buffer for input ports samples comming from the front end **/
+        /** Buffer for input ports samples coming from the front end **/
         boost::circular_buffer<base::samples::RigidBodyState> frontEndPoseSamples;
         boost::circular_buffer<rover_localization::InertialState> inertialStateSamples;
 
@@ -181,7 +184,7 @@ namespace rover_localization {
 
 
     public:
-        /** TaskContext constructor for BackEnd
+        /** TaskContext constructor for Back-End
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */

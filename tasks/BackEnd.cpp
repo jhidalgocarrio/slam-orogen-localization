@@ -2,7 +2,7 @@
 
 #include "BackEnd.hpp"
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -23,6 +23,8 @@ BackEnd::BackEnd(std::string const& name)
     /******************************************/
     frontEndPose =  boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     inertialState = boost::circular_buffer<rover_localization::InertialState>(DEFAULT_CIRCULAR_BUFFER_SIZE);
+    slipVector.data = base::NaN<double>() * Eigen::Matrix<double, 3, 1>::Ones();
+    slipVector.Cov = base::NaN<double>() * Eigen::Matrix<double, 3, 3>::Ones();
 
     /**************************/
     /** Input port variables **/
@@ -203,9 +205,17 @@ void BackEnd::inertial_samplesTransformerCallback(const base::Time &ts, const ::
         MeasurementVector z = relativePos.data; /** Relative position measurement vector */
 
         /** Update the filter **/
-        filter->ekfUpdate <MeasurementVector,
-                        Eigen::Matrix<double, 3, WAugmentedState::DOF>,
-                        Eigen::Matrix<double, 3, 3> > (z, H, relativePos.Cov);
+        slipVector.data += filter->ekfUpdate <MeasurementVector,
+                   Eigen::Matrix<double, 3, WAugmentedState::DOF>,
+                   Eigen::Matrix<double, 3, 3> > (z, H, relativePos.Cov);
+
+        /** Calculate the uncertainty of the slip vector **/
+        slipVector.Cov += H * filter->PkAugmentedState() * H.transpose() +  relativePos.Cov;
+
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[BACK-END POSE-SAMPLES] SlipVector:\n"<<slipVector.data<<"\n";
+        std::cout<<"[BACK-END POSE-SAMPLES] SlipVectorCov:\n"<<slipVector.Cov<<"\n";
+        #endif
 
         filter->cloning();
 
@@ -311,6 +321,10 @@ bool BackEnd::configureHook()
     /** Create the class for the adaptive measurement update of the orientation **/
     adapAcc.reset (new localization::AdaptiveAttitudeCov (adapValues.M1, adapValues.M2, adapValues.gamma/3.0, adapValues.r2count));
 
+    /** Set Slip vector to zero **/
+    slipVector.data.setZero();
+    slipVector.Cov.setZero();
+
     /*******************************************/
     /** Info and Warnings about the Framework **/
     /*******************************************/
@@ -358,10 +372,13 @@ inline WSingleState BackEnd::deltaState (const double delta_t, const WSingleStat
 {
 
     WSingleState delta_s;
+    Eigen::Vector3d deltaVelocity;
+    deltaVelocity = inertialState[0].delta_vel;
+    deltaVelocity[2] = frontEndPose[0].velocity[2] - frontEndPose[1].velocity[2];
 
     /** Robot's state estimate is propagated using the non-linear equation **/
     delta_s.pos = (frontEndPose[0].orientation * (currentState.vel + inertialState[0].delta_vel)) * delta_t; //! Increment in position
-    delta_s.vel = inertialState[0].delta_vel; //! Increment in velocity using inertial sensors.
+    delta_s.vel = deltaVelocity; //! Increment in velocity using inertial sensors.
     delta_s.orient = static_cast< MTK::SO3<double> > (inertialState[0].delta_orientation); //! Delta in orientation coming from Front End
 
     #ifdef DEBUG_PRINTS
@@ -405,26 +422,6 @@ inline void BackEnd::statePredict(const double delta_t, const WSingleState &stat
                         <WSingleState, SingleStateCovariance > (processModelF, sensornoise.accrw, sensornoise.aresolut,
                                                                 sensornoise.gyrorw, sensornoise.gbiasins, sensornoise.abiasins,
                                                                 static_cast<const Eigen::Quaterniond&>(statek_i.orient), delta_t) ;
-
-    /** Adaptive Covariance of Accelerometers **/
-
-    /** Observation matrix H (anticipate the measurement model) **/
-    Eigen::Matrix<double, 6, WSingleState::DOF> H;/** Observation matrix H (measurement model) */
-    H = localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
-
-    localization::DataModel<double, 3> veloError = this->velocityError(frontEndPose, filter);
-    veloError.data[0] = 0.00; veloError.data[1] = 0.00; //! Only perturbation in Z-Axis
-
-    BackEndFilter::SingleStateCovariance Pksingle = filter->PkSingleState(); /** covariance of the single state */
-
-    /** Get the error state **/
-    WSingleState errork_i = filter->muError().statek_i;
-
-    ::MTK::subblock (processCovQ, &WSingleState::vel)  = adapAcc->matrix<WSingleState::DOF>
-        (errork_i.getVectorizedState(::localization::State::ERROR_QUATERNION),
-         Pksingle, veloError.data,
-         H.block<3, WSingleState::DOF>(0,0),
-         ::MTK::subblock (processCovQ, &WSingleState::vel));
 
     /** Robot's error state is propagated using the non-linear noise dynamic model (processModel) **/
     filter->ekfPredict(processModelF, processCovQ);
