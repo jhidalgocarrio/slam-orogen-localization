@@ -1,18 +1,22 @@
 #FrontEnd reference from Ground Truth
 frontendreference100Hz = ThreeData()
-frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.0.data', cov=True)
+#frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.0.data', cov=True)
+#frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_position.1154.0.data', cov=True)
+frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1112.0.data', cov=True)
 frontendreference100Hz.eigenValues()
 
 #FrontEnd Motion model velocity
 frontendbody100Hz = ThreeData()
 #frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.1.data', cov=True)
-frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_position.1154.1.data', cov=True)
+#frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_position.1154.1.data', cov=True)
+frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1112.0.data', cov=True)
 frontendbody100Hz.eigenValues()
 
 #Back End Pose Out velocity
 backendvelo100Hz = ThreeData()
 #backendvelo100Hz.readData('data/normal_spacehall/backend_poseout_velocity.1154.1.data', cov=True)
-backendvelo100Hz.readData('data/normal_spacehall/backend_poseout_position.1154.1.data', cov=True)
+#backendvelo100Hz.readData('data/normal_spacehall/backend_poseout_position.1154.2.data', cov=True)
+backendvelo100Hz.readData('data/normal_spacehall/backend_poseout_velocity.1112.0.data', cov=True)
 backendvelo100Hz.eigenValues()
 
 
@@ -25,7 +29,7 @@ plt.plot(frontendbody100Hz.time, frontendbody100Hz.getStdMax(0, 3) , color=[0,0,
 plt.plot(frontendbody100Hz.time, frontendbody100Hz.getStdMin(0, 3) , color=[0,0,0], linestyle='--', lw=2)
 values = backendvelo100Hz.getAxis(0)
 plt.plot(backendvelo100Hz.time, values,
-        marker='.', label="Filter X-axis", color=[1,0.4,0], lw=2)
+        marker='.', label="Filter X-axis", color=[1,0.8,0], lw=2)
 plt.plot(backendvelo100Hz.time, backendvelo100Hz.getStdMax(0, 3) , color=[0.4,0,0], linestyle='--', lw=2, label=r'$\pm 3\sigma$ uncertainty')
 plt.plot(backendvelo100Hz.time, backendvelo100Hz.getStdMin(0, 3) , color=[0.4,0,0], linestyle='--', lw=2)
 
@@ -62,7 +66,7 @@ plt.show(block=False)
 savefig('figures/motion_model_vs_filter_predict_velocity_y_velocity_plot.png')
 
 
-plt.figure(1)
+plt.figure(2)
 values = frontendbody100Hz.getAxis(2)
 plt.plot(frontendbody100Hz.time, values,
         marker='.', label="Motion Model Z-axis", color=[1,0,0], lw=2)

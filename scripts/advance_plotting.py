@@ -11,6 +11,7 @@ def func(x):
 class ThreeData:
     
     def __init__(self):
+	self.atime = []
 	self.time = []
 	self.delta = []
 	self.t=[]
@@ -25,7 +26,7 @@ class ThreeData:
 	
 	for row in csv.reader(open(filename, 'rb'), delimiter=' ', quotechar='|'):
 	    #print row
-	    self.time.append(float(row[0])/1000000)
+	    self.atime.append(float(row[0])/1000000) #absolute time
 	    self.data.append(np.array([float(row[1]), float(row[2]), float(row[3])]))
 	    
 	    if False != cov:
@@ -35,12 +36,16 @@ class ThreeData:
 		self.cov.append(matrix)
 		
 	    
-	time = self.time
-	for i in range(0,len(time)-1):
-	    tbody = float(time[i+1]) - float(time[i])
+	atime = self.atime
+        self.time.append(0.00)
+	for i in range(0,len(atime)-1):
+	    tbody = float(atime[i+1]) - float(atime[i])
 	    self.delta.append(tbody)
+            tbody = float(atime[i+1]) - float(atime[0])
+            self.time.append(tbody)
+
 	    
-	self.t = mean(self.delta) * r_[0:len(self.time)]
+	self.t = mean(self.delta) * r_[0:len(self.atime)]
 	
     def eigenValues(self):
 	
@@ -220,14 +225,14 @@ class OneData:
 
 #FrontEnd reference from Ground Truth
 frontendreference100Hz = ThreeData()
-#frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.0.data', cov=True)
-frontendreference100Hz.readData('data/multitest_spacehall/frontend_referencepose_velocity.0940.1.data', cov=True)
+frontendreference100Hz.readData('data/normal_spacehall/frontend_referencepose_velocity.1154.0.data', cov=True)
+#frontendreference100Hz.readData('data/multitest_spacehall/frontend_referencepose_velocity.0940.1.data', cov=True)
 frontendreference100Hz.eigenValues()
 
 #FrontEnd Motion model velocity
 frontendbody100Hz = ThreeData()
-#frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.1.data', cov=True)
-frontendbody100Hz.readData('data/multitest_spacehall/frontend_poseout_velocity.0940.1.data', cov=True)
+frontendbody100Hz.readData('data/normal_spacehall/frontend_poseout_velocity.1154.0.data', cov=True)
+#frontendbody100Hz.readData('data/multitest_spacehall/frontend_poseout_velocity.0940.1.data', cov=True)
 frontendbody100Hz.eigenValues()
 
 #DeltaVelocity from MotionModel
