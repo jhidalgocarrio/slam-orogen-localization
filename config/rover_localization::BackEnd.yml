@@ -2,7 +2,7 @@
 # Initial configuration values to run the framework. Look in FrameworkTypes for further details.
 framework:
   frontend_frequency: 100.0
-  backend_frequency: 100.0
+  backend_frequency: 1.0
   visualization_frequency: 100.0
 
 # Time in s between exteroceptive_samples readings
@@ -72,13 +72,13 @@ proprioceptive_sensors:
     - 0.0
   aresolut:
     data:
-    - 0.005886 #0.6mg
-    - 0.005886 #0.6mg
-    - 0.005886 #0.6mg
+    - 0.0056 #0.6mg
+    - 0.0056 #0.6mg
+    - 0.0056 #0.6mg
 
 # Properties for the adaptive estimation of external acceleration. Look in FrameworkTypes for further details.
 adaptive_filter:
-  M1: 1 #Parameter for adaptive algorithm (to estimate Uk which is not directly observable)
+  M1: 3 #Parameter for adaptive algorithm (to estimate Uk which is not directly observable)
   M2: 5 #Parameter for adaptive algorithm (to prevent falser entering in no-external acc mode)
         #If it previously is in external-acc mode. It needs at least M2 consecutive times to exit and enter in non-external-acc mode
   gamma: 0.017658 #Parameter for adaptive algorithm (only entering when Qstart is this value greater than HPH'+Ra)

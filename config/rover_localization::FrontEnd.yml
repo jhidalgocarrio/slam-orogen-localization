@@ -2,10 +2,10 @@
 # Initial configuration values to run the framework. Look in FrameworkTypes for further details.
 framework:
   frontend_frequency: 100.0 #Hertz
-  backend_frequency: 100.0 #Hertz
+  backend_frequency: 1.0 #Hertz
   visualization_frequency: 100.0 #Hertz
-  use_inclinometers_leveling: false #true
-  init_leveling_time: 5.0 #Seconds
+  use_inclinometers_leveling: true
+  init_leveling_time: 10.0 #Seconds
 
 # Time in s between reference_pose_samples readings
 reference_pose_samples_period: 0.01
