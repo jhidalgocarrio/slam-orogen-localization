@@ -126,7 +126,6 @@ namespace rover_localization {
     {
 	friend class FrontEndBase;
 
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     protected:
         static const int  DEFAULT_INIT_LEVELING_SIZE =  1000; /** Default number of the initLeveling **/
         static const int  DEFAULT_CIRCULAR_BUFFER_SIZE = 2; /** Default number of objects to store regarding the inputs port **/
@@ -353,7 +352,8 @@ namespace rover_localization {
                                 const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
                                 const base::samples::RigidBodyState &deltaPose,
                                 const rover_localization::SensitivityAnalysis &sensitivityAnalysis);
-
+     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
     };
 }
