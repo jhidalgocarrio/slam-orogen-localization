@@ -95,7 +95,6 @@ namespace rover_localization {
     {
 	friend class BackEndBase;
 
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     protected:
         static const int  DEFAULT_CIRCULAR_BUFFER_SIZE = 2; /** Default number of objects to store regarding the inputs port **/
 
@@ -299,6 +298,8 @@ namespace rover_localization {
         void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
                                 const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
 
+    public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
     };
 }

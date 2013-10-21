@@ -435,7 +435,7 @@ inline void BackEnd::attitudeAndVelocityUpdate(const double delta_t, const WSing
 {
     /** Observation matrix H (measurement model) **/
     Eigen::Matrix<double, 6, WSingleState::DOF> H;/** Observation matrix H (measurement model) */
-    H = localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
+    H = ::localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
 
     /** Create the measurement **/
     typedef Eigen::Matrix<double, 6, 1> MeasurementVector;
@@ -448,7 +448,7 @@ inline void BackEnd::attitudeAndVelocityUpdate(const double delta_t, const WSing
 
     /** Form the measurement covariance matrix **/
     Eigen::Matrix<double, 6, 6> measuCovR;
-    measuCovR = localization::proprioceptiveMeasurementNoiseCov(veloError.Cov,
+    measuCovR = ::localization::proprioceptiveMeasurementNoiseCov(veloError.Cov,
                                         sensornoise.accrw, sensornoise.aresolut, delta_t);
 
     /** Adaptive part of the measurement covariance needs the covariance of the process  **/
