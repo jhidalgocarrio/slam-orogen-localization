@@ -606,6 +606,22 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
     }
 }
 
+void FrontEnd::left_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &left_frame_sample)
+{
+    return;
+}
+
+void FrontEnd::right_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &right_frame_sample)
+{
+    return;
+}
+
+void FrontEnd::scan_samplesTransformerCallback(const base::Time &ts, const ::base::samples::LaserScan &scan_samples_sample)
+{
+    return;
+}
+
+
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See FrontEnd.hpp for more detailed
 // documentation about them.
@@ -1238,7 +1254,7 @@ void FrontEnd::calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelo
 
 	}
 
-        /** Fill the rest of modelVelocities (unknow quantities) **/
+        /** Fill the rest of modelVelocities (unknown quantities) **/
         modelVelocities.block<asguard::NUMBER_OF_WHEELS*asguard::SLIP_VECTOR_SIZE,1> (asguard::ASGUARD_JOINT_DOF, 0) = Eigen::Matrix<double, asguard::NUMBER_OF_WHEELS*asguard::SLIP_VECTOR_SIZE, 1>::Identity() * base::NaN<double>();
         modelVelocities.block<asguard::NUMBER_OF_WHEELS*asguard::CONTACT_POINT_DOF,1> (asguard::ASGUARD_JOINT_DOF+(asguard::NUMBER_OF_WHEELS*asguard::SLIP_VECTOR_SIZE), 0) = Eigen::Matrix<double, asguard::NUMBER_OF_WHEELS*asguard::CONTACT_POINT_DOF, 1>::Identity() * base::NaN<double>();
 

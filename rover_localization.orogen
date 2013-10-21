@@ -104,9 +104,19 @@ task_context "FrontEnd" do
         needs_reliable_connection.
 	doc 'Back-End filtering estimation information (feedback).'
 
+    #*******  Exteroceptive sensors *********
+    input_port("left_frame", ro_ptr('base::samples::frame::Frame')).
+	needs_reliable_connection.
+        doc 'Left camera frame.'
 
-    #******* Exteroceptive sensors *********
-    #TO-DO
+    input_port("right_frame", ro_ptr('base::samples::frame::Frame')).
+	needs_reliable_connection.
+        doc 'Right camera frame.'
+
+    input_port('scan_samples', '/base/samples/LaserScan').
+	needs_reliable_connection.
+	doc 'timestamped laser scans'
+
 
     ##########################
     # Transformer
@@ -118,6 +128,9 @@ task_context "FrontEnd" do
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_samples", 0.01)
 	align_port("ground_forces_samples", 0.01)
+	align_port("left_frame", 0.5)
+	align_port("right_frame", 0.5)
+	align_port("scan_samples", 0.5)
 	transform "vicon", "body"
 	align_port("reference_pose_samples", 0.01)
 	max_latency(1.0)

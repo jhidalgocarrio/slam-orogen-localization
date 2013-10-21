@@ -258,6 +258,12 @@ namespace rover_localization {
 
         virtual void encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &encoder_samples_sample);
 
+        virtual void left_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &left_frame_sample);
+
+        virtual void right_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &right_frame_sample);
+
+        virtual void scan_samplesTransformerCallback(const base::Time &ts, const ::base::samples::LaserScan &scan_samples_sample);
+
         /** Weight matrix for the Asguard Robot **/
         WeightingMatrix dynamicWeightMatrix (CenterOfMassConfiguration &centerOfMass, base::Orientation &orientation);
 
