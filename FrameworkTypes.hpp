@@ -75,7 +75,7 @@ namespace rover_localization
         double frontend_frequency;//Desired frequency in Hertz to run the Front-End.
                                 //It cannot be higher that the sensor values of the aggregator (transformer).
 
-        double backend_frequency;//Desired frequency in Hertz to trigger the BackEnd part of the framework.
+        double backend_frequency;//Desired frequency in Hertz to trigger the Back-End part of the framework.
                                 //It cannot be higher that frontend_frequency.
 
         double visualization_frequency;//Desired frequency for the visualization part of the framework.
@@ -107,11 +107,21 @@ namespace rover_localization
 
     };
 
+    /** Configuration parameters for the dynamic weighing matrix of the motion model **/
     struct CenterOfMassConfiguration
     {
         bool dynamicOn; /** True if active dynamic weight matrix */
         base::Vector3d coordinates; /** Center of Mass position in the 2D plane on the platform w.r.t. the body center */
         base::VectorXd percentage; /** Initial percentage of the robot chain (wheels or legs) */
+    };
+
+    /** Configuration parameters for the synchronization of a sweeping camera **/
+    struct CameraSynchConfiguration
+    {
+        bool synchOn; /** True if active for camera synchronization **/
+        bool zeroMark; /** True if sweeping unit passed the zero mark (set false by default) **/
+        base::Quaterniond body2lcamera; /** Desired orientation of the left camera w.r.t the body **/
+        base::Quaterniond quatError; /** Orientation error in the body2lcamera orientation**/
     };
 
     /**************************************/

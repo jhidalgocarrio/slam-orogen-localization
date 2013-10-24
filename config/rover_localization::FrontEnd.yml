@@ -28,15 +28,6 @@ transformer_max_latency: 0.1
 transformer_status_period: 1.0
 
 --- name:asguard
-# the global name that should be used for the internal body frame
-body_frame: body
-
-# the global name that should be used for the internal imu frame
-imu_frame: imu
-
-# the global name that should be used for the internal vicon frame
-vicon_frame: vicon
-
 #Configuration values to calculate Center of Gravity of the robot.
 #Used for the Weight matrix of the Motion Model.
 robot_CoM:
@@ -52,7 +43,24 @@ robot_CoM:
     - 0.16 #Rear right (index = 1)
     - 0.34 #Front right (index = 2)
     - 0.34 #Front left (index = 3)
-
+# Configuration values for a sweeping camera on a robot.
+camera_synch:
+  synchOn: true
+  zeroMark: false
+  # Desired orientation of the left camera with respect to the robot body (-90, 0, -90)
+  body2lcamera:
+    im:
+    - -0.5
+    - 0.5
+    - -0.5
+    re: 0.5
+  # An error of 3 or 5 degrees in roll is allowed
+  quatError:
+    im:
+    - 0.02617694830787315 #0.043619387365336
+    - 0.0
+    - 0.0
+    re: 0.9996573249755573 #0.9990482215818578
 # Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame).
 eccx:
   data:

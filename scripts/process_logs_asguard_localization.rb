@@ -14,14 +14,15 @@ if ARGV.size < 1 then
 end
 
 #Initializes the CORBA communication layer
+Orocos::CORBA::max_message_size = 100000000
 Orocos.initialize
-
-Orocos.transformer.load_conf('../config/transforms.rb')
 
 # Configuration values
 framework = {:proprio => false, :raw_vicon => false, :proprio_vicon => false, :proprio_vicon_head => true, :viz => true, :stim300 => true, :xsens => false, :simu => false}
 
 Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::BackEnd' => 'backend', 'rover_localization::Visualization' => 'visualization' do
+
+    Orocos.transformer.load_conf('../config/transforms.rb')
 
     # log all the output ports
     Orocos.log_all_ports
@@ -95,9 +96,9 @@ Orocos.run 'rover_localization::FrontEnd' => 'frontend',  'rover_localization::B
     frontend.body_frame = "body"
 
     if framework[:proprio_vicon_head]
-	frontend.vicon_frame = "vicon_head"
+	frontend.reference_frame = "vicon_head"
     else
-	frontend.vicon_frame = "vicon_body"
+	frontend.reference_frame = "vicon_body"
     end
 
     # Finalize transformer configuration

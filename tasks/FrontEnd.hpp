@@ -22,7 +22,7 @@
 #include <odometry/MotionModel.hpp>
 
 /** General Libraries **/
-#include <math.h> /** For natural Log **/
+#include <math.h> /** math library (for natural Log among others) **/
 #include <vector> /** std vector **/
 
 /** Eigen **/
@@ -154,6 +154,8 @@ namespace rover_localization {
         /** Data arrived ON/OFF Flag **/
         FlagInputPortsFrontEnd flag;
 
+        bool toWriteRightFrame;//Flag to write right frame camera after left camera is written
+
         /**************************/
         /*** Property Variables ***/
         /**************************/
@@ -172,6 +174,9 @@ namespace rover_localization {
 
         /** Center of Mass location of the robot **/
         CenterOfMassConfiguration centerOfMass;
+
+        /** Camera Synch configuration **/
+        CameraSynchConfiguration cameraSynch;
 
         /******************************************/
         /*** General Internal Storage Variables ***/
@@ -210,6 +215,9 @@ namespace rover_localization {
 
         /** Weighting Matrix for the Motion Model  **/
         WeightingMatrix WeightMatrix;
+
+        /** Body to Left camera transformation **/
+        base::samples::RigidBodyState body2lcameraRbs;
 
         /***********************************/
         /** Input ports dependent buffers **/

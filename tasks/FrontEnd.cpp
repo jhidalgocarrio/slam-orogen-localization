@@ -2,7 +2,7 @@
 
 #include "FrontEnd.hpp"
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -19,6 +19,8 @@ FrontEnd::FrontEnd(std::string const& name)
     flag.reset();
     counter.reset();
     number.reset();
+
+    toWriteRightFrame = false;
 
     /***************************/
     /** Output port variables **/
@@ -97,7 +99,7 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
     Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
 
     /** Get the transformation **/
-    if (!_vicon2body.get(ts, tf, false))
+    if (!_reference2body.get(ts, tf, false))
 	return;
 
     qtf = Eigen::Quaternion <double> (tf.rotation());
@@ -108,7 +110,7 @@ void FrontEnd::reference_pose_samplesTransformerCallback(const base::Time &ts, c
 
     /** Apply the transformer pose offset **/
     poseSamples[0].position += qtf * tf.translation();
-    poseSamples[0].orientation = poseSamples[0].orientation * qtf; //world_2_body = world_2_vicon_subject * vicon_subject_2_body
+    poseSamples[0].orientation = poseSamples[0].orientation * qtf; //world_2_body = world_2_reference * reference_2_body
     /*poseSamples[0].velocity = qtf.inverse() * poseSamples[0].velocity;
     poseSamples[0].cov_velocity = tf.rotation().inverse() * poseSamples[0].cov_velocity;
     poseSamples[0].cov_angular_velocity = tf.rotation().inverse() * poseSamples[0].cov_angular_velocity;*/
@@ -608,16 +610,131 @@ void FrontEnd::encoder_samplesTransformerCallback(const base::Time &ts, const ::
 
 void FrontEnd::left_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &left_frame_sample)
 {
+
+    /** Get the transformation from the transformer (iMoby transformer) **/
+    Eigen::Affine3d tf;
+    if(!_lcamera2body.get( ts, tf ))
+    {
+        std::cout<<"[FRONT-END LEFT-CAMERA] Left camera no transformer\n";
+        return;
+    }
+
+    /** Debug transformation port (left camera expressed in body frame) **/
+    body2lcameraRbs.invalidate();
+    body2lcameraRbs.time = ts;
+    body2lcameraRbs.position = tf.translation();
+    body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
+    Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
+
+    std::cout<<"[FRONT-END LEFT-CAMERA] Frame at: "<<left_frame_sample->time.toMicroseconds()<<"\n";
+
+    /** If synchronize camera with the servo **/
+    if (cameraSynch.synchOn)
+    {
+        /** Set to true the zero Mark when passing the horizon line (in body frame) **/
+        if (!cameraSynch.zeroMark && (errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2] > 0.0))
+        {
+            cameraSynch.zeroMark = true;
+        }
+        else if (cameraSynch.zeroMark &&
+        (fabs(errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2]) < cameraSynch.quatError.toRotationMatrix().eulerAngles(2,1,0)[2]))
+        {
+            /** Write the camera frame into the port **/
+            cameraSynch.zeroMark = false;
+            toWriteRightFrame = true;
+            _left_frame_out.write(left_frame_sample);
+            _body_to_lcamera.write(body2lcameraRbs);
+        }
+    }
+    else
+    {
+        _left_frame_out.write(left_frame_sample);
+    }
+
+
+    Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
+    euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+    euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+    euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+    _body_to_lcamera_euler.write(euler*localization::R2D);
+
+    euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+    euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+    euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+    _error_body_to_lcamera_euler.write(euler*localization::R2D);
+
+
     return;
 }
 
 void FrontEnd::right_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &right_frame_sample)
 {
+    /** Get the transformation from the transformer (iMoby transformer) **/
+    Eigen::Affine3d tf;
+    if(!_lcamera2body.get( ts, tf ))
+    {
+        std::cout<<"[FRONT-END LEFT-CAMERA] Right camera no transformer\n";
+        return;
+    }
+
+    std::cout<<"[FRONT-END RIGHT-CAMERA] Frame at: "<<right_frame_sample->time.toMicroseconds()<<"\n";
+
+    /** If synchronize camera with the servo **/
+    if (cameraSynch.synchOn)
+    {
+        if (toWriteRightFrame)
+        {
+            toWriteRightFrame = false;
+            _right_frame_out.write(right_frame_sample);
+        }
+    }
+    else
+    {
+        /** Write the camera frame into the port **/
+        _right_frame_out.write(right_frame_sample);
+    }
+
     return;
 }
 
 void FrontEnd::scan_samplesTransformerCallback(const base::Time &ts, const ::base::samples::LaserScan &scan_samples_sample)
 {
+
+    /** Get the transformation from the transformer (iMoby transformer) **/
+    Eigen::Affine3d tf;
+    if(!_laser2body.get( ts, tf ))
+        return;
+
+    /** Convert laser scans to point-cloud in body frame **/
+    base::samples::Pointcloud pointcloud;
+    scan_samples_sample.convertScanToPointCloud<base::Point>(pointcloud.points, tf);
+
+    std::cout<<"[FRONT-END LASER-SCANS] Scan time: "<<scan_samples_sample.time.toMicroseconds()<<"\n";
+    std::cout<<"[FRONT-END LASER-SCANS] Scan size: "<<scan_samples_sample.ranges.size()<<"\n";
+    std::cout<<"[FRONT-END LASER-SCANS] Start angle: "<<scan_samples_sample.start_angle<<"\n";
+    std::cout<<"[FRONT-END LASER-SCANS] Angular resolution: "<<scan_samples_sample.angular_resolution<<"\n";
+    std::cout<<"[FRONT-END LASER-SCANS] Point cloud size: "<<pointcloud.points.size()<<"\n";
+
+    /** Delete all the points which have a Z component higher than the laser frame **/
+    base::samples::Pointcloud pointcloudFiltered;
+    pointcloudFiltered.time = pointcloud.time;
+    for (std::vector<base::Point>::iterator it = pointcloud.points.begin() ; it != pointcloud.points.end(); ++it)
+    {
+        if ((*it)[2] < tf.translation()[2])
+            pointcloudFiltered.points.push_back(*it);
+    }
+
+    /** Write the point cloud into the port **/
+    _point_cloud_samples_out.write(pointcloudFiltered);
+
+    /** Debug transformation port (laser frame expressed in body frame) **/
+    base::samples::RigidBodyState body2laserRbs;
+    body2laserRbs.invalidate();
+    body2laserRbs.time = ts;
+    body2laserRbs.position = tf.translation();
+    body2laserRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
+    _body_to_laser.write(body2laserRbs);
+
     return;
 }
 
@@ -639,6 +756,7 @@ bool FrontEnd::configureHook()
     propriosensor = _proprioceptive_sensors.value();
     iirConfig = _iir_filter.value();
     centerOfMass = _robot_CoM.value();
+    cameraSynch = _camera_synch.value();
 
 
     /******************/
