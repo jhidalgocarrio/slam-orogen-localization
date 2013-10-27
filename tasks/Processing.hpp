@@ -1,25 +1,9 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef ROVER_LOCALIZATION_FRONTEND_TASK_HPP
-#define ROVER_LOCALIZATION_FRONTEND_TASK_HPP
+#ifndef ROVER_LOCALIZATION_PROCESSING_TASK_HPP
+#define ROVER_LOCALIZATION_PROCESSING_TASK_HPP
 
-#include "rover_localization/FrontEndBase.hpp"
-
-/** Asguard dependencies includes **/
-#include <asguard/AsguardKinematicModel.hpp> /** Analytical model **/
-#include <asguard/AsguardKinematicKDL.hpp> /** KDL model **/
-#include <asguard/Configuration.hpp> /** For dedicated Asguard variables and const **/
-#include <asguard/BodyState.hpp> /** BodyState representation and constants **/
-
-/** Framework Library includes **/
-#include <rover_localization/Util.hpp>
-#include <rover_localization/Analysis.hpp>
-#include <rover_localization/DeadReckon.hpp>
-#include <rover_localization/DataTypes.hpp>
-#include <rover_localization/filters/IIR.hpp>
-
-/** Odometry include for the Motion Model **/
-#include <odometry/MotionModel.hpp>
+#include "rover_localization/ProcessingBase.hpp"
 
 /** General Libraries **/
 #include <math.h> /** math library (for natural Log among others) **/
@@ -32,12 +16,11 @@
 
 /** Boost **/
 #include <boost/circular_buffer.hpp> /** For circular buffers **/
-#include <boost/shared_ptr.hpp> /** For shared pointers **/
 
 namespace rover_localization {
 
     /** Current counter of samples arrived to each port **/
-    struct CounterInputPortsFrontEnd
+    struct CounterInputPorts
     {
         void reset()
         {
@@ -60,7 +43,7 @@ namespace rover_localization {
     };
 
     /** Number of samples to process in the callback function **/
-    struct NumberInputPortsFrontEnd
+    struct NumberInputPorts
     {
         void reset()
         {
@@ -81,8 +64,8 @@ namespace rover_localization {
  	unsigned int referencePoseSamples; /** number of pose information coming from external measurement **/
     };
 
-    /** Inport samples arrived ON/OFF flags **/
-    struct FlagInputPortsFrontEnd
+    /** Input port samples arrived ON/OFF flags **/
+    struct FlagInputPorts
     {
         void reset()
         {
@@ -103,28 +86,9 @@ namespace rover_localization {
         bool referencePoseSamples;//Initial pose
     };
 
-    /** Data types definition **/
-    typedef odometry::KinematicModel< double, asguard::NUMBER_OF_WHEELS, asguard::ASGUARD_JOINT_DOF, asguard::SLIP_VECTOR_SIZE, asguard::CONTACT_POINT_DOF > frontEndKinematicModel;
-    typedef odometry::MotionModel< double, asguard::NUMBER_OF_WHEELS, asguard::ASGUARD_JOINT_DOF, asguard::SLIP_VECTOR_SIZE, asguard::CONTACT_POINT_DOF > frontEndMotionModel;
-    typedef Eigen::Matrix<double, 6*asguard::NUMBER_OF_WHEELS, 6*asguard::NUMBER_OF_WHEELS> WeightingMatrix;
-
-    /*! \class FrontEnd 
-     * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
-     * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
-     * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
-     * Note: Check if the IMU inport has inclinometers information (right now coded in mag).
-     * \details
-     * The name of a TaskContext is primarily defined via:
-     \verbatim
-     deployment 'deployment_name'
-         task('custom_task_name','rover_localization::FrontEnd')
-     end
-     \endverbatim
-     *  It can be dynamically adapted when the deployment is called with a prefix argument. 
-     */
-    class FrontEnd : public FrontEndBase
+    class Processing : public ProcessingBase
     {
-	friend class FrontEndBase;
+	friend class ProcessingBase;
 
     protected:
         static const int  DEFAULT_INIT_LEVELING_SIZE =  1000; /** Default number of the initLeveling **/
@@ -136,23 +100,23 @@ namespace rover_localization {
         /*** Control Flow Variables ***/
         /******************************/
 
-	/** Init pose **/
+	/** Initial pose for the world to navigation transform **/
 	bool initPosition, initAttitude;
 
-        /** Index for acc mean value for init attitude (Pose init process) **/
+        /** Index for acceleration mean value for initializing attitude (Pose init process) **/
 	int init_leveling_accidx;
 
         /** Number acceleration samples to compute initial pitch and roll considering not init_attitude provided by pose_init **/
         int init_leveling_size;
 
-        /** Number of samples to process in the inports callback function **/
-        NumberInputPortsFrontEnd number;
+        /** Number of samples to process in the input ports callback function **/
+        NumberInputPorts number;
 
- 	/** Current counter of samples arrived to each inport **/
-        CounterInputPortsFrontEnd counter;
+ 	/** Current counter of samples arrived to each input port **/
+        CounterInputPorts counter;
 
         /** Data arrived ON/OFF Flag **/
-        FlagInputPortsFrontEnd flag;
+        FlagInputPorts flag;
 
         bool toWriteRightFrame;//Flag to write right frame camera after left camera is written
 
@@ -164,16 +128,7 @@ namespace rover_localization {
         LocationConfiguration location;
 
         /** Framework configuration values **/
-        FrameworkConfiguration framework;
-
-        /** Proprioceptive sensors configuration variables **/
-        ProprioceptiveSensorProperties propriosensor;
-
-        /** IIR filter configuration structure **/
-        IIRCoefficients iirConfig;
-
-        /** Center of Mass location of the robot **/
-        CenterOfMassConfiguration centerOfMass;
+        Configuration config;
 
         /** Camera Synch configuration **/
         CameraSynchConfiguration cameraSynch;
@@ -188,34 +143,6 @@ namespace rover_localization {
 	/** Initial values of Accelerometers (Inclinometers) for Pitch and Roll calculation */
 	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_leveling_incl;
 
-        /** Accelerometers eccentricity **/
-	Eigen::Matrix<double, localization::NUMAXIS,1> eccx, eccy, eccz;
-
-        /** Robot Kinematic Model **/
-        boost::shared_ptr< frontEndKinematicModel > robotKinematics;
-
-        /** Robot Motion Model **/
-        frontEndMotionModel  motionModel;
-
-        /** Joint encoders, Slip and Contact Angle velocities NOTE: The order of the storage needs to be coincident if used as input for the motionModel **/
-        Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, frontEndMotionModel::MODEL_DOF > modelVelCov;
-
-        /** Linear and Angular velocities NOTE: The order of the storage needs to be coincident to be used as input for the motionModel **/
-        Eigen::Matrix< double, 6, 6  > cartesianVelCov;
-
-        /** Buffer for the storage of cartesianVelocities variables  (for integration assuming constant accelartion) **/
-        std::vector< Eigen::Matrix <double, 2*localization::NUMAXIS, 1> , Eigen::aligned_allocator < Eigen::Matrix <double, 2*localization::NUMAXIS, 1> > > vectorCartesianVelocities;
-
-        /** Bessel Low-pass IIR filter for the Motion Model velocities
-         * Specification of the Order and Data dimension is required */
-        boost::shared_ptr< localization::IIR<localization::NORDER_BESSEL_FILTER, localization::NUMAXIS> > bessel;
-
-        /** Sensitivity analysis **/
-        localization::Analysis <3, 3+asguard::ASGUARD_JOINT_DOF> modelAnalysis; //! DoF of the analysis is 8
-
-        /** Weighting Matrix for the Motion Model  **/
-        WeightingMatrix WeightMatrix;
-
         /** Body to Left camera transformation **/
         base::samples::RigidBodyState body2lcameraRbs;
 
@@ -223,32 +150,38 @@ namespace rover_localization {
         /** Input ports dependent buffers **/
         /***********************************/
 
-        /** Buffer for raw inputs port samples (Front-End to the desired filter frequency) **/
+        /** Buffer for raw inputs port samples (the desired filter frequency) **/
  	boost::circular_buffer<base::actuators::Status> cbEncoderSamples;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguardStatusSamples;
 	boost::circular_buffer<base::samples::IMUSensors> cbImuSamples;
 	
- 	/** Buffer for filtered Inputs port samples (Store the samples for the Front-End and compute the velocities) **/
+ 	/** Buffer for filtered Inputs port samples (Store the samples and compute the velocities) **/
 	boost::circular_buffer<base::actuators::Status> encoderSamples; /** Encoder Status information  **/
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
 	boost::circular_buffer<base::samples::RigidBodyState> poseSamples; /** Pose information (init and debug)**/
 
-        /** Back-End information (feedback) **/
-	rover_localization::BackEndEstimation backEndEstimationSamples;
+        /** State information **/
+        rover_localization::StateEstimation stateEstimationSamples;
 
         /***************************/
         /** Output port variables **/
         /***************************/
 
-        /** Body Center w.r.t the World Coordinate system (using statistical Motion Model and IMU orientation) */
-	base::samples::RigidBodyState poseOut;
+        /** Joints state of the robot **/
+        base::samples::Joints jointSamples;
+
+        /** Calibrated and compensated inertial values **/
+        base::samples::IMUSensors inertialSamples
+
+        /**  Inertial state **/
+        rover_localization::InertialState inertialState;
 
         /** Ground truth out coming for an external system (if available like Vicon or GPS) */
         base::samples::RigidBodyState referenceOut;
 
-        /** Corrected inertial values **/
-        rover_localization::InertialState inertialState;
+        /** Calculated initial navigation frame pose expressed in world frame */
+        base::samples::RigidBodyState world2navigationRbs;
 
         /************************/
         /** Callback functions **/
@@ -272,26 +205,23 @@ namespace rover_localization {
 
         virtual void scan_samplesTransformerCallback(const base::Time &ts, const ::base::samples::LaserScan &scan_samples_sample);
 
-        /** Weight matrix for the Asguard Robot **/
-        WeightingMatrix dynamicWeightMatrix (CenterOfMassConfiguration &centerOfMass, base::Orientation &orientation);
-
     public:
-        /** TaskContext constructor for FrontEnd
+        /** TaskContext constructor for Processing
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        FrontEnd(std::string const& name = "rover_localization::FrontEnd");
+        Processing(std::string const& name = "rover_localization::Processing");
 
-        /** TaskContext constructor for FrontEnd 
+        /** TaskContext constructor for Processing
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task. 
          * 
          */
-        FrontEnd(std::string const& name, RTT::ExecutionEngine* engine);
+        Processing(std::string const& name, RTT::ExecutionEngine* engine);
 
-        /** Default deconstructor of FrontEnd
+        /** Default deconstructor of Processing
          */
-	~FrontEnd();
+	~Processing();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -353,19 +283,12 @@ namespace rover_localization {
 
         /** \brief Get the correct value from the input ports buffers
 	 */
-	void inputPortSamples(Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions);
+	void inputPortSamples();
 
         /** \brief Compute Cartesian and Model velocities 
 	 */
-	void calculateVelocities(Eigen::Matrix< double, 6, 1  > &cartesianVelocities, Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities);
+	void calculateVelocities();
 
-        /** \brief Store the variables in the Output ports
-         */
-        void outputPortSamples(const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelPositions,
-                                const Eigen::Matrix< double, 6, 1  > &cartesianVelocities,
-                                const Eigen::Matrix< double, frontEndMotionModel::MODEL_DOF, 1  > &modelVelocities,
-                                const base::samples::RigidBodyState &deltaPose,
-                                const rover_localization::SensitivityAnalysis &sensitivityAnalysis);
      public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 

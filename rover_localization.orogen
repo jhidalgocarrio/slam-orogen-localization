@@ -4,87 +4,54 @@ name "rover_localization"
 
 # If new data types need to be defined, they have to be put in a separate C++
 # header, and this header will be loaded here
-# import_types_from "asguard_localizationType.hpp"
-using_library "asguard" #for the asguard dedicated Kinematics and types
-using_library "odometry" #for the motion model
-using_library "rover_localization" #for the library of the framework
-#using_library 'envire' #for the maps and visualization
+using_library "localization" # Localization library
+#using_library 'envire' # Maps and environment representation
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
 import_types_from "base"
 import_types_from 'sysmon'
-import_types_from "asguard"
 import_types_from "torque_estimator"
 #import_types_from 'envire'
-import_types_from "rover_localization/DataTypes.hpp"
-import_types_from "FrameworkTypes.hpp"
 
-# Declare the Framework FrontEnd class
-# The Front-End read sensor values, creates Data association
-# and generates the decision for the context-base approach
-#
-# The corresponding C++ class can be edited in tasks/FrontEnd.hpp and
-# tasks/FrontEnd.cpp, and will be put in the rover_localization namespace.
-task_context "FrontEnd" do
+import_types_from "FrontEndTypes.hpp"
+import_types_from "BackEndTypes.hpp"
+
+# It processes the sensor values to facilitate data association
+task_context "Processing" do
+
+
+    #*************************
+    #**** Task Properties ****
+    #*************************
+    property('configuration', 'rover_localization/Configuration').
+        doc 'General configuration values to run the task'
 
     #******************************
     #**** Location Properties *****
     #******************************
     property('location',"rover_localization/LocationConfiguration").
-        doc 'Localization properties related to the geographic place (i.e: latitudem longitude, magnetic declination).'+
-            'Look in FrameworkTypes for further details'
-
-    #*************************************
-    #**** Inertial Sensor Properties *****
-    #*************************************
-    property('proprioceptive_sensors','rover_localization/ProprioceptiveSensorProperties').
-        doc 'Proprioceptive Sensors property. It contains the inertial and encoder sensor characterization.'+
-            'Look in FrameworkTypes for further details'
-
-
-    #*************************************************
-    #**** Eccentricity of the IMU mounted on the robot
-    #*************************************************
-    property("eccx", "/base/Vector3d").
-	doc "Eccentricity (in meters) for X-axis Acc in IMU frame (with respect to the IMU reference frame)."
-    property("eccy", "/base/Vector3d").
-	doc "Eccentricity (in meters) for Y-axis Acc in IMU frame (with respect to the IMU reference frame)."
-    property("eccz", "/base/Vector3d").
-	doc "Eccentricity (in meters) for Z-axis Acc in IMU frame (with respect to the IMU reference frame)."
-
+        doc 'Localization properties related to the geographic place (i.e.: latitude, longitude, magnetic declination).'
 
     #******************************
     #**** Rover Properties ********
     #******************************
-    property('robot_CoM', 'rover_localization/CenterOfMassConfiguration').
-        doc 'Configuration values of robot Center of Mass to computhe the Center of Gravity. Used for the Weight matrix of the Motion Model.'+
-        'Look in FrameworkTypes for further details.'
-
     property('camera_synch', 'rover_localization/CameraSynchConfiguration').
         doc 'Configuration values for a sweeping camera on a robot.'
-
-    #******************************
-    #**** Framework Properties ****
-    #******************************
-    property('framework', 'rover_localization/FrameworkConfiguration').
-        doc 'Initial configuration values to run the framework. Look in FrameworkTypes for further details.'
-
-    #******************************
-    #*** IIR Filter Properties ****
-    #******************************
-    property('iir_filter', 'rover_localization/IIRCoefficients').
-        doc 'Configuration values to run the Infinite Impulse Response (IIR). Look in FrameworkTypes for further details.'
 
     #******************************
     #******* Input ports  *********
     #******************************
 
-    #******* Initial pose/External Ground Truth*********
-    input_port("reference_pose_samples", "/base/samples/RigidBodyState").
-        doc "Rover position and orientation information (only for initialization or debug purpose)."
-
     #******* Proprioceptive sensors *********
+    input_port('encoder_samples', '/base/actuators/Status').
+        needs_reliable_connection.
+	doc 'timestamped Motorstate samples providing odometry information.'
+
+    input_port('systemstate_samples', '/sysmon/SystemStatus').
+        needs_reliable_connection.
+        doc 'timestamped systemstate readings, used for the passive joint encoder.'
+
     input_port('inertial_samples', '/base/samples/IMUSensors').
         needs_reliable_connection.
         doc 'provides timestamped IMUReading samples containing the calibrated sensor readings (linear acceleration and angular velocity).'
@@ -94,18 +61,6 @@ task_context "FrontEnd" do
 
     input_port("ground_forces_samples", "torque_estimator/GroundForces").
         doc "Estimated ground force values"
-
-    input_port('systemstate_samples', '/sysmon/SystemStatus').
-        needs_reliable_connection.
-        doc 'timestamped systemstate readings, used for the passive joint encoder'
-
-    input_port('encoder_samples', '/base/actuators/Status').
-        needs_reliable_connection.
-	doc 'timestamped Motorstate samples providing odometry information.'
-
-    input_port('backend_estimation_samples', 'rover_localization/BackEndEstimation').
-        needs_reliable_connection.
-	doc 'Back-End filtering estimation information (feedback).'
 
     #*******  Exteroceptive sensors *********
     input_port("left_frame", ro_ptr('base::samples::frame::Frame')).
@@ -117,17 +72,30 @@ task_context "FrontEnd" do
     input_port('scan_samples', '/base/samples/LaserScan').
 	doc 'timestamped laser scans'
 
+    #******* External Ground Truth *********
+    input_port("reference_pose_samples", "/base/samples/RigidBodyState").
+        doc "Rover position and orientation information."
 
-    ##########################
-    # Transformer
-    ##########################
+    #******* State information *********
+    input_port('state_estimation_samples', 'rover_localization/StateEstimation').
+        needs_reliable_connection.
+	doc 'State estimation information.'
+
+    ##############################################
+    # Transformer:
+    # All robot transformations are required
+    # to compute the sensor output in body frame.
+    # It uses the iMoby convention with is:
+    # imu to body transformation is imu expressed in
+    # body frame.
+    ##############################################
     transformer do
-	transform "imu", "body"
+	transform "imu", "body" #body to imu in transformation convention
 	transform "reference", "body"
         transform "lcamera", "body"
         transform "laser", "body"
-	align_port("inertial_samples", 0.002)
 	align_port("encoder_samples", 0.001)
+	align_port("inertial_samples", 0.002)
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_samples", 0.01)
 	align_port("ground_forces_samples", 0.01)
@@ -141,66 +109,41 @@ task_context "FrontEnd" do
     #******************************
     #******* Output Ports *********
     #******************************
-    output_port('pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Estimated rover pose. Position and velocity is computed from statistical Motion Model.'+
-            'Orientation from IMU gyros integration.'
 
-    output_port('inertial_samples_out', 'rover_localization/InertialState').
-	doc 'Corrected proprioceptive inertial samples to connect to the backend.'
+    output_port('joints_samples_out', '/base/samples/Joints').
+	doc 'Timestamped joints (active and passive) state samples providing odometry information.'+
+        '[passive, rear_left_wheel, rear_right_wheel, front_right_wheel, front_left_wheel]'
 
-    output_port('reference_pose_samples_out', 'base/samples/RigidBodyState').
-	doc 'Pose and velocities computed by the ground truth system but in the correct frame.'
+    output_port('inertial_samples_out', '/base/samples/IMUSensors').
+	doc 'Calibrated and compensated inertial measurements.'
+
+    output_port('inertial_state_out', 'rover_localization/InertialState').
+	doc 'Useful information related inertial samples.'
 
     output_port('point_cloud_samples_out', 'base/samples/Pointcloud').
-	doc 'Point cloud samples in the robot body frame.'
+	doc 'Point cloud samples.'
 
     output_port("left_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Left camera frame (after compensation for dynamixel)'
+        doc 'Left camera frame (after synchronization with the dynamixel)'
 
     output_port("right_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Right camera frame (after compensation for dynamixel).'
+        doc 'Right camera frame (after synchronization with the dynamixel).'
 
-    output_port('incre_reference_pose_samples_out', 'base/samples/RigidBodyState').
+    output_port('reference_pose_samples_out', 'base/samples/RigidBodyState').
+	doc 'Pose and velocities computed by the ground truth system.'
+
+    output_port('reference_delta_pose_samples_out', 'base/samples/RigidBodyState').
 	doc 'Delta pose and velocities computed from the ground truth system.'
 
-    output_port('fkchains_samples_out', 'rover_localization/RobotContactPoints').
-        doc 'Position and orientation of Contact points frame of the robot wrt the Body center'
+    output_port('world_to_navigation_out', 'base/samples/RigidBodyState').
+	doc 'Transformation: navigation frame expressed in the world frame.'
 
-    output_port('sensitivity_analysis', 'rover_localization/SensitivityAnalysis').
-        doc 'Deterministic sensitivity analysis values'
 
-    #******************************
-    #******* Debug OutPorts *******
-    #******************************
-    output_port('slip_vector', '/localization/SlipInfo').
-	doc 'Timestamped slip vector for the rover (all the wheels)'
-
-    output_port('velocities_model', 'base/samples/RigidBodyState').
-	doc 'Linear velocities computed by the model'
-
-    output_port('velocities_corrected', 'base/samples/RigidBodyState').
-	doc 'Corrected rover linear velocities'
-
-    output_port('incre_velocities_imu', 'base/samples/RigidBodyState').
-	doc 'Linear velocities computed by the inertial sensors'
-
-    output_port('incre_velocities_model', 'base/samples/RigidBodyState').
-	doc 'Incremental linear velocities computed by the model'
-
-    output_port('incre_velocities_error', 'base/samples/RigidBodyState').
-	doc 'Incremental velocity error in body frame'
-
-    output_port('velocities_error', 'base/samples/RigidBodyState').
-	doc 'Velocity error in body frame'
-
-    output_port('velocities_error_truth', 'base/samples/RigidBodyState').
-	doc 'Velocity error in body frame comparison with the vicon system'
-
-    output_port('imu_sensors_out', '/base/samples/IMUSensors').
-	doc 'Inertial sensor outport processed by the callback function of the transformer'
-
-    output_port('debug_info', '/localization/UtilInfo').
-	doc 'Some debug information of the least-squares computation.'
+    #**********************************
+    #******* Output Debug Ports *******
+    #**********************************
+    property('output_debug', 'bool', false).
+	doc 'Set to true if output debug information is desirable.'
 
     output_port('angular_position', 'double').
 	doc 'Angular position of the FL wheel'
@@ -218,52 +161,49 @@ task_context "FrontEnd" do
 	doc 'Body to Left Camera transformation : left camera frame expressed with respect to the body frame. Tbody2lcamera'
 
     output_port('body_to_lcamera_euler', 'base/Vector3d')
+	doc 'Body to Laser transformation: laser frame expressed with respect to the body frame in Euler angles.'
 
     output_port('error_body_to_lcamera_euler', 'base/Vector3d')
+	doc 'Body to Left Camera transformation: left camera frame expressed with respect to the body frame in Euler angles.'
 
     port_driven
 
 end
 
-# Declare the Framework BackEnd class
-# The BackEnd comprises the optimal state estimator preferable in an indirect form,
-# either using recursive non-linear least-squares (kalman-form), or
-# non-parametric filters (bayesian, particle form).
-#
-# The corresponding C++ class can be edited in tasks/BackEnd.hpp and
-# tasks/BackEnd.cpp, and will be put in the rover_localization namespace.
-task_context "BackEnd" do
+# Declare the  State Optimization class
+task_context "StateOptimize" do
 
-    #************************************
-    #**** Inertial Sensor Properties ****
-    #************************************
-    property('proprioceptive_sensors','rover_localization/ProprioceptiveSensorProperties').
-        doc 'Proprioceptive Sensors property. It contains the inertial and encoder sensor characterization.'+
-            'Look in FrameworkTypes for further details'
+    #**************************
+    #***** Task Properties ****
+    #**************************
+    property('configuration', 'rover_localization/StateOptimizeConfig').
+        doc 'General configuration values to run the task'
 
-    #*****************************
-    #***** BackEnd Properties ****
-    #*****************************
-    property('framework', 'rover_localization/FrameworkConfiguration').
-        doc 'Initial configuration values to run the framework. Look in FrameworkTypes for further details.'
+    property('adaptive_config', 'rover_localization/AdaptiveAttitudeConfig').
+        doc 'Adaptive estimation of external acceleration.'
 
-    property('adaptive_filter', 'rover_localization/AdaptiveMeasurementProperties').
-        doc 'Properties for the adaptive estimation of external acceleration. Look in FrameworkTypes for further details.'
+    #*********************************
+    #**** Measurements Properties ****
+    #*********************************
+    property('inertial_noise','rover_localization/InertialNoiseProperties').
+        doc 'Proprioceptive Sensors property.'
 
     #******************************
     #******* Input ports  *********
     #******************************
     input_port('pose_samples', '/base/samples/RigidBodyState').
-        doc 'Front-End estimated rover pose (Odometry => Statistical Motion Model + IMU orientation)'
+        needs_reliable_connection.
+        doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
 
-    input_port('inertial_samples', 'rover_localization/InertialState').
-	doc 'Corrected proprioceptive inertial samples to predict backend uncertainty.'
+    input_port('inertial_samples', '/base/samples/IMUSensors').
+        needs_reliable_connection.
+        doc 'Calibrated and compensated inertial values.'
+
+    input_port('inertial_state', 'rover_localization/InertialState').
+	doc 'Useful information related inertial samples.'
 
     input_port('exteroceptive_samples', '/base/samples/RigidBodyState')
         doc 'Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).'
-
-    input_port('update_samples', '/base/samples/RigidBodyState').
-        doc 'Proprioceptive update samples to correct the prediction.'
 
     ##########################
     # Transformer
@@ -271,92 +211,25 @@ task_context "BackEnd" do
     transformer do
 	align_port("pose_samples", 0.01)
 	align_port("inertial_samples", 0.01)
+	align_port("inertial_state", 0.01)
         align_port("exteroceptive_samples", 0.01)
-	align_port("update_samples", 0.01)
 	max_latency(0.5)
     end
 
     #******************************
     #******* Output ports  ********
     #******************************
-    output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
+    output_port('pose_samples_out', '/base/samples/RigidBodyState').
+	doc 'Corrected estimated robot pose.'
+
+   output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
 	doc 'Estimated pose error samples'
 
-    output_port('pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Corrected estimated robot pose'
-
-    output_port('backend_estimation_samples_out', 'rover_localization/BackEndEstimation').
-	doc 'Back-End filtering estimation information (feedback).'
-
+    output_port('state_estimation_samples_out', 'rover_localization/StateEstimation').
+	doc 'State estimation information.'
 
     port_driven
 
-end
-
-
-# Declare the Visualization class
-# The Visualization comprises all the stuffs related to visualize it in vizkit
-#
-# The corresponding C++ class can be edited in tasks/Visualization.hpp and
-# tasks/Visualization.cpp, and will be put in the rover_localization namespace.
-task_context "Visualization" do
-
-    #***************************************************
-    #***** Visualization Properties (as Input Port)*****
-    #**************************8************************
-    input_port('framework', 'rover_localization/FrameworkConfiguration').
-        doc 'Initial configuration values to run the framework. Look in FrameworkTypes for further details.'
-
-    #*************************************
-    #**** Input Visualization Ports ******
-    #*************************************
-    input_port('frontend_pose_samples', '/base/samples/RigidBodyState').
-	doc 'Estimated robot pose from front-end'
-
-    input_port('backend_pose_samples', '/base/samples/RigidBodyState').
-	doc 'Corrected estimated robot pose from back-end'
-
-    input_port('reference_pose_samples', '/base/samples/RigidBodyState').
-	doc 'Ground truth robot pose (if available).'
-
-    input_port('fkchains_samples', 'rover_localization/RobotContactPoints').
-        doc 'position and orientation of Contact points frame of the robot wrt the Body center'
-
-    ##########################
-    # Transformer
-    ##########################
-    transformer do
-	align_port("frontend_pose_samples", 0.01)
-	align_port("backend_pose_samples", 0.1)
-        align_port("reference_pose_samples", 0.01)
-	align_port("fkchains_samples", 0.01)
-	max_latency(0.5)
-    end
-
-    #*************************************
-    #**** Output Visualization Ports *****
-    #*************************************
-
-    # BODY CENTER
-    output_port('frontend_pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Estimated robot pose from front-end'
-
-    output_port('backend_pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Corrected estimated robot pose from back-end'
-
-    output_port('reference_pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Ground truth robot pose (if available).'
-
-    # DEDICATED TYPES
-    output_port('bodystate_samples_out', '/asguard/BodyState').
-	doc 'timestamped asguard bodystate information'
-
-    # FORWARD KINEMATICS RIGID BODY STATE
-    output_port('fkchains_rbs_out', 'rover_localization/RobotContactPointsRbs').
-        doc 'Rigid Body States with the position and orientation of Contact points frame'+
-            'of the robot wrt the world frame'
-
-    port_driven
 end
 
 

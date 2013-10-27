@@ -1,9 +1,9 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef ROVER_LOCALIZATION_BACKEND_TASK_HPP
-#define ROVER_LOCALIZATION_BACKEND_TASK_HPP
+#ifndef ROVER_LOCALIZATION_STATE_OPTIMIZE_TASK_HPP
+#define ROVER_LOCALIZATION_STATE_OPTIMIZE_TASK_HPP
 
-#include "rover_localization/BackEndBase.hpp"
+#include "rover_localization/StateOptimizeBase.hpp"
 
 /** Framework Library dependencies includes **/
 #include <rover_localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
@@ -33,51 +33,57 @@ namespace rover_localization {
     /** Wrap the Augmented and Single State **/
     typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
     typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::Usckf<WAugmentedState, WSingleState> BackEndFilter;
+    typedef localization::Usckf<WAugmentedState, WSingleState> StateOptimizeFilter;
 
     /** Current counter of samples arrived to each port **/
-    struct CounterInputPortsBackEnd
+    struct CounterInputPortsStateOptimize
     {
         void reset()
         {
-            frontEndPoseSamples = 0;
-            inertialStateSamples = 0;
+            poseSamples = 0;
+            inertialSamples = 0;
+            inertialState = 0;
             return;
         }
 
-	unsigned int frontEndPoseSamples; /** counter of rover pose coming from the Front-End **/
- 	unsigned int inertialStateSamples; /** counter of of inertial measurements coming from the Front-End **/
+	unsigned int poseSamples; /** counter of rover pose **/
+ 	unsigned int inertialSamples; /** counter of of inertial measurements **/
+ 	unsigned int inertialState; /** counter of inertial state **/
     };
 
     /** Number of samples to process in the callback function **/
-    struct NumberInputPortsBackEnd
+    struct NumberInputPortsStateOptimize
     {
         void reset()
         {
-            frontEndPoseSamples = 0;
-            inertialStateSamples = 0;
+            poseSamples = 0;
+            inertialSamples = 0;
+            inertialState = 0;
             return;
         }
 
-	unsigned int frontEndPoseSamples; /** number of rover pose coming from the Front-End **/
- 	unsigned int inertialStateSamples; /** number of inertial measurements coming from the Front-End **/
+	unsigned int poseSamples; /**  rover pose **/
+ 	unsigned int inertialSamples; /**  inertial measurements **/
+ 	unsigned int inertialState; /** inertial state **/
     };
 
-    /** Inport samples arrived ON/OFF flags **/
-    struct FlagInputPortsBackEnd
+    /** Input port samples arrived ON/OFF flags **/
+    struct FlagInputPortsStateOptimize
     {
         void reset()
         {
-            frontEndPoseSamples = false;
-            inertialStateSamples = false;
+            poseSamples = false;
+            inertialSamples = false;
+            inertialState = false;
             return;
         }
 
-	bool frontEndPoseSamples; /** number of rover pose coming from the Front-End **/
- 	bool inertialStateSamples; /** number of inertial measurements coming from the Front-End **/
+	unsigned int poseSamples;
+        unsigned int inertialSamples;
+ 	unsigned int inertialState;
     };
 
-    /*! \class BackEnd 
+    /*! \class StateOptimize 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
      * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
@@ -86,14 +92,14 @@ namespace rover_localization {
      * The name of a TaskContext is primarily defined via:
      \verbatim
      deployment 'deployment_name'
-         task('custom_task_name','rover_localization::BackEnd')
+         task('custom_task_name','rover_localization::StateOptimize')
      end
      \endverbatim
-     *  It can be dynamically adapted when the deployment is called with a prefix argument. 
+     *  It can be dynamically adapted when the deployment is called with a prefix argument.
      */
-    class BackEnd : public BackEndBase
+    class StateOptimize : public StateOptimizeBase
     {
-	friend class BackEndBase;
+	friend class StateOptimizeBase;
 
     protected:
         static const int  DEFAULT_CIRCULAR_BUFFER_SIZE = 2; /** Default number of objects to store regarding the inputs port **/
@@ -104,46 +110,37 @@ namespace rover_localization {
         /*** Control Flow Variables ***/
         /******************************/
 
-	/** Init filter **/
+	/** Filter Initialization **/
 	bool initFilter;
 
-        /** Delta time for the noise coeff **/
-        double delta_noise;
+        /** Number of samples to process in the input ports callback function **/
+        NumberInputPortsStateOptimize number;
 
-        /** Number of samples to process in the inports callback function **/
-        NumberInputPortsBackEnd number;
-
-        /** Current counter of samples arrived to each inport **/
-        CounterInputPortsBackEnd counter;
+        /** Current counter of samples arrived to each input port **/
+        CounterInputPortsStateOptimize counter;
 
         /** Data arrived ON/OFF Flag **/
-        FlagInputPortsBackEnd flag;
+        FlagInputPortsStateOptimize flag;
 
         /**************************/
         /*** Property Variables ***/
         /**************************/
 
-        /** Propioceptive sensors configuration variables **/
-        ProprioceptiveSensorProperties sensornoise;
+        /** Inertial noise parameters **/
+        InertialNoiseParameters inertialNoise;
 
         /** Framework configuration values **/
-        FrameworkConfiguration framework;
+        StateOptimizeConfig config;
 
         /** Adaptive Measurement Configuration **/
-        AdaptiveMeasurementProperties adapValues;
+        AdaptiveAttitudeConfig adaptiveConfig;
 
         /******************************************/
         /*** General Internal Storage Variables ***/
         /******************************************/
 
         /** The filter uses by the Back-End **/
-        boost::shared_ptr<BackEndFilter> filter;
-
-        /** Pose estimation from Front-End  **/
-        boost::circular_buffer<base::samples::RigidBodyState> frontEndPose;
-
-        /** Inertial sensor from Front-End **/
-        boost::circular_buffer<rover_localization::InertialState> inertialState;
+        boost::shared_ptr<StateOptimizeFilter> filter;
 
         /** Object of Class for Adaptive Measurement of Attitude Covariance Matrix **/
         boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAtt;
@@ -161,9 +158,14 @@ namespace rover_localization {
         /** Input port variables **/
         /**************************/
 
-        /** Buffer for input ports samples coming from the front end **/
-        boost::circular_buffer<base::samples::RigidBodyState> frontEndPoseSamples;
-        boost::circular_buffer<rover_localization::InertialState> inertialStateSamples;
+         /** Pose estimation from Front-End  **/
+        boost::circular_buffer<::base::samples::RigidBodyState> poseSamples;
+
+        /** Inertial values **/
+        boost::circular_buffer<::base::samples::IMUSensors> inertialSamples;
+
+        /** Inertial sensor state **/
+        boost::circular_buffer<rover_localization::InertialState> inertialState;
 
         /***************************/
         /** Output port variables **/
@@ -171,34 +173,31 @@ namespace rover_localization {
 
     protected:
 
-        virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
-
         virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
 
-        virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::rover_localization::InertialState &inertial_samples_sample);
+        virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
 
-        virtual void update_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &update_samples_sample);
+        virtual void inertial_stateTransformerCallback(const base::Time &ts, const ::rover_localization::InertialState &inertial_state_sample);
 
-        virtual void visual_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &visual_samples_sample);
-
+        virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
 
     public:
         /** TaskContext constructor for Back-End
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        BackEnd(std::string const& name = "rover_localization::BackEnd");
+        StateOptimize(std::string const& name = "rover_localization::StateOptimize");
 
-        /** TaskContext constructor for BackEnd 
+        /** TaskContext constructor for StateOptimize 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task. 
          * 
          */
-        BackEnd(std::string const& name, RTT::ExecutionEngine* engine);
+        StateOptimize(std::string const& name, RTT::ExecutionEngine* engine);
 
-        /** Default deconstructor of BackEnd
+        /** Default deconstructor of StateOptimize
          */
-	~BackEnd();
+	~StateOptimize();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -265,7 +264,7 @@ namespace rover_localization {
 
         /**@brief Initialize the filter used in the Back-End
          */
-        void initBackEndFilter(boost::shared_ptr<BackEndFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
                 boost::circular_buffer<rover_localization::InertialState> &inertialState);
 
         /**@brief Calculate the delta of the state over the delta interval
@@ -290,7 +289,7 @@ namespace rover_localization {
         /**@brief Calculates velocity error
          */
         localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                                        const boost::shared_ptr< BackEndFilter > filter);
+                                                        const boost::shared_ptr< StateOptimizeFilter > filter);
 
 
         /** \brief Store the variables in the Output ports
