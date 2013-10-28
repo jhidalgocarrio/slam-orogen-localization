@@ -111,8 +111,7 @@ task_context "Processing" do
     #******************************
 
     output_port('joints_samples_out', '/base/samples/Joints').
-	doc 'Timestamped joints (active and passive) state samples providing odometry information.'+
-        '[passive, rear_left_wheel, rear_right_wheel, front_right_wheel, front_left_wheel]'
+	doc 'Timestamped joints (active and passive) state samples providing odometry information.'
 
     output_port('inertial_samples_out', '/base/samples/IMUSensors').
 	doc 'Calibrated and compensated inertial measurements.'
@@ -185,7 +184,7 @@ task_context "StateOptimize" do
     #*********************************
     #**** Measurements Properties ****
     #*********************************
-    property('inertial_noise','rover_localization/InertialNoiseProperties').
+    property('inertial_noise','rover_localization/InertialNoiseParameters').
         doc 'Proprioceptive Sensors property.'
 
     #******************************

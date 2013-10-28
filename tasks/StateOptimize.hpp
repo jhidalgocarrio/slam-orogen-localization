@@ -6,14 +6,14 @@
 #include "rover_localization/StateOptimizeBase.hpp"
 
 /** Framework Library dependencies includes **/
-#include <rover_localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
-#include <rover_localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
-#include <rover_localization/filters/State.hpp> /** Filters State */
-#include <rover_localization/filters/ProcessModels.hpp> /** Filters Process Models */
-#include <rover_localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
-#include <rover_localization/Configuration.hpp> /** Constant values of the library */
-#include <rover_localization/DataModel.hpp> /** Simple Data Model with uncertainty */
-#include <rover_localization/Util.hpp> /** Helper Util class library **/
+#include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
+#include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
+#include <localization/filters/State.hpp> /** Filters State */
+#include <localization/filters/ProcessModels.hpp> /** Filters Process Models */
+#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
+#include <localization/Configuration.hpp> /** Constant values of the library */
+#include <localization/DataModel.hpp> /** Simple Data Model with uncertainty */
+#include <localization/Util.hpp> /** Util class library **/
 
 /** Eigen **/
 #include <Eigen/Core> /** Core */
@@ -83,7 +83,7 @@ namespace rover_localization {
  	unsigned int inertialState;
     };
 
-    /*! \class StateOptimize 
+    /*! \class StateOptimize
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
      * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
@@ -158,14 +158,14 @@ namespace rover_localization {
         /** Input port variables **/
         /**************************/
 
-         /** Pose estimation from Front-End  **/
-        boost::circular_buffer<::base::samples::RigidBodyState> poseSamples;
+        /** Pose estimation **/
+        boost::circular_buffer< ::base::samples::RigidBodyState > poseSamples;
 
         /** Inertial values **/
-        boost::circular_buffer<::base::samples::IMUSensors> inertialSamples;
+        boost::circular_buffer< ::base::samples::IMUSensors > inertialSamples;
 
         /** Inertial sensor state **/
-        boost::circular_buffer<rover_localization::InertialState> inertialState;
+        boost::circular_buffer< rover_localization::InertialState > inertialState;
 
         /***************************/
         /** Output port variables **/
@@ -257,45 +257,41 @@ namespace rover_localization {
          */
         void cleanupHook();
 
-        /**@brief Get the values from the input port samples
-         */
-        void inputPortSamples(boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                            boost::circular_buffer<rover_localization::InertialState> &inertialState);
-
         /**@brief Initialize the filter used in the Back-End
          */
-        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                boost::circular_buffer<rover_localization::InertialState> &inertialState);
-
+//        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+//                boost::circular_buffer<rover_localization::InertialState> &inertialState);
+//
         /**@brief Calculate the delta of the state over the delta interval
          */
-        inline WSingleState deltaState (const double delta_t, const WSingleState &currentState, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose, boost::circular_buffer<rover_localization::InertialState> &inertialState);
+        inline WSingleState deltaState (const double delta_t, const WSingleState &currentState, base::samples::RigidBodyState &pose,
+                                        base::samples::RigidBodyState &delta_pose, base::samples::IMUSensors &inertialSamples);
 
-        /**@brief Method to encapsulate the filter predict step
-         */
-        inline void statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose, boost::circular_buffer<rover_localization::InertialState> &inertialState);
-
-        /**@brief Method to encapsulate the filter update (attitude and velocity)
-         */
-        inline void attitudeAndVelocityUpdate(const double delta_t, const WSingleState &statek_i,
-                                    boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                    boost::circular_buffer<rover_localization::InertialState> &inertialState);
-
-        /**@brief Calculates relative position
-         */
-        localization::DataModel<double, 3> relativePosition(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose);
-
-
-        /**@brief Calculates velocity error
-         */
-        localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-                                                        const boost::shared_ptr< StateOptimizeFilter > filter);
-
-
-        /** \brief Store the variables in the Output ports
-         */
-        void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
-                                const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
+//        /**@brief Method to encapsulate the filter predict step
+//         */
+//        inline void statePredict(const double delta_t, const WSingleState &statek_i, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose, boost::circular_buffer<rover_localization::InertialState> &inertialState);
+//
+//        /**@brief Method to encapsulate the filter update (attitude and velocity)
+//         */
+//        inline void attitudeAndVelocityUpdate(const double delta_t, const WSingleState &statek_i,
+//                                    boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+//                                    boost::circular_buffer<rover_localization::InertialState> &inertialState);
+//
+//        /**@brief Calculates relative position
+//         */
+//        localization::DataModel<double, 3> relativePosition(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose);
+//
+//
+//        /**@brief Calculates velocity error
+//         */
+//        localization::DataModel<double, 3> velocityError(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
+//                                                        const boost::shared_ptr< StateOptimizeFilter > filter);
+//
+//
+//        /** \brief Store the variables in the Output ports
+//         */
+//        void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
+//                                const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
 
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW

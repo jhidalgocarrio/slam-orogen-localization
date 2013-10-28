@@ -5,6 +5,9 @@
 
 #include "rover_localization/ProcessingBase.hpp"
 
+/** Localization library **/
+#include <localization/Util.hpp> /** Collection of methods */
+
 /** General Libraries **/
 #include <math.h> /** math library (for natural Log among others) **/
 #include <vector> /** std vector **/
@@ -138,10 +141,10 @@ namespace rover_localization {
         /******************************************/
 
 	/** Initial values of Accelerometers for Pitch and Roll calculation */
-	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_leveling_acc;
+	Eigen::Matrix <double, 3, Eigen::Dynamic> init_leveling_acc;
 	
 	/** Initial values of Accelerometers (Inclinometers) for Pitch and Roll calculation */
-	Eigen::Matrix <double,localization::NUMAXIS, Eigen::Dynamic> init_leveling_incl;
+	Eigen::Matrix <double, 3, Eigen::Dynamic> init_leveling_incl;
 
         /** Body to Left camera transformation **/
         base::samples::RigidBodyState body2lcameraRbs;
@@ -172,7 +175,7 @@ namespace rover_localization {
         base::samples::Joints jointSamples;
 
         /** Calibrated and compensated inertial values **/
-        base::samples::IMUSensors inertialSamples
+        base::samples::IMUSensors inertialSamples;
 
         /**  Inertial state **/
         rover_localization::InertialState inertialState;
@@ -288,6 +291,10 @@ namespace rover_localization {
         /** \brief Compute Cartesian and Model velocities 
 	 */
 	void calculateVelocities();
+
+        /** \brief Port out the values
+	 */
+        void outputPortSamples();
 
      public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW

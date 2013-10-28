@@ -1,6 +1,13 @@
-/* Generated from orogen/lib/orogen/templates/tasks/Processing.cpp */
+/* Generated from orogen/lib/orogen/templates/tasks/Task.cpp */
 
 #include "Processing.hpp"
+
+#ifndef D2R
+#define D2R M_PI/180.00 /** Convert degree to radian **/
+#endif
+#ifndef R2D
+#define R2D 180.00/M_PI /** Convert radian to degree **/
+#endif
 
 //#define DEBUG_PRINTS 1
 
@@ -95,11 +102,11 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
 	world2navigationRbs.velocity.setZero();
 	
 	/** Assume well known starting position **/
-	world2navigationRbs.cov_position = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
-	world2navigationRbs.cov_velocity = Eigen::Matrix <double, localization::NUMAXIS , localization::NUMAXIS>::Zero();
+	world2navigationRbs.cov_position = Eigen::Matrix3d::Zero();
+	world2navigationRbs.cov_velocity = Eigen::Matrix3d::Zero();
 	
 	#ifdef DEBUG_PRINTS
-	Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
+	Eigen::Matrix <double,3,1> euler; /** In euler angles **/
 	euler[2] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
 	euler[1] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
 	euler[0] = poseSamples[0].orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
@@ -107,13 +114,13 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
 	std::cout<<"** position offset\n"<<tf.translation()<<"\n";
 	std::cout<<"** rotation offset\n"<<tf.rotation()<<"\n";
 	std::cout<<"** position\n"<< poseSamples[0].position<<"\n";
-	std::cout<<"** Roll: "<<euler[0]*localization::R2D<<" Pitch: "<<euler[1]*localization::R2D<<" Yaw: "<<euler[2]*localization::R2D<<"\n";
+	std::cout<<"** Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
 	#endif
 
 	/** Initial attitude from IMU acceleration has been already calculated **/
 	if (initAttitude)
 	{
-	    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
+	    Eigen::Matrix <double,3,1> euler; /** In euler angles **/
             Eigen::Quaternion <double> attitude = world2navigationRbs.orientation; /** Initial attitude from accelerometers has been already calculated **/
 	
 	    /** Get the initial Yaw from the initial Pose and the pitch and roll **/
@@ -136,7 +143,7 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
 	    #ifdef DEBUG_PRINTS
             std::cout<< "[PROCESSING REFERENCE-POSE]\n";
 	    std::cout<< "******** Initial Attitude in Pose Init Samples *******"<<"\n";
-	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<"Init Pitch: "<<euler[1]*localization::R2D<<"Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<"Init Pitch: "<<euler[1]*R2D<<"Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
 	}
 	
@@ -183,9 +190,9 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	/** Check if the number of stores acceleration corresponds to the initial leveling **/
 	if (init_leveling_accidx == this->init_leveling_size)
 	{
-	    Eigen::Matrix <double,localization::NUMAXIS,1> meanacc; /** Mean value of accelerometers **/
-	    Eigen::Matrix <double,localization::NUMAXIS,1> meanincl; /** Mean value of inclinometer **/
-	    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In euler angles **/
+	    Eigen::Matrix <double,3,1> meanacc; /** Mean value of accelerometers **/
+	    Eigen::Matrix <double,3,1> meanincl; /** Mean value of inclinometer **/
+	    Eigen::Matrix <double,3,1> euler; /** In euler angles **/
 	    Eigen::Quaternion <double> attitude; /** Initial attitude in case no port in orientation is connected **/
             Eigen::Quaternion <double> q_world2imu;  /** Initial orienttation of the imu frame wrt the world fixed frame **/
 	
@@ -205,13 +212,13 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
 	    std::cout<<"*** Computed mean incl values: "<<meanincl[0]<<" "<<meanincl[1]<<" "<<meanincl[2]<<"\n";
 	    std::cout<<"*** Computed gravity (acc): "<<meanacc.norm()<<"\n";
-	    if (framework.use_inclinometers_leveling)
+	    if (config.use_inclinometers_leveling)
 	    {
 		std::cout<<"*** Computed gravity (incl): "<<meanincl.norm()<<"\n";
 	    }
 	    #endif
 	
-	    if (framework.use_inclinometers_leveling)
+	    if (config.use_inclinometers_leveling)
 	    {
 		euler[0] = (double) asin((double)meanincl[1]/ (double)meanincl.norm()); // Roll
 		euler[1] = (double) -atan(meanincl[0]/meanincl[2]); //Pitch
@@ -236,7 +243,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	    #ifdef DEBUG_PRINTS
             std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (IMU frame)  *******"<<"\n";
-	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
 	
 	    /** Set the quaternion world to imu frame **/
@@ -251,7 +258,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
             std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (after applying qtf)  *******"<<"\n";
-	    std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
 	
 	    attitude.normalize();
@@ -333,7 +340,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	        euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
                 std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
 		std::cout<< "******** Initial Attitude *******"<<"\n";
-		std::cout<< "Init Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+		std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 		#endif
 	    }
 	
@@ -367,7 +374,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
             euler[2] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
             euler[1] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
             euler[0] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-            std::cout<<"** [PROCESSING BACK-END-INFO] Roll: "<<euler[0]*localization::R2D<<" Init Pitch: "<<euler[1]*localization::R2D<<" Init Yaw: "<<euler[2]*localization::R2D<<"\n";
+            std::cout<<"** [PROCESSING BACK-END-INFO] Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
             #endif
         }
 
@@ -377,8 +384,8 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	imusample.gyro = qtf.inverse() * inertial_samples_sample.gyro;
 	imusample.mag = qtf.inverse() * inertial_samples_sample.mag;
 
-        /** Substract Earth rotation from gyros **/
-        localization::Util::SubstractEarthRotation(&(imusample.gyro), &(world2navigationRbs.orientation), location.latitude);
+        /** Subtract Earth rotation from gyros **/
+        localization::Util::SubtractEarthRotation(&(imusample.gyro), &(world2navigationRbs.orientation), location.latitude);
 
         /** Eliminate noise from sensor body frame **/
         imusample.gyro -= stateEstimationSamples.gbias; /** Eliminate estimated bias */
@@ -438,7 +445,7 @@ void Processing::systemstate_samplesTransformerCallback(const base::Time &ts, co
 
 void Processing::encoder_samplesTransformerCallback(const base::Time &ts, const ::base::actuators::Status &encoder_samples_sample)
 {
-    /** A new sample arrived to the inport **/
+    /** A new sample arrived to the Input port **/
     cbEncoderSamples.push_front(encoder_samples_sample);
     counter.encoderSamples++;
 
@@ -496,24 +503,35 @@ void Processing::encoder_samplesTransformerCallback(const base::Time &ts, const 
 
 void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT::extras::ReadOnlyPointer< ::base::samples::frame::Frame > &left_frame_sample)
 {
-
     /** Get the transformation from the transformer (iMoby transformer) **/
     Eigen::Affine3d tf;
+    Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
+
     if(!_lcamera2body.get( ts, tf ))
     {
         RTT::log(RTT::Warning)<<"[LEFT-CAMERA FATAL ERROR] No transformation provided for the transformer."<<RTT::endlog();
         return;
     }
 
+    #ifdef DEBUG_PRINTS
     std::cout<<"[PROCESSING LEFT-CAMERA] Frame at: "<<left_frame_sample->time.toMicroseconds()<<"\n";
+    #endif
+
+    /** Debug transformation port (left camera expressed in body frame) **/
+    body2lcameraRbs.invalidate();
+    body2lcameraRbs.time = ts;
+    body2lcameraRbs.position = tf.translation();
+    body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
 
     /** If synchronize camera with the servo **/
     if (cameraSynch.synchOn)
     {
+
         /** Set to true the zero Mark when passing the horizon line (in body frame) **/
         if (!cameraSynch.zeroMark && (errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2] > 0.0))
         {
             cameraSynch.zeroMark = true;
+            std::cout<<"passed zero mark\n";
         }
         else if (cameraSynch.zeroMark &&
         (fabs(errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2]) < cameraSynch.quatError.toRotationMatrix().eulerAngles(2,1,0)[2]))
@@ -523,56 +541,28 @@ void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT
             toWriteRightFrame = true;
             _left_frame_out.write(left_frame_sample);
 
-            if (_output_debug.value())
-            {
-
-                /** Debug transformation port (left camera expressed in body frame) **/
-                body2lcameraRbs.invalidate();
-                body2lcameraRbs.time = ts;
-                body2lcameraRbs.position = tf.translation();
-                body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
-                _body_to_lcamera.write(body2lcameraRbs);
-
-                Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
-                euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-                euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-                euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-                _body_to_lcamera_euler.write(euler*localization::R2D);
-
-                Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
-                euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-                euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-                euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-                _error_body_to_lcamera_euler.write(euler*localization::R2D);
-            }
-
+            std::cout<<"wrote image\n";
         }
     }
     else
     {
         _left_frame_out.write(left_frame_sample);
+    }
 
-        if (_output_debug.value())
-        {
-            /** Debug transformation port (left camera expressed in body frame) **/
-            body2lcameraRbs.invalidate();
-            body2lcameraRbs.time = ts;
-            body2lcameraRbs.position = tf.translation();
-            body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
-            _body_to_lcamera.write(body2lcameraRbs);
+    if (_output_debug.value())
+    {
+        _body_to_lcamera.write(body2lcameraRbs);
 
-            Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
-            euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-            euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-            euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-            _body_to_lcamera_euler.write(euler*localization::R2D);
+        Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
+        euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+        euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+        euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+        _body_to_lcamera_euler.write(euler*R2D);
 
-            Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
-            euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-            euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-            euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-            _error_body_to_lcamera_euler.write(euler*localization::R2D);
-        }
+        euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+        euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+        euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+        _error_body_to_lcamera_euler.write(euler*R2D);
     }
 
     return;
@@ -588,7 +578,9 @@ void Processing::right_frameTransformerCallback(const base::Time &ts, const ::RT
         return;
     }
 
+    #ifdef DEBUG_PRINTS
     std::cout<<"[PROCESSING RIGHT-CAMERA] Frame at: "<<right_frame_sample->time.toMicroseconds()<<"\n";
+    #endif
 
     /** If synchronize camera with the servo **/
     if (cameraSynch.synchOn)
@@ -620,11 +612,13 @@ void Processing::scan_samplesTransformerCallback(const base::Time &ts, const ::b
     base::samples::Pointcloud pointcloud;
     scan_samples_sample.convertScanToPointCloud<base::Point>(pointcloud.points, tf);
 
+    #ifdef DEBUG_PRINTS
     std::cout<<"[PROCESSING LASER-SCANS] Scan time: "<<scan_samples_sample.time.toMicroseconds()<<"\n";
     std::cout<<"[PROCESSING LASER-SCANS] Scan size: "<<scan_samples_sample.ranges.size()<<"\n";
     std::cout<<"[PROCESSING LASER-SCANS] Start angle: "<<scan_samples_sample.start_angle<<"\n";
     std::cout<<"[PROCESSING LASER-SCANS] Angular resolution: "<<scan_samples_sample.angular_resolution<<"\n";
     std::cout<<"[PROCESSING LASER-SCANS] Point cloud size: "<<pointcloud.points.size()<<"\n";
+    #endif
 
     /** Delete all the points which have a Z component higher than the laser frame **/
     base::samples::Pointcloud pointcloudFiltered;
@@ -698,9 +692,9 @@ bool Processing::configureHook()
 	initPosition = true;
     }
 
-    /***********************************************/
-    /** Use properties to Configure the Framework **/
-    /***********************************************/
+    /******************************************/
+    /** Use properties to Configure the Task **/
+    /******************************************/
 
     /** Set the initial number of samples for the attitude **/
     if (config.init_leveling_time != 0.00)
@@ -723,12 +717,12 @@ bool Processing::configureHook()
     /** Set the number of samples between each sensor input (if there are not coming at the same sampling rate) */
     if (config.output_frequency != 0.00)
     {
-	number.imuSamples = (1.0/_inertial_samples_period.value())/framework.output_frequency;
-	number.encoderSamples = (1.0/_encoder_samples_period.value())/framework.output_frequency;
-	number.asguardStatusSamples = (1.0/_systemstate_samples_period.value())/framework.output_frequency;
-	number.forceSamples = (1.0/_ground_forces_samples_period.value())/framework.output_frequency;
-	number.torqueSamples = (1.0/_torque_samples_period.value())/framework.output_frequency;
-	number.referencePoseSamples = (1.0/_reference_pose_samples_period.value())/framework.output_frequency;
+	number.imuSamples = (1.0/_inertial_samples_period.value())/config.output_frequency;
+	number.encoderSamples = (1.0/_encoder_samples_period.value())/config.output_frequency;
+	number.asguardStatusSamples = (1.0/_systemstate_samples_period.value())/config.output_frequency;
+	number.forceSamples = (1.0/_ground_forces_samples_period.value())/config.output_frequency;
+	number.torqueSamples = (1.0/_torque_samples_period.value())/config.output_frequency;
+	number.referencePoseSamples = (1.0/_reference_pose_samples_period.value())/config.output_frequency;
     }
 
     #ifdef DEBUG_PRINTS
@@ -808,9 +802,9 @@ bool Processing::configureHook()
     jointSamples.resize(config.jointNames.size());
     jointSamples.names = config.jointNames;
 
-    /*******************************************/
-    /** Info and Warnings about the Framework **/
-    /*******************************************/
+    /**************************************/
+    /** Info and Warnings about the Task **/
+    /**************************************/
 
     if (_inertial_samples.connected())
     {
@@ -876,14 +870,14 @@ bool Processing::configureHook()
     RTT::log(RTT::Warning)<<"[Info] Frequency of Asguard Status Samples[Hertz]: "<<(1.0/_systemstate_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Torque Samples[Hertz]: "<<(1.0/_torque_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Ground Force Samples[Hertz]: "<<(1.0/_ground_forces_samples_period.value())<<RTT::endlog();
-    RTT::log(RTT::Warning)<<"[Info] Output Frequency[Hertz]: "<<framework.output_frequency<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] Output Frequency[Hertz]: "<<config.output_frequency<<RTT::endlog();
 
-    if (framework.use_inclinometers_leveling)
+    if (config.use_inclinometers_leveling)
         RTT::log(RTT::Warning)<<"[Info] Initial leveling using Inclinometers ";
     else
         RTT::log(RTT::Warning)<<"[Info] Initial leveling using Accelerometers ";
 
-    RTT::log(RTT::Warning)<<"Time[seconds]: "<<framework.init_leveling_time<<" which at "<<(1.0)/_inertial_samples_period.value()
+    RTT::log(RTT::Warning)<<"Time[seconds]: "<<config.init_leveling_time<<" which at "<<(1.0)/_inertial_samples_period.value()
         <<" Hertz are "<<init_leveling_size<<" #Samples"<<RTT::endlog();
 
     RTT::log(RTT::Warning)<<"[Info] number.imuSamples: "<<number.imuSamples<<RTT::endlog();
@@ -1049,10 +1043,12 @@ void Processing::inputPortSamples()
 
 void Processing::calculateVelocities()
 {
-    double delta_t = (1.0/framework.output_frequency);
+    double delta_t = (1.0/config.output_frequency);
+    #ifdef DEBUG_PRINTS
     base::Time encoderDelta_t = encoderSamples[0].time - encoderSamples[1].time;
     base::Time asguardStatusDelta_t = asguardStatusSamples[0].time - asguardStatusSamples[1].time;
     base::Time imuDelta_t = imuSamples[0].time - imuSamples[1].time;
+    #endif
     Eigen::Matrix<double, Eigen::Dynamic, 1> derivationEncoderSamples; //!Local variable for the derivation of the encoders
     Eigen::Matrix<double, Eigen::Dynamic, 1> derivationAsguardStatusSamples; //!Local variable for the derivation of Asguard Status (pasive Joint)
 
@@ -1096,7 +1092,7 @@ void Processing::calculateVelocities()
 	jointSamples[0].speed = localization::Util::finiteDifference (derivationAsguardStatusSamples, delta_t); //passive joints speed
 	
 	#ifdef DEBUG_PRINTS
-	std::cout<<"[PROCESSING CALCULATING_VELO] passiveJoint new velocity: "<<modelVelocities[0]<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] passiveJoint new velocity: "<<jointSamples[0].speed<<"\n";
 	#endif
 
 	/** Velocities for the vector **/
@@ -1124,7 +1120,7 @@ void Processing::calculateVelocities()
 	    jointSamples[i+1].speed = localization::Util::finiteDifference(derivationEncoderSamples, delta_t); //!wheel rotation speed
 	
 	    #ifdef DEBUG_PRINTS
-	    std::cout<<"[PROCESSING CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<modelVelocities[i+1]<<"\n";
+	    std::cout<<"[PROCESSING CALCULATING_VELO] ["<<i<<"] encoderSamples new velocity: "<<jointSamples[i+1].speed<<"\n";
 	    #endif
 
 	}
@@ -1144,7 +1140,6 @@ void Processing::calculateVelocities()
 void Processing::outputPortSamples()
 {
     std::vector<Eigen::Affine3d> fkRobot;
-    RobotContactPoints robotChains;
 
     /*******************************************/
     /** Port out the Output Ports information **/
@@ -1152,7 +1147,7 @@ void Processing::outputPortSamples()
 
     /** Joint samples out **/
     jointSamples.time = encoderSamples[0].time;
-    _joint_samples_out.write(jointSamples);
+    _joints_samples_out.write(jointSamples);
 
     /** Calibrated and compensate inertial values **/
     inertialSamples = imuSamples[0];
@@ -1164,7 +1159,7 @@ void Processing::outputPortSamples()
 
     /** The estimated world 2 navigation transform **/
     world2navigationRbs.time = encoderSamples[0].time;//timestamp;
-    _world_to_navigation_out(world2navigationRbs);
+    _world_to_navigation_out.write(world2navigationRbs);
 
     /** Ground Truth if available **/
     if (_reference_pose_samples.connected())
@@ -1180,7 +1175,7 @@ void Processing::outputPortSamples()
         referenceOut.cov_position = poseSamples[0].cov_position + poseSamples[1].cov_position;
         referenceOut.velocity = world2navigationRbs.orientation.inverse() * (poseSamples[0].velocity - poseSamples[1].velocity);//in body frame
         referenceOut.cov_velocity = world2navigationRbs.orientation.inverse() * (poseSamples[0].cov_velocity + poseSamples[1].cov_velocity);
-        _reference__delta_pose_samples_out.write(referenceOut);
+        _reference_delta_pose_samples_out.write(referenceOut);
     }
 
     #ifdef DEBUG_PRINTS
