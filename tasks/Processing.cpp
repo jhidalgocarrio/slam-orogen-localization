@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -531,7 +531,6 @@ void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT
         if (!cameraSynch.zeroMark && (errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2] > 0.0))
         {
             cameraSynch.zeroMark = true;
-            std::cout<<"passed zero mark\n";
         }
         else if (cameraSynch.zeroMark &&
         (fabs(errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2]) < cameraSynch.quatError.toRotationMatrix().eulerAngles(2,1,0)[2]))
@@ -540,8 +539,6 @@ void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT
             cameraSynch.zeroMark = false;
             toWriteRightFrame = true;
             _left_frame_out.write(left_frame_sample);
-
-            std::cout<<"wrote image\n";
         }
     }
     else
@@ -670,8 +667,8 @@ bool Processing::configureHook()
 
     /** Set the initial world to navigation frame transform **/
     world2navigationRbs.invalidate();
-    world2navigationRbs.sourceFrame = "World Frame (North-West-Up)";
-    world2navigationRbs.targetFrame = "Navigation Frame";
+    world2navigationRbs.sourceFrame = "world";
+    world2navigationRbs.targetFrame = "navigation";
 
     /** If there is not an external reference system **/
     if (!_reference_pose_samples.connected())

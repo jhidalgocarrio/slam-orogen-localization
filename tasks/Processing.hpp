@@ -6,7 +6,7 @@
 #include "rover_localization/ProcessingBase.hpp"
 
 /** Localization library **/
-#include <localization/Util.hpp> /** Collection of methods */
+#include <localization/tools/Util.hpp> /** Collection of methods */
 
 /** General Libraries **/
 #include <math.h> /** math library (for natural Log among others) **/
