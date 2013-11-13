@@ -20,6 +20,10 @@
 /** Boost **/
 #include <boost/circular_buffer.hpp> /** For circular buffers **/
 
+/** Rock libraries **/
+#include "frame_helper/FrameHelper.h" /** Rock lib for manipulate frames **/
+
+
 namespace rover_localization {
 
     /** Current counter of samples arrived to each port **/
@@ -149,6 +153,9 @@ namespace rover_localization {
         /** Body to Left camera transformation **/
         base::samples::RigidBodyState body2lcameraRbs;
 
+        /** Frame helper **/
+        frame_helper::FrameHelper frameHelperLeft, frameHelperRight;
+
         /***********************************/
         /** Input ports dependent buffers **/
         /***********************************/
@@ -185,6 +192,10 @@ namespace rover_localization {
 
         /** Calculated initial navigation frame pose expressed in world frame */
         base::samples::RigidBodyState world2navigationRbs;
+
+        /** Undistorted camera images **/
+        RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> leftFrame;
+        RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> rightFrame;
 
         /************************/
         /** Callback functions **/
@@ -284,15 +295,21 @@ namespace rover_localization {
          */
         void cleanupHook();
 
-        /** \brief Get the correct value from the input ports buffers
+        /** @brief Get the correct value from the input ports buffers
 	 */
 	void inputPortSamples();
 
-        /** \brief Compute Cartesian and Model velocities 
+        /** @brief Compute Cartesian and Model velocities 
 	 */
 	void calculateVelocities();
 
-        /** \brief Port out the values
+        /**@brief Colorize Point cloud
+         */
+        void colorizePointcloud (base::samples::Pointcloud &pointcloud,
+                            RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> leftImage,
+                            RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> rightImage);
+
+        /** @brief Port out the values
 	 */
         void outputPortSamples();
 

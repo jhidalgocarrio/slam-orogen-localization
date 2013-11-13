@@ -5,6 +5,7 @@ name "rover_localization"
 # If new data types need to be defined, they have to be put in a separate C++
 # header, and this header will be loaded here
 using_library "localization" # Localization library
+using_library "frame_helper" # Image Frames
 #using_library 'envire' # Maps and environment representation
 
 # If the component/deployments use data types that are defined in other oroGen
@@ -12,6 +13,7 @@ using_library "localization" # Localization library
 import_types_from "base"
 import_types_from 'sysmon'
 import_types_from "torque_estimator"
+import_types_from "frame_helper/Calibration.h"
 #import_types_from 'envire'
 
 import_types_from "FrontEndTypes.hpp"
@@ -37,7 +39,19 @@ task_context "Processing" do
     #**** Rover Properties ********
     #******************************
     property('camera_synch', 'rover_localization/CameraSynchConfiguration').
-        doc 'Configuration values for a sweeping camera on a robot.'
+        doc 'Configuration values for synchronization of a sweeping camera on a robot.'
+
+    #*******************************
+    #**** Camera Properties ********
+    #*******************************
+    property("left_camera_parameters", 'frame_helper/CameraCalibration').
+        doc 'Camera intrinsic parameters.'
+
+    property("right_camera_parameters", 'frame_helper/CameraCalibration').
+        doc 'Camera intrinsic parameters.'
+
+    property("extrinsic_camera_parameters", 'frame_helper/ExtrinsicCalibration').
+        doc 'Transformation from Left to Right camera principal points.'
 
     #******************************
     #******* Input ports  *********
@@ -123,10 +137,10 @@ task_context "Processing" do
 	doc 'Point cloud samples.'
 
     output_port("left_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Left camera frame (after synchronization with the dynamixel)'
+        doc 'Undistorted Left camera frame (after synchronization with the dynamixel)'
 
     output_port("right_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Right camera frame (after synchronization with the dynamixel).'
+        doc 'Undistorted Right camera frame (after synchronization with the dynamixel).'
 
     output_port('reference_pose_samples_out', 'base/samples/RigidBodyState').
 	doc 'Pose and velocities computed by the ground truth system.'
@@ -190,6 +204,8 @@ task_context "StateOptimize" do
     #******************************
     #******* Input ports  *********
     #******************************
+
+    #******* Proprioceptive sensors *********
     input_port('pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
         doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
@@ -199,10 +215,20 @@ task_context "StateOptimize" do
         doc 'Calibrated and compensated inertial values.'
 
     input_port('inertial_state', 'rover_localization/InertialState').
-	doc 'Useful information related inertial samples.'
+	doc 'Context information related to inertial samples.'
 
+    #******* Exteroceptive sensors *********
     input_port('exteroceptive_samples', '/base/samples/RigidBodyState')
         doc 'Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).'
+
+    input_port('point_cloud_samples', '/base/samples/Pointcloud').
+	doc 'Set of points used to compute the delta transformation.(Laser scans, stereo triangulation, etc..).'
+
+    input_port('point_cloud_variance', '/base/MatrixXd').
+        doc 'Uncertainty of the points in the point_cloud.'
+
+    input_port('point_cloud_jacobian', '/base/MatrixXd').
+        doc 'Jacobian with respect to the points in the point_cloud.'
 
     ##########################
     # Transformer
