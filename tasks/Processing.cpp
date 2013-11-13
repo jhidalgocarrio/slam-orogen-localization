@@ -648,7 +648,7 @@ void Processing::scan_samplesTransformerCallback(const base::Time &ts, const ::b
     }
 
     /** Colorize the Point cloud using the stereo images **/
-//    this->colorizePointcloud(pointcloudFiltered, leftFrame, rightFrame);
+    this->colorizePointcloud(pointcloudFiltered, leftFrame, rightFrame);
 
     /** Write the point cloud into the port **/
     _point_cloud_samples_out.write(pointcloudFiltered);
@@ -1190,12 +1190,22 @@ void Processing::colorizePointcloud (base::samples::Pointcloud &pointcloud,
 	    Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rx, Eigen::Vector3d::UnitX()));
 
 
-    /** Get the transformation**/
-    lcamera2body.rotate(body2lcameraRbs.orientation.inverse());
-    lcamera2body.translation() = -body2lcameraRbs.position;
+    /** Port out body to rcamera **/
+    base::samples::RigidBodyState body2rcameraRbs = body2lcameraRbs;
+    body2rcameraRbs.position += body2lcameraRbs.orientation * tlcamera2rcamera;
+    body2rcameraRbs.orientation *= qlcamera2rcamera;
 
-    rcamera2body.rotate((body2lcameraRbs.orientation * qlcamera2rcamera).inverse());
-    rcamera2body.translation() = lcamera2body.translation() + tlcamera2rcamera;
+    _body_to_rcamera.write(body2rcameraRbs);
+
+    /** Get the transformations **/
+    lcamera2body.linear() = body2lcameraRbs.orientation.inverse().toRotationMatrix();
+    lcamera2body.translation() = -body2lcameraRbs.position;
+    std::cout<<"[COLORIZE POINTCLOUD]: body2lcameraRbs:\n"<<body2lcameraRbs.orientation.toRotationMatrix()<<"\n ";
+    std::cout<<"[COLORIZE POINTCLOUD]: body2lcameraRbs:\n"<<body2lcameraRbs.position<<"\n ";
+    std::cout<<"[COLORIZE POINTCLOUD]: -body2lcameraRbs:\n"<<-body2lcameraRbs.position<<"\n ";
+
+    rcamera2body.linear() = body2rcameraRbs.orientation.inverse().toRotationMatrix();
+    rcamera2body.translation() = -body2rcameraRbs.position;
 
     /** Get calibration matrices **/
     frame_helper::CameraCalibration calibleft = _left_camera_parameters.value();
@@ -1216,6 +1226,8 @@ void Processing::colorizePointcloud (base::samples::Pointcloud &pointcloud,
 
     std::cout<<"[COLORIZE POINTCLOUD]: leftCameraMatrix:\n"<<leftCameraMatrix<<"\n ";
     std::cout<<"[COLORIZE POINTCLOUD]: rightCameraMatrix:\n"<<rightCameraMatrix<<"\n ";
+    std::cout<<"[COLORIZE POINTCLOUD]: lcamera2body:\n"<<lcamera2body.matrix()<<"\n ";
+    std::cout<<"[COLORIZE POINTCLOUD]: rcamera2body:\n"<<rcamera2body.matrix()<<"\n ";
 
     // iterate through all the points
     for(register size_t i = 0; i < pointcloud.points.size(); ++i)
@@ -1257,6 +1269,10 @@ void Processing::colorizePointcloud (base::samples::Pointcloud &pointcloud,
 		pointcloud.colors[i] = base::Vector4d::Zero();
 	    }
 	}
+        else
+        {
+            pointcloud.colors[i] = base::Vector4d::Ones();
+        }
     }
 
     return;

@@ -173,6 +173,9 @@ task_context "Processing" do
     output_port('body_to_lcamera', 'base/samples/RigidBodyState').
 	doc 'Body to Left Camera transformation : left camera frame expressed with respect to the body frame. Tbody2lcamera'
 
+    output_port('body_to_rcamera', 'base/samples/RigidBodyState').
+	doc 'Body to Right Camera transformation : right camera frame expressed with respect to the body frame. Tbody2rcamera'
+
     output_port('body_to_lcamera_euler', 'base/Vector3d')
 	doc 'Body to Laser transformation: laser frame expressed with respect to the body frame in Euler angles.'
 
