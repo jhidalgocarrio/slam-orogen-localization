@@ -17,6 +17,9 @@ namespace rover_localization
     {
         double output_frequency;//It cannot be higher that the sensor values of the aggregator (transformer).
 
+        bool use_inclinometers_as_theoretical_gravity;//Inclinometers are more stable than accelerometers at initial time.
+                                                    //They cloud be use as theoretical local gravity value instead of using
+                                                    //some models as WGS-84 ellipsoid Earth.
         bool use_inclinometers_leveling;//Some IMU provide inclinometers as fast and more accurate solution for initial leveling.
                                 //Set True or False to use inclinometers values or not.
                                 //Note: Check if the IMU inport has inclinometers information (right now coded in mag).

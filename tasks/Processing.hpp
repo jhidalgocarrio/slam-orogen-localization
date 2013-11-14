@@ -148,6 +148,9 @@ namespace rover_localization {
 	/** Initial values of Accelerometers (Inclinometers) for Pitch and Roll calculation */
 	Eigen::Matrix <double, 3, Eigen::Dynamic> init_leveling_incl;
 
+        /** Initial values of Gyroscopes (sanity check) */
+	Eigen::Matrix <double, 3, Eigen::Dynamic> init_gyroscopes;
+
         /** Body to Left camera transformation **/
         base::samples::RigidBodyState body2lcameraRbs;
 
@@ -167,7 +170,7 @@ namespace rover_localization {
 	boost::circular_buffer<base::actuators::Status> encoderSamples; /** Encoder Status information  **/
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
-	boost::circular_buffer<base::samples::RigidBodyState> poseSamples; /** Pose information (init and debug)**/
+	boost::circular_buffer<base::samples::RigidBodyState> referencePoseSamples; /** Pose information (init and debug)**/
 
         /** State information **/
         rover_localization::StateEstimation stateEstimationSamples;

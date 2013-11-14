@@ -104,10 +104,10 @@ task_context "Processing" do
     # body frame.
     ##############################################
     transformer do
-	transform "imu", "body" #body to imu in transformation convention
-	transform "reference", "body"
-        transform "lcamera", "body"
-        transform "laser", "body"
+	transform "body", "imu" #esa-npi body to imu in transformation convention
+	transform "reference", "body" #iMoby transformation reference expressed in body (it brings reference to body)
+        transform "lcamera", "body" #iMoby transformation lcamera expressed in body
+        transform "laser", "body" #iMoby transformation laser expressed in body (it brings laser points in body frame pbody = Tbody2laser * plaser)
 	align_port("encoder_samples", 0.001)
 	align_port("inertial_samples", 0.002)
 	align_port("systemstate_samples", 0.01)
