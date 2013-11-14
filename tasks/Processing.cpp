@@ -615,6 +615,25 @@ void Processing::right_frameTransformerCallback(const base::Time &ts, const ::RT
         _right_frame_out.write(rightFrame);
     }
 
+    if (_output_debug.value())
+    {
+        /** Get extrinsic parameters to have rcamera with respect to lcamera **/
+        Eigen::Vector3d tlcamera2rcamera = Eigen::Vector3d(_extrinsic_camera_parameters.value().tx,
+                                                        _extrinsic_camera_parameters.value().ty,
+                                                        _extrinsic_camera_parameters.value().tz);
+        Eigen::Quaterniond qlcamera2rcamera = Eigen::Quaternion <double> (Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rz, Eigen::Vector3d::UnitZ())*
+                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().ry, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rx, Eigen::Vector3d::UnitX()));
+
+
+        /** Port out body to rcamera **/
+        base::samples::RigidBodyState body2rcameraRbs = body2lcameraRbs;
+        body2rcameraRbs.position += body2lcameraRbs.orientation * tlcamera2rcamera;
+        body2rcameraRbs.orientation *= qlcamera2rcamera;
+
+        _body_to_rcamera.write(body2rcameraRbs);
+    }
+
     return;
 }
 
@@ -646,9 +665,6 @@ void Processing::scan_samplesTransformerCallback(const base::Time &ts, const ::b
         if ((*it)[2] < tf.translation()[2])
             pointcloudFiltered.points.push_back(*it);
     }
-
-    /** Colorize the Point cloud using the stereo images **/
-    this->colorizePointcloud(pointcloudFiltered, leftFrame, rightFrame);
 
     /** Write the point cloud into the port **/
     _point_cloud_samples_out.write(pointcloudFiltered);
@@ -1170,115 +1186,6 @@ void Processing::calculateVelocities()
 
     return;
 }
-
-void Processing::colorizePointcloud (base::samples::Pointcloud &pointcloud,
-                                RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> leftImage,
-                                RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> rightImage)
-{
-
-    Eigen::Affine3d lcamera2body, rcamera2body;
-
-    // prepare the target pointcloud
-    pointcloud.colors.resize( pointcloud.points.size() );
-
-    /** Get extrinsic parameters to have rcamera with respect to lcamera **/
-    Eigen::Vector3d tlcamera2rcamera = Eigen::Vector3d(_extrinsic_camera_parameters.value().tx,
-                                                    _extrinsic_camera_parameters.value().ty,
-                                                    _extrinsic_camera_parameters.value().tz);
-    Eigen::Quaterniond qlcamera2rcamera = Eigen::Quaternion <double> (Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rz, Eigen::Vector3d::UnitZ())*
-	    Eigen::AngleAxisd(_extrinsic_camera_parameters.value().ry, Eigen::Vector3d::UnitY()) *
-	    Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rx, Eigen::Vector3d::UnitX()));
-
-
-    /** Port out body to rcamera **/
-    base::samples::RigidBodyState body2rcameraRbs = body2lcameraRbs;
-    body2rcameraRbs.position += body2lcameraRbs.orientation * tlcamera2rcamera;
-    body2rcameraRbs.orientation *= qlcamera2rcamera;
-
-    _body_to_rcamera.write(body2rcameraRbs);
-
-    /** Get the transformations **/
-    lcamera2body.linear() = body2lcameraRbs.orientation.inverse().toRotationMatrix();
-    lcamera2body.translation() = -body2lcameraRbs.position;
-    std::cout<<"[COLORIZE POINTCLOUD]: body2lcameraRbs:\n"<<body2lcameraRbs.orientation.toRotationMatrix()<<"\n ";
-    std::cout<<"[COLORIZE POINTCLOUD]: body2lcameraRbs:\n"<<body2lcameraRbs.position<<"\n ";
-    std::cout<<"[COLORIZE POINTCLOUD]: -body2lcameraRbs:\n"<<-body2lcameraRbs.position<<"\n ";
-
-    rcamera2body.linear() = body2rcameraRbs.orientation.inverse().toRotationMatrix();
-    rcamera2body.translation() = -body2rcameraRbs.position;
-
-    /** Get calibration matrices **/
-    frame_helper::CameraCalibration calibleft = _left_camera_parameters.value();
-
-    frame_helper::CameraCalibration calibright = _right_camera_parameters.value();
-
-    if( !calibleft.isValid() )
-	throw std::runtime_error("No valid calibration matrix embedded in left frame");
-
-    if( !calibright.isValid() )
-	throw std::runtime_error("No valid calibration matrix embedded in right frame");
-
-    Eigen::Matrix3d leftCameraMatrix =
-	calibleft.getCameraMatrix().cast<double>();
-
-    Eigen::Matrix3d rightCameraMatrix =
-	calibright.getCameraMatrix().cast<double>();
-
-    std::cout<<"[COLORIZE POINTCLOUD]: leftCameraMatrix:\n"<<leftCameraMatrix<<"\n ";
-    std::cout<<"[COLORIZE POINTCLOUD]: rightCameraMatrix:\n"<<rightCameraMatrix<<"\n ";
-    std::cout<<"[COLORIZE POINTCLOUD]: lcamera2body:\n"<<lcamera2body.matrix()<<"\n ";
-    std::cout<<"[COLORIZE POINTCLOUD]: rcamera2body:\n"<<rcamera2body.matrix()<<"\n ";
-
-    // iterate through all the points
-    for(register size_t i = 0; i < pointcloud.points.size(); ++i)
-    {
-	// get image coordinate of point p_camera = Tcamera_2_body * p_body
-	Eigen::Vector3d pleft = leftCameraMatrix * lcamera2body * pointcloud.points[i];
-	Eigen::Vector3d pright= rightCameraMatrix * rcamera2body * pointcloud.points[i];
-
-        std::cout<<"[COLORIZE POINTCLOUD]["<<i<<"]: point(lcamera): "<<pleft.x()<<" "<<pleft.y()<<" "<<pleft.z()<<"\n";
-        std::cout<<"[COLORIZE POINTCLOUD]["<<i<<"]: point(rcamera): "<<pright.x()<<" "<<pright.y()<<" "<<pright.z()<<"\n";
-
-	if((pleft.z() > 0.00) || (pright.z() > 0.00))
-	{
-	    unsigned int xleft = pleft.x() / pleft.z();
-	    unsigned int yleft = pleft.y() / pleft.z();
-            unsigned int xright = pright.x() / pright.z();
-	    unsigned int yright = pright.y() / pright.z();
-
-            std::cout<<"[COLORIZE POINTCLOUD]["<<i<<"]: xleft: "<<xleft<<"yleft: "<<yleft<<"\n";
-            std::cout<<"[COLORIZE POINTCLOUD]["<<i<<"]: xright: "<<xright<<"yright: "<<yright<<"\n";
-
-	    // is in Left image
-	    if( xleft >= 0 && xleft < leftImage->size.width && yleft >= 0 && yleft < leftImage->size.height )
-	    {
-                base::samples::frame::Frame image = (*leftImage);
-		rgb *v = (rgb*) &image.at<uint8_t>(xleft, yleft);
-		//rgb *v = (rgb*) &static_cast<base::samples::frame::Frame>(*leftImage).at<uint8_t>(xleft, yleft);
-		pointcloud.colors[i] = base::Vector4d( v->r, v->g, v->b, 255.0 ) / 255.0;
-	    }
-            else if (xright >= 0 && xright < rightImage->size.width && yright >= 0 && yright < rightImage->size.height )
-            {
-                base::samples::frame::Frame image = (*rightImage);
-		rgb *v = (rgb*) &image.at<uint8_t>(xright, yright);
-                //rgb *v = (rgb*) &static_cast<base::samples::frame::Frame>(*rightImage).at<uint8_t>(xright, yright);
-		pointcloud.colors[i] = base::Vector4d( v->r, v->g, v->b, 255.0 ) / 255.0;
-            }
-	    else
-	    {
-		pointcloud.colors[i] = base::Vector4d::Zero();
-	    }
-	}
-        else
-        {
-            pointcloud.colors[i] = base::Vector4d::Ones();
-        }
-    }
-
-    return;
-}
-
-
 
 void Processing::outputPortSamples()
 {

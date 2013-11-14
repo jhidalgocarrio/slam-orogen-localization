@@ -303,12 +303,6 @@ namespace rover_localization {
 	 */
 	void calculateVelocities();
 
-        /**@brief Colorize Point cloud
-         */
-        void colorizePointcloud (base::samples::Pointcloud &pointcloud,
-                            RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> leftImage,
-                            RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> rightImage);
-
         /** @brief Port out the values
 	 */
         void outputPortSamples();
