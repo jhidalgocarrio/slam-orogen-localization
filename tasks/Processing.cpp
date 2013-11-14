@@ -13,13 +13,6 @@
 
 using namespace rover_localization;
 
-struct __attribute__((__packed__)) rgb
-{
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-};
-
 Processing::Processing(std::string const& name)
     : ProcessingBase(name)
 {
@@ -33,8 +26,6 @@ Processing::Processing(std::string const& name)
     counter.reset();
     number.reset();
     flag.reset();
-
-    toWriteRightFrame = false;
 
     /***************************/
     /** Output port variables **/
@@ -512,7 +503,6 @@ void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT
 {
     /** Get the transformation from the transformer (iMoby transformer) **/
     Eigen::Affine3d tf;
-    Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
 
     if(!_lcamera2body.get( ts, tf ))
     {
@@ -524,56 +514,29 @@ void Processing::left_frameTransformerCallback(const base::Time &ts, const ::RTT
     std::cout<<"[PROCESSING LEFT-CAMERA] Frame at: "<<left_frame_sample->time.toMicroseconds()<<"\n";
     #endif
 
-    /** Transformation left camera expressed in body frame **/
-    body2lcameraRbs.invalidate();
-    body2lcameraRbs.time = ts;
-    body2lcameraRbs.position = tf.translation();
-    body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
-
     /** Undistorted image depending on meta data information **/
     ::base::samples::frame::Frame *frame_ptr = leftFrame.write_access();
-    frame_ptr->setDataDepth(left_frame_sample->getDataDepth());
-    frameHelperLeft.undistort(*left_frame_sample, *frame_ptr);
     frame_ptr->time = left_frame_sample->time;
+    frame_ptr->init(left_frame_sample->size.width, left_frame_sample->size.height, left_frame_sample->getDataDepth(), left_frame_sample->getFrameMode());
+    frameHelperLeft.undistort(*left_frame_sample, *frame_ptr);
     leftFrame.reset(frame_ptr);
 
-    /** If synchronize camera with the servo **/
+     /** If synchronize camera with the servo **/
     if (cameraSynch.synchOn)
     {
+        /** Check the time difference between inertial sensors and joint samples **/
+        base::Time diffTime = leftFrame->time - rightFrame->time;
 
-        /** Set to true the zero Mark when passing the horizon line (in body frame) **/
-        if (!cameraSynch.zeroMark && (errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2] > 0.0))
+        /** If the difference in time is less than half of a period run the synchronization **/
+        if (diffTime.toSeconds() < (_left_frame_period/2.0))
         {
-            cameraSynch.zeroMark = true;
-        }
-        else if (cameraSynch.zeroMark &&
-        (fabs(errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2]) < cameraSynch.quatError.toRotationMatrix().eulerAngles(2,1,0)[2]))
-        {
-            /** Write the camera frame into the port **/
-            cameraSynch.zeroMark = false;
-            toWriteRightFrame = true;
-            _left_frame_out.write(leftFrame);
+            this->cameraWithDynamixelSynchro(ts, tf, leftFrame, rightFrame);
         }
     }
     else
     {
+        /** Write the camera frame into the port **/
         _left_frame_out.write(leftFrame);
-    }
-
-    if (_output_debug.value())
-    {
-        _body_to_lcamera.write(body2lcameraRbs);
-
-        Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
-        euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        _body_to_lcamera_euler.write(euler*R2D);
-
-        euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        _error_body_to_lcamera_euler.write(euler*R2D);
     }
 
     return;
@@ -595,43 +558,27 @@ void Processing::right_frameTransformerCallback(const base::Time &ts, const ::RT
 
     /** Undistorted image depending on meta data information **/
     ::base::samples::frame::Frame *frame_ptr = rightFrame.write_access();
-    frame_ptr->setDataDepth(right_frame_sample->getDataDepth());
-    frameHelperRight.undistort(*right_frame_sample, *frame_ptr);
     frame_ptr->time = right_frame_sample->time;
+    frame_ptr->init(right_frame_sample->size.width, right_frame_sample->size.height, right_frame_sample->getDataDepth(), right_frame_sample->getFrameMode());
+    frameHelperRight.undistort(*right_frame_sample, *frame_ptr);
     rightFrame.reset(frame_ptr);
 
     /** If synchronize camera with the servo **/
     if (cameraSynch.synchOn)
     {
-        if (toWriteRightFrame)
+        /** Check the time difference between inertial sensors and joint samples **/
+        base::Time diffTime = rightFrame->time - leftFrame->time;
+
+        /** If the difference in time is less than half of a period run the synchronization **/
+        if (diffTime.toSeconds() < (_right_frame_period/2.0))
         {
-            toWriteRightFrame = false;
-            _right_frame_out.write(rightFrame);
+            this->cameraWithDynamixelSynchro(ts, tf, leftFrame, rightFrame);
         }
     }
     else
     {
         /** Write the camera frame into the port **/
         _right_frame_out.write(rightFrame);
-    }
-
-    if (_output_debug.value())
-    {
-        /** Get extrinsic parameters to have rcamera with respect to lcamera **/
-        Eigen::Vector3d tlcamera2rcamera = Eigen::Vector3d(_extrinsic_camera_parameters.value().tx,
-                                                        _extrinsic_camera_parameters.value().ty,
-                                                        _extrinsic_camera_parameters.value().tz);
-        Eigen::Quaterniond qlcamera2rcamera = Eigen::Quaternion <double> (Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rz, Eigen::Vector3d::UnitZ())*
-                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().ry, Eigen::Vector3d::UnitY()) *
-                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rx, Eigen::Vector3d::UnitX()));
-
-
-        /** Port out body to rcamera **/
-        base::samples::RigidBodyState body2rcameraRbs = body2lcameraRbs;
-        body2rcameraRbs.position += body2lcameraRbs.orientation * tlcamera2rcamera;
-        body2rcameraRbs.orientation *= qlcamera2rcamera;
-
-        _body_to_rcamera.write(body2rcameraRbs);
     }
 
     return;
@@ -1182,6 +1129,68 @@ void Processing::calculateVelocities()
             _angular_rate.write(jointSamples[4].speed); //!Front Left
             _angular_rate_old.write((encoderSamples[0].states[3].positionExtern - encoderSamples[1].states[3].positionExtern)/delta_t);
         }
+    }
+
+    return;
+}
+
+void Processing::cameraWithDynamixelSynchro(const base::Time &ts, const Eigen::Affine3d &tf,
+                        const RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> &leftFrame,
+                        const RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> &rightFrame)
+{
+
+    /** Transformation left camera expressed in body frame **/
+    body2lcameraRbs.invalidate();
+    body2lcameraRbs.time = ts;
+    body2lcameraRbs.position = tf.translation();
+    body2lcameraRbs.orientation = Eigen::Quaternion <double> (tf.rotation());
+
+    Eigen::Quaterniond errorQuaternion = body2lcameraRbs.orientation.inverse() * cameraSynch.body2lcamera;
+
+    /** Set to true the zero Mark when passing the horizon line (in body frame) **/
+    if (!cameraSynch.zeroMark && (errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2] > 0.0))
+    {
+        cameraSynch.zeroMark = true;
+    }
+    else if (cameraSynch.zeroMark &&
+    (fabs(errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2]) < cameraSynch.quatError.toRotationMatrix().eulerAngles(2,1,0)[2]))
+    {
+        /** Write the camera frame into the port **/
+        cameraSynch.zeroMark = false;
+        _left_frame_out.write(leftFrame);
+        _right_frame_out.write(rightFrame);
+    }
+
+    if (_output_debug.value())
+    {
+        _body_to_lcamera.write(body2lcameraRbs);
+
+        Eigen::Matrix <double, 3, 1> euler; /** In Euler angles **/
+        euler[2] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+        euler[1] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+        euler[0] = body2lcameraRbs.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+        _body_to_lcamera_euler.write(euler*R2D);
+
+        euler[2] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+        euler[1] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+        euler[0] = errorQuaternion.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+        _error_body_to_lcamera_euler.write(euler*R2D);
+
+        /** Get extrinsic parameters to have rcamera with respect to lcamera **/
+        Eigen::Vector3d tlcamera2rcamera = Eigen::Vector3d(_extrinsic_camera_parameters.value().tx,
+                                                        _extrinsic_camera_parameters.value().ty,
+                                                        _extrinsic_camera_parameters.value().tz);
+        Eigen::Quaterniond qlcamera2rcamera = Eigen::Quaternion <double> (Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rz, Eigen::Vector3d::UnitZ())*
+                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().ry, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(_extrinsic_camera_parameters.value().rx, Eigen::Vector3d::UnitX()));
+
+
+        /** Port out body to rcamera **/
+        base::samples::RigidBodyState body2rcameraRbs = body2lcameraRbs;
+        body2rcameraRbs.position += body2lcameraRbs.orientation * tlcamera2rcamera;
+        body2rcameraRbs.orientation *= qlcamera2rcamera;
+
+        _body_to_rcamera.write(body2rcameraRbs);
     }
 
     return;

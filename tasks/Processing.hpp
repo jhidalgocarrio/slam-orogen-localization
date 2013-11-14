@@ -125,8 +125,6 @@ namespace rover_localization {
         /** Data arrived ON/OFF Flag **/
         FlagInputPorts flag;
 
-        bool toWriteRightFrame;//Flag to write right frame camera after left camera is written
-
         /**************************/
         /*** Property Variables ***/
         /**************************/
@@ -302,6 +300,12 @@ namespace rover_localization {
         /** @brief Compute Cartesian and Model velocities 
 	 */
 	void calculateVelocities();
+
+        /** @brief Camera with Servo Synchronization
+         */
+        void cameraWithDynamixelSynchro(const base::Time &ts, const Eigen::Affine3d &tf,
+                        const RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> &leftFrame,
+                        const RTT::extras::ReadOnlyPointer<base::samples::frame::Frame> &rightFrame);
 
         /** @brief Port out the values
 	 */
