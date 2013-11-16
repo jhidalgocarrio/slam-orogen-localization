@@ -342,17 +342,22 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 
                 /** Set up the initial computed gravity into the inertialState variable **/
                 inertialState.estimated_g = estimated_g;
-		
+	
+                /** Remove the Earth rotation from the mean gyro **/
+                base::Vector3d meangyro = static_cast<base::Vector3d>(meangyro);
+                localization::Util::SubtractEarthRotation(&(meangyro), &(world2navigationRbs.orientation), location.latitude);
+
 		/** Set up ON/OFF Bias in the Inertial State **/
-                inertialState.gbias_onoff = meangyro;// .setZero(); /** Set to zero (calibrated gyros) */
+                inertialState.gbias_onoff = -meangyro;// .setZero(); /** Set to zero (calibrated gyros) */
 
                 /** It is true that error = truth - estimation , however in sensor modelling
                  * raw_value = truth_value + bias, therefore truth_value = raw_value - bias
                  * and g_error in body frame goes with negative sign */
-                inertialState.abias_onoff.setZero();// = - (gravity - (qtf * meanacc));
+                inertialState.abias_onoff = - (gravity - (qtf * meanacc));
 
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] ON-OFF bias:\n"<<inertialState.abias_onoff<<"\n";
+		std::cout<< "[PROCESSING INERTIAL-SAMPLES] ON-OFF acc bias:\n"<<inertialState.abias_onoff<<"\n";
+		std::cout<< "[PROCESSING INERTIAL-SAMPLES] ON-OFF gyros bias:\n"<<inertialState.gbias_onoff<<"\n";
 		#endif
 
 		#ifdef DEBUG_PRINTS
@@ -409,16 +414,23 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
         localization::Util::SubtractEarthRotation(&(imusample.gyro), &(world2navigationRbs.orientation), location.latitude);
 
         /** Eliminate noise from sensor body frame **/
-        imusample.gyro -= stateEstimationSamples.gbias; /** Eliminate estimated bias */
+        imusample.gyro -= inertialState.gbias_onoff; /** Eliminate estimated bias */
+        //imusample.gyro -= stateEstimationSamples.gbias; /** Eliminate estimated bias */
 
         /** Eliminate gravity perturbation and bias from accelerometers values in body frame **/
         Eigen::Matrix <double,3,1>  gtilde_body, gtilde;
         gtilde << 0.00, 0.00, inertialState.theoretical_g;
-        gtilde_body = stateEstimationSamples.orientation.inverse() * gtilde;//!gravity in body frame
-        imusample.acc = imusample.acc - stateEstimationSamples.abias - gtilde_body;
+        gtilde_body = world2navigationRbs.orientation.inverse() * gtilde;//!gravity in body frame
+        //gtilde_body = stateEstimationSamples.orientation.inverse() * gtilde;//!gravity in body frame
+        //imusample.acc = imusample.acc - stateEstimationSamples.abias - gtilde_body;
+        imusample.acc = imusample.acc - inertialState.abias_onoff - gtilde_body;
 
 	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
+
+        #ifdef DEBUG_PRINTS
+        std::cout<< "[PROCESSING INERTIAL-SAMPLES] To correct with Gravity in body\n"<<gtilde_body <<"\n";
+        #endif
 
         #ifdef DEBUG_PRINTS
         std::cout<<"** [PROCESSING INERTIAL-SAMPLES] Corrected inertial ("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
@@ -758,7 +770,7 @@ bool Processing::configureHook()
 
     for(register unsigned int i=0; i<cbEncoderSamples.size(); ++i)
     {
-	cbEncoderSamples[i].resize(config.jointNames.size()-1);
+	cbEncoderSamples[i].resize(config.jointsNames.size()-1);
     }
 
 
@@ -772,7 +784,7 @@ bool Processing::configureHook()
     for(register unsigned int i=0;i<encoderSamples.size();i++)
     {
 	/** Sizing hbridgeStatus **/
-	encoderSamples[i].resize(config.jointNames.size()-1);
+	encoderSamples[i].resize(config.jointsNames.size()-1);
 
 	/** Set to a NaN index **/
 	encoderSamples[i].index = base::NaN<unsigned int>();
@@ -805,8 +817,8 @@ bool Processing::configureHook()
 
     /** Initialize values **/
     stateEstimationSamples.time.fromMicroseconds (base::NaN<uint64_t>());
-    stateEstimationSamples.abias.setZero();
-    stateEstimationSamples.gbias.setZero();
+    stateEstimationSamples.abias = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
+    stateEstimationSamples.gbias = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[PROCESSING CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
@@ -819,8 +831,8 @@ bool Processing::configureHook()
     inertialState.theoretical_g = localization::Util::GravityModel (location.latitude, location.altitude);
 
     /** Output Joints state vector **/
-    jointSamples.resize(config.jointNames.size());
-    jointSamples.names = config.jointNames;
+    jointSamples.resize(config.jointsNames.size());
+    jointSamples.names = config.jointsNames;
 
     /** Output images **/
     ::base::samples::frame::Frame *lFrame = new ::base::samples::frame::Frame();
@@ -963,7 +975,7 @@ void Processing::inputPortSamples()
     base::samples::IMUSensors imu;
 
     /** sizing the encoders **/
-    encoder.resize(config.jointNames.size()-1);
+    encoder.resize(config.jointsNames.size()-1);
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[GetInportValue] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
@@ -974,7 +986,7 @@ void Processing::inputPortSamples()
     /** ********* **/
     /** Encoders  **/
     /** ********* **/
-    for (unsigned int i = 0; i<(config.jointNames.size()-1); ++i)
+    for (unsigned int i = 0; i<(config.jointsNames.size()-1); ++i)
     {
 	encoder.states[i].current = 0.0;
 	encoder.states[i].position = 0.0;
@@ -985,7 +997,7 @@ void Processing::inputPortSamples()
     /** Process the buffer **/
     for (register unsigned int i = 0; i<cbEncoderSize; ++i)
     {
-	for (register unsigned int j = 0; j<(config.jointNames.size()-1); ++j)
+	for (register unsigned int j = 0; j<(config.jointsNames.size()-1); ++j)
 	{
 	    encoder.states[j].current += cbEncoderSamples[i].states[j].current;
 	    encoder.states[j].pwm += cbEncoderSamples[i].states[j].pwm;
@@ -997,7 +1009,7 @@ void Processing::inputPortSamples()
 
     encoder.index = cbEncoderSamples[0].index;
 
-    for (register unsigned int i = 0; i<(config.jointNames.size()-1); ++i)
+    for (register unsigned int i = 0; i<(config.jointsNames.size()-1); ++i)
     {
 	encoder.states[i].current /= cbEncoderSize; //the mean current in mA
 	encoder.states[i].position = cbEncoderSamples[0].states[i].position;
@@ -1063,7 +1075,7 @@ void Processing::inputPortSamples()
     /** Store the Joint values  **/
     /*****************************/
     jointSamples[0].position = asguardStatusSamples[0].asguardJointEncoder;
-    for (register int i=0; i<static_cast<int> ((config.jointNames.size()-1)); ++i)
+    for (register int i=0; i<static_cast<int> ((config.jointsNames.size()-1)); ++i)
     {
         jointSamples[i+1].position = encoderSamples[0].states[i].positionExtern;
     }
@@ -1088,7 +1100,7 @@ void Processing::calculateVelocities()
     /** At least two values to perform the derivative **/
     if (static_cast<int>(encoderSamples.size()) < 2)
     {
-        for (register size_t i=0; i<config.jointNames.size(); ++i)
+        for (register size_t i=0; i<config.jointsNames.size(); ++i)
         {
             jointSamples[i].speed = 0.00;
         }
@@ -1129,7 +1141,7 @@ void Processing::calculateVelocities()
 	#endif
 
 	/** Velocities for the vector **/
-	for (register size_t i = 0; i<static_cast<size_t>((config.jointNames.size()-1)); ++i)
+	for (register size_t i = 0; i<static_cast<size_t>((config.jointsNames.size()-1)); ++i)
 	{
 	    #ifdef DEBUG_PRINTS
 	    std::cout<<"[PROCESSING CALCULATING_VELO] Timestamp New(encoders): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";

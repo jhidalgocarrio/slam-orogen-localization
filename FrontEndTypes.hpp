@@ -26,7 +26,7 @@ namespace rover_localization
 
         double init_leveling_time;//Time to compute the initial leveling of the robot in order to find the gravity vector.
 
-        std::vector<std::string> jointNames; //complete vector of names for the joints of the complete robot (passive and active).
+        std::vector<std::string> jointsNames; //complete vector of names for the joints of the complete robot (passive and active).
     };
 
     //Data type to know the location
