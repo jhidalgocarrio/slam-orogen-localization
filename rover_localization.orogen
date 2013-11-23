@@ -6,7 +6,6 @@ name "rover_localization"
 # header, and this header will be loaded here
 using_library "localization" # Localization library
 using_library "frame_helper" # Image Frames
-#using_library 'envire' # Maps and environment representation
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
@@ -14,7 +13,7 @@ import_types_from "base"
 import_types_from 'sysmon'
 import_types_from "torque_estimator"
 import_types_from "frame_helper/Calibration.h"
-#import_types_from 'envire'
+import_types_from "localization/core/Types.hpp"
 
 import_types_from "FrontEndTypes.hpp"
 import_types_from "BackEndTypes.hpp"
@@ -90,10 +89,17 @@ task_context "Processing" do
     input_port("reference_pose_samples", "/base/samples/RigidBodyState").
         doc "Rover position and orientation information."
 
-    #******* State information *********
-    input_port('state_estimation_samples', 'rover_localization/StateEstimation').
+    #******* State information   *********
+    input_port('pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
-	doc 'State estimation information.'
+	doc 'Pose estimation information to subtract gravity vector (if available from a filter or odometry).'
+
+    #*******  Bias information (no in the transformer) *********
+    input_port('gyroscopes_bias', 'base::Vector3d').
+        doc 'Estimated gyros bias offset.'
+
+    input_port('accelerometers_bias', 'base::Vector3d').
+        doc 'Estimated accelerometers bias offset.'
 
     ##############################################
     # Transformer:
@@ -130,7 +136,7 @@ task_context "Processing" do
     output_port('inertial_samples_out', '/base/samples/IMUSensors').
 	doc 'Calibrated and compensated inertial measurements.'
 
-    output_port('inertial_state_out', 'rover_localization/InertialState').
+    output_port('inertial_state_out', 'localization/InertialState').
 	doc 'Useful information related inertial samples.'
 
     output_port('point_cloud_samples_out', 'base/samples/Pointcloud').
@@ -192,8 +198,8 @@ task_context "StateOptimize" do
     #**************************
     #***** Task Properties ****
     #**************************
-    property('configuration', 'rover_localization/StateOptimizeConfig').
-        doc 'General configuration values to run the task'
+    property('delay_state_period', 'double').
+        doc 'Delay time in second to compare with the delayed state.'
 
     property('adaptive_config', 'rover_localization/AdaptiveAttitudeConfig').
         doc 'Adaptive estimation of external acceleration.'
@@ -209,7 +215,7 @@ task_context "StateOptimize" do
     #******************************
 
     #******* Proprioceptive sensors *********
-    input_port('pose_samples', '/base/samples/RigidBodyState').
+    input_port('delta_pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
         doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
 
@@ -217,7 +223,7 @@ task_context "StateOptimize" do
         needs_reliable_connection.
         doc 'Calibrated and compensated inertial values.'
 
-    input_port('inertial_state', 'rover_localization/InertialState').
+    input_port('inertial_state', 'localization/InertialState').
 	doc 'Context information related to inertial samples.'
 
     #******* Exteroceptive sensors *********
@@ -237,11 +243,12 @@ task_context "StateOptimize" do
     # Transformer
     ##########################
     transformer do
-	align_port("pose_samples", 0.01)
+	transform "world", "navigation" #esa-npi world to navigation in transformation convention
+	align_port("delta_pose_samples", 0.01)
 	align_port("inertial_samples", 0.01)
 	align_port("inertial_state", 0.01)
-        align_port("exteroceptive_samples", 0.01)
-	max_latency(0.5)
+        align_port("exteroceptive_samples", 0.5)
+	max_latency(0.8)
     end
 
     #******************************
@@ -250,11 +257,18 @@ task_context "StateOptimize" do
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
 	doc 'Corrected estimated robot pose.'
 
-   output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
+    output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
 	doc 'Estimated pose error samples'
 
-    output_port('state_estimation_samples_out', 'rover_localization/StateEstimation').
+    output_port('state_estimation_samples_out', 'localization/StateEstimation').
 	doc 'State estimation information.'
+
+    output_port('gyroscopes_bias_out', 'base::Vector3d').
+        doc 'Estimated gyros bias offset.'
+
+    output_port('accelerometers_bias_out', 'base::Vector3d').
+        doc 'Estimated accelerometers bias offset.'
+
 
     port_driven
 

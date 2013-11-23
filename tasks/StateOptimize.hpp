@@ -31,57 +31,9 @@ namespace rover_localization {
 
 
     /** Wrap the Augmented and Single State **/
-    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
     typedef localization::MtkWrap<localization::State> WSingleState;
+    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
     typedef localization::Usckf<WAugmentedState, WSingleState> StateOptimizeFilter;
-
-    /** Current counter of samples arrived to each port **/
-    struct CounterInputPortsStateOptimize
-    {
-        void reset()
-        {
-            poseSamples = 0;
-            inertialSamples = 0;
-            inertialState = 0;
-            return;
-        }
-
-	unsigned int poseSamples; /** counter of rover pose **/
- 	unsigned int inertialSamples; /** counter of of inertial measurements **/
- 	unsigned int inertialState; /** counter of inertial state **/
-    };
-
-    /** Number of samples to process in the callback function **/
-    struct NumberInputPortsStateOptimize
-    {
-        void reset()
-        {
-            poseSamples = 0;
-            inertialSamples = 0;
-            inertialState = 0;
-            return;
-        }
-
-	unsigned int poseSamples; /**  rover pose **/
- 	unsigned int inertialSamples; /**  inertial measurements **/
- 	unsigned int inertialState; /** inertial state **/
-    };
-
-    /** Input port samples arrived ON/OFF flags **/
-    struct FlagInputPortsStateOptimize
-    {
-        void reset()
-        {
-            poseSamples = false;
-            inertialSamples = false;
-            inertialState = false;
-            return;
-        }
-
-	unsigned int poseSamples;
-        unsigned int inertialSamples;
- 	unsigned int inertialState;
-    };
 
     /*! \class StateOptimize
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -109,31 +61,20 @@ namespace rover_localization {
         /******************************/
         /*** Control Flow Variables ***/
         /******************************/
-
-	/** Filter Initialization **/
-	bool initFilter;
-
-        /** Number of samples to process in the input ports callback function **/
-        NumberInputPortsStateOptimize number;
-
-        /** Current counter of samples arrived to each input port **/
-        CounterInputPortsStateOptimize counter;
-
-        /** Data arrived ON/OFF Flag **/
-        FlagInputPortsStateOptimize flag;
+        bool initFilter;
 
         /**************************/
         /*** Property Variables ***/
         /**************************/
 
-        /** Inertial noise parameters **/
-        InertialNoiseParameters inertialNoise;
+        /** Delay state period **/
+        double delayperiod;
 
-        /** Framework configuration values **/
-        StateOptimizeConfig config;
+        /** Inertial noise parameters **/
+        InertialNoiseParameters inertialnoise;
 
         /** Adaptive Measurement Configuration **/
-        AdaptiveAttitudeConfig adaptiveConfig;
+        AdaptiveAttitudeConfig adaptiveconfig;
 
         /******************************************/
         /*** General Internal Storage Variables ***/
@@ -144,9 +85,6 @@ namespace rover_localization {
 
         /** Object of Class for Adaptive Measurement of Attitude Covariance Matrix **/
         boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAtt;
-
-        /** Object of Class for Bumps in Z-Axis Velocity of Accelerometers Covariance Matrix **/
-        boost::shared_ptr<localization::AdaptiveAttitudeCov> adapAcc;
 
         /** Variable in DataModel form for the differences in velocities **/
         localization::DataModel<double, 3> accModel, accInertial;
@@ -159,13 +97,13 @@ namespace rover_localization {
         /**************************/
 
         /** Pose estimation **/
-        boost::circular_buffer< ::base::samples::RigidBodyState > poseSamples;
+        ::base::samples::RigidBodyState deltaPoseSamples;
 
         /** Inertial values **/
-        boost::circular_buffer< ::base::samples::IMUSensors > inertialSamples;
+        ::base::samples::IMUSensors inertialSamples;
 
         /** Inertial sensor state **/
-        boost::circular_buffer< rover_localization::InertialState > inertialState;
+        localization::InertialState inertialState;
 
         /***************************/
         /** Output port variables **/
@@ -173,11 +111,11 @@ namespace rover_localization {
 
     protected:
 
-        virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
+        virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
 
         virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
 
-        virtual void inertial_stateTransformerCallback(const base::Time &ts, const ::rover_localization::InertialState &inertial_state_sample);
+        virtual void inertial_stateTransformerCallback(const base::Time &ts, const ::localization::InertialState &inertial_state_sample);
 
         virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
 
@@ -259,13 +197,16 @@ namespace rover_localization {
 
         /**@brief Initialize the filter used in the Back-End
          */
-//        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-//                boost::circular_buffer<rover_localization::InertialState> &inertialState);
-//
+        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, localization::InertialState &inertialState);
+
+        /**@brief Method to perform the attitude update
+         */
+        inline void attitudeUpdate(const base::Time &delta_t, const Eigen::Quaterniond &world2nav);
+
         /**@brief Calculate the delta of the state over the delta interval
          */
-        inline WSingleState deltaState (const double delta_t, const WSingleState &currentState, base::samples::RigidBodyState &pose,
-                                        base::samples::RigidBodyState &delta_pose, base::samples::IMUSensors &inertialSamples);
+//      inline WSingleState deltaState (const double delta_t, const WSingleState &currentState, base::samples::RigidBodyState &pose,
+//                                        base::samples::RigidBodyState &delta_pose, base::samples::IMUSensors &inertialSamples);
 
 //        /**@brief Method to encapsulate the filter predict step
 //         */
@@ -293,8 +234,16 @@ namespace rover_localization {
 //        void outputPortSamples (const boost::shared_ptr< localization::Usckf<WAugmentedState, WSingleState> > filter,
 //                                const localization::DataModel<double, 3> &deltaVeloModel, const localization::DataModel<double, 3> &deltaVeloInertial);
 
+        /** @brief Port out the values
+        */
+        void outputPortSamples(const base::Time &timestamp);
+
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    protected:
+
+        inline Eigen::Quaterniond attitudeMeasurement (const Eigen::Quaterniond &orient, const Eigen::Vector3d &acc);
 
     };
 }

@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -35,8 +35,8 @@ Processing::Processing(std::string const& name)
     inertialState.time.fromMicroseconds(base::NaN<uint64_t>());
     inertialState.theoretical_g = base::NaN<double>();
     inertialState.estimated_g = base::NaN<double>();
-    inertialState.abias_onoff = base::NaN<double>() * base::Vector3d::Zero();
-    inertialState.gbias_onoff = base::NaN<double>() * base::Vector3d::Zero();
+    inertialState.abias_onoff = base::NaN<double>() * base::Vector3d::Ones();
+    inertialState.gbias_onoff = base::NaN<double>() * base::Vector3d::Ones();
 
     /**********************************/
     /*** Internal Storage Variables ***/
@@ -44,12 +44,19 @@ Processing::Processing(std::string const& name)
 
     /** Default size for initial acceleration leveling **/
     init_leveling_acc.resize (3, DEFAULT_INIT_LEVELING_SIZE);
+    init_leveling_acc.setZero();
 
     /** Default size for initial acceleration leveling **/
     init_leveling_incl.resize (3, DEFAULT_INIT_LEVELING_SIZE);
+    init_leveling_incl.setZero();
 
     /** Initial values of Gyroscopes (sanity check) */
     init_gyroscopes.resize (3, DEFAULT_INIT_LEVELING_SIZE);
+    init_gyroscopes.setZero();
+
+    /** Align of world to navigation (in case of true in the properties) **/
+    alignWorld2Navigation.invalidate();
+    alignWorld2Navigation.position.setZero();
 
     /** Default size for the circular_buffer of the raw port samples **/
     cbEncoderSamples = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
@@ -92,13 +99,23 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
 
     /** Apply the transformer pose offset **/
     referencePoseSamples[0].position -= tf.translation(); //position world_body = world_reference - body_reference
+    referencePoseSamples[0].position -= alignWorld2Navigation.position; //Align to world to navigation if selected in the task properties
     referencePoseSamples[0].orientation = referencePoseSamples[0].orientation * qtf.inverse(); //world_2_body = world_2_reference * reference_2_body
 
     if (!initPosition)
     {
-	world2navigationRbs.position = referencePoseSamples[0].position;
-	world2navigationRbs.velocity.setZero();
+        if (config.align_world_to_navigation_frame)
+        {
+            world2navigationRbs.position.setZero();
+            alignWorld2Navigation.position = referencePoseSamples[0].position;
+        }
+        else
+        {
+            world2navigationRbs.position = referencePoseSamples[0].position;
+        }
 	
+        world2navigationRbs.velocity.setZero();
+
 	/** Assume well known starting position **/
 	world2navigationRbs.cov_position = Eigen::Matrix3d::Zero();
 	world2navigationRbs.cov_velocity = Eigen::Matrix3d::Zero();
@@ -125,11 +142,17 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
 	
             /** Check the Initial attitude */
-            if (base::isNaN<double>(euler[0]) || base::isNaN<double>(euler[1]) || base::isNaN<double>(euler[2]))
+            if (base::isNaN<double>(euler[2]))
             {
-                RTT::log(RTT::Fatal)<<"[FATAL ERROR]  Initial Attitude from External Reference is NaN."<<RTT::endlog();
-                throw std::runtime_error("[FATAL ERROR]: Attitude is Not a Number (NaN)");
+                RTT::log(RTT::Fatal)<<"[FATAL ERROR]  Initial Heading from External Reference is NaN."<<RTT::endlog();
+                RTT::log(RTT::Fatal)<<"[FATAL ERROR]  Heading is set to Zero instead."<<RTT::endlog();
+                euler[2] = 0.00;
             }
+            if (base::isNaN<double>(euler[0]) || base::isNaN<double>(euler[1]))
+            {
+                throw std::runtime_error("[FATAL ERROR]: Attitude cannot be Not a Number (NaN)");
+            }
+
 
 	    /** Set the initial attitude with the Yaw provided from the initial pose **/
 	    attitude = Eigen::Quaternion <double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
@@ -175,7 +198,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
     if (!initAttitude)
     {
 	#ifdef DEBUG_PRINTS
-	std::cout<< "[PROCESSING INERTIAL-SAMPLES]Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
+	std::cout<< "[PROCESSING INERTIAL_SAMPLES]Calculating initial level position since Init orientation is not provided.["<<init_leveling_accidx<<"]\n";
 	#endif
 	
 	/** Add one acc sample to the buffer **/
@@ -215,7 +238,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
             meangyro[2] = init_gyroscopes.row(2).mean();
 	
 	    #ifdef DEBUG_PRINTS
-            std::cout<<"*** [PROCESSING INERTIAL-SAMPLES]\n";
+            std::cout<<"*** [PROCESSING INERTIAL_SAMPLES]\n";
 	    std::cout<<"*** Computed mean acc values: "<<meanacc[0]<<" "<<meanacc[1]<<" "<<meanacc[2]<<"\n";
 	    std::cout<<"*** Computed mean incl values: "<<meanincl[0]<<" "<<meanincl[1]<<" "<<meanincl[2]<<"\n";
 	    std::cout<<"*** Computed mean gyros values: "<<meangyro[0]<<" "<<meangyro[1]<<" "<<meangyro[2]<<"\n";
@@ -244,7 +267,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
             if (base::isNaN<double>(euler[0]) || base::isNaN<double>(euler[1]) || base::isNaN<double>(euler[2]))
             {
                 RTT::log(RTT::Fatal)<<"[FATAL ERROR]  Initial Attitude from static leveling is NaN."<<RTT::endlog();
-                throw std::runtime_error("[FATAL ERROR] Attitude is Not A Number (NaN)");
+                throw std::runtime_error("[FATAL ERROR] Attitude cannot be Not A Number (NaN)");
             }
 
 	    /** Set the initial attitude when no initial IMU orientation is provided **/
@@ -253,7 +276,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	    Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
 
 	    #ifdef DEBUG_PRINTS
-            std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
+            std::cout<< "******** [PROCESSING INERTIAL_SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (IMU frame)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
@@ -268,7 +291,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	    euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
 	    euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	    euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-            std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
+            std::cout<< "******** [PROCESSING INERTIAL_SAMPLES]\n";
 	    std::cout<< "******** Initial Attitude (after applying qtf)  *******"<<"\n";
 	    std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 	    #endif
@@ -299,7 +322,7 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
                 if(config.use_inclinometers_as_theoretical_gravity && config.use_inclinometers_leveling)
                 {
                     #ifdef DEBUG_PRINTS
-		    std::cout<< "[PROCESSING INERTIAL-SAMPLES] Theoretical Gravity comes from inclinometers\n";
+		    std::cout<< "[PROCESSING INERTIAL_SAMPLES] Theoretical Gravity comes from inclinometers\n";
                     #endif
 
                     inertialState.theoretical_g = meanincl.norm();
@@ -319,15 +342,15 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 		gravity << 0.00, 0.00, (inertialState.theoretical_g);
 		
 		#ifdef DEBUG_PRINTS
-                std::cout<< "[PROCESSING INERTIAL-SAMPLES] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] Theoretical Gravity in world\n"<<gravity <<"\n";
+                std::cout<< "[PROCESSING INERTIAL_SAMPLES] Computed Theoretical gravity: "<<inertialState.theoretical_g<<"\n";
+		std::cout<< "[PROCESSING INERTIAL_SAMPLES] Theoretical Gravity in world\n"<<gravity <<"\n";
 		#endif
 		
 		/** Gravity in IMU frame **/
 		gravity = q_world2imu.inverse() * gravity; /** g_error_imu = (Tworld_imu)^-1 * g_error_world */
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] Theoretical Gravity in imu\n"<<gravity <<"\n";
+		std::cout<< "[PROCESSING INERTIAL_SAMPLES] Theoretical Gravity in imu\n"<<gravity <<"\n";
 		#endif
 		
 		gravity << 0.00, 0.00, (inertialState.theoretical_g);
@@ -337,18 +360,19 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 		gravity = attitude.inverse() * gravity;
 		
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] Theoretical Gravity in body\n"<<gravity <<"\n";
+		std::cout<< "[PROCESSING INERTIAL_SAMPLES] Theoretical Gravity in body\n"<<gravity <<"\n";
 		#endif
 
                 /** Set up the initial computed gravity into the inertialState variable **/
                 inertialState.estimated_g = estimated_g;
 	
                 /** Remove the Earth rotation from the mean gyro **/
-                base::Vector3d meangyro = static_cast<base::Vector3d>(meangyro);
-                localization::Util::SubtractEarthRotation(&(meangyro), &(world2navigationRbs.orientation), location.latitude);
+                base::Vector3d meanonoffgyros = static_cast<base::Vector3d>(meangyro);
+                base::Orientation q_body2world = world2navigationRbs.orientation.inverse();//orientation = q_body_2_world
+                localization::Util::SubtractEarthRotation(&(meanonoffgyros), &(q_body2world), location.latitude);
 
 		/** Set up ON/OFF Bias in the Inertial State **/
-                inertialState.gbias_onoff = -meangyro;// .setZero(); /** Set to zero (calibrated gyros) */
+                inertialState.gbias_onoff = -meanonoffgyros;// .setZero(); /** Set to zero (calibrated gyros) */
 
                 /** It is true that error = truth - estimation , however in sensor modelling
                  * raw_value = truth_value + bias, therefore truth_value = raw_value - bias
@@ -356,15 +380,15 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
                 inertialState.abias_onoff = - (gravity - (qtf * meanacc));
 
 		#ifdef DEBUG_PRINTS
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] ON-OFF acc bias:\n"<<inertialState.abias_onoff<<"\n";
-		std::cout<< "[PROCESSING INERTIAL-SAMPLES] ON-OFF gyros bias:\n"<<inertialState.gbias_onoff<<"\n";
+		std::cout<< "[PROCESSING INERTIAL_SAMPLES] ON-OFF acc bias:\n"<<inertialState.abias_onoff<<"\n";
+		std::cout<< "[PROCESSING INERTIAL_SAMPLES] ON-OFF gyros bias:\n"<<inertialState.gbias_onoff<<"\n";
 		#endif
 
 		#ifdef DEBUG_PRINTS
                 euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
                 euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
 	        euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-                std::cout<< "******** [PROCESSING INERTIAL-SAMPLES]\n";
+                std::cout<< "******** [PROCESSING INERTIAL_SAMPLES]\n";
 		std::cout<< "******** Initial Attitude *******"<<"\n";
 		std::cout<< "Init Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
 		#endif
@@ -376,9 +400,9 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
     {
 	base::samples::IMUSensors imusample;
 	
-	/** A new sample arrived to the port**/
+	/** A new sample arrived to the port **/
 	#ifdef DEBUG_PRINTS
-        std::cout<<"** [PROCESSING INERTIAL-SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+        std::cout<<"** [PROCESSING INERTIAL_SAMPLES] counter.imuSamples("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(imu_frame):\n"<<inertial_samples_sample.acc<<"\n";
 	std::cout<<"acc(quat body_frame ):\n"<<qtf * inertial_samples_sample.acc<<"\n";
 	std::cout<<"acc(Rot body_frame):\n"<< tf.rotation() * inertial_samples_sample.acc<<"\n";
@@ -389,19 +413,44 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
         std::cout<<"mag(quat body_frame):\n"<<qtf * inertial_samples_sample.mag<<"\n";
 	#endif
 
-        /** If a new sample arrived to the input port of the Back-End Feedback **/
-        if (_state_estimation_samples.read(stateEstimationSamples) == RTT::NewData)
+        /** New gyroscopes bias arrives **/
+        if (_gyroscopes_bias.read(gyrobias) == RTT::NewData)
         {
             #ifdef DEBUG_PRINTS
-            std::cout<<"** [PROCESSING BACK-END-INFO] at "<< stateEstimationSamples.time.toMicroseconds()<<"\n";
-            std::cout<<"** [PROCESSING BACK-END-INFO] gbias:\n"<<stateEstimationSamples.gbias<< "\n";
-            std::cout<<"** [PROCESSING BACK-END-INFO] abias:\n"<<stateEstimationSamples.abias<< "\n";
-            Eigen::Vector3d euler;
-            euler[2] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
-            euler[1] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
-            euler[0] = stateEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
-            std::cout<<"** [PROCESSING BACK-END-INFO] Roll: "<<euler[0]*R2D<<" Init Pitch: "<<euler[1]*R2D<<" Init Yaw: "<<euler[2]*R2D<<"\n";
+            std::cout<<"** [PROCESSING GYROS_BIAS] New:\n"<<gyrobias<< "\n";
             #endif
+        }
+
+        /** New accelerometers bias arrives **/
+        if (_accelerometers_bias.read(accbias) == RTT::NewData)
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"** [PROCESSING ACCELEROMETERS_BIAS] New:\n"<<accbias<< "\n";
+            #endif
+        }
+
+        if (_pose_samples.read(poseEstimationSamples) == RTT::NewData)
+        {
+            #ifdef DEBUG_PRINTS
+            Eigen::Vector3d euler;
+            std::cout<<"** [PROCESSING POSE_ESTIMATION_SAMPLES] at "<< poseEstimationSamples.time.toMicroseconds()<<"\n";
+            euler[2] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+            euler[1] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+            euler[0] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+            std::cout<<"** [PROCESSING POSE_ESTIMATION_SAMPLES] Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
+            #endif
+
+            /** Get it in the world frame for the bias elimination **/
+            poseEstimationSamples.orientation = world2navigationRbs.orientation * poseEstimationSamples.orientation; //!world_2_body = world_2_nav * nav_2_body
+
+             #ifdef DEBUG_PRINTS
+            std::cout<<"** [PROCESSING POSE_ESTIMATION_SAMPLES] at "<< poseEstimationSamples.time.toMicroseconds()<<"\n";
+            euler[2] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+            euler[1] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+            euler[0] = poseEstimationSamples.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+            std::cout<<"** [PROCESSING POSE_ESTIMATION_SAMPLES] Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
+            #endif
+
         }
 
 	/** Convert the IMU values in the body frame **/
@@ -411,29 +460,55 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 	imusample.mag = qtf * inertial_samples_sample.mag;
 
         /** Subtract Earth rotation from gyros **/
-        localization::Util::SubtractEarthRotation(&(imusample.gyro), &(world2navigationRbs.orientation), location.latitude);
+        if (base::isNaN<double>(poseEstimationSamples.orientation.w()))
+        {
+            base::Orientation q_body2world = world2navigationRbs.orientation.inverse();//orientation = q_body_2_world
+            localization::Util::SubtractEarthRotation(&(imusample.gyro), &(q_body2world), location.latitude);
+        }
+        else
+        {
+            base::Orientation q_body2world = poseEstimationSamples.orientation.inverse();//orientation = q_body_2_world
+            localization::Util::SubtractEarthRotation(&(imusample.gyro), &(q_body2world), location.latitude);
+        }
 
         /** Eliminate noise from sensor body frame **/
-        imusample.gyro -= inertialState.gbias_onoff; /** Eliminate estimated bias */
-        //imusample.gyro -= stateEstimationSamples.gbias; /** Eliminate estimated bias */
+        if (localization::Util::isnotnan(gyrobias))
+            imusample.gyro -= gyrobias; /** Eliminate estimated bias */
+        else
+            imusample.gyro -= inertialState.gbias_onoff; /** ON/OFF bias */
 
-        /** Eliminate gravity perturbation and bias from accelerometers values in body frame **/
+        /** Eliminate bias from accelerometers **/
         Eigen::Matrix <double,3,1>  gtilde_body, gtilde;
         gtilde << 0.00, 0.00, inertialState.theoretical_g;
-        gtilde_body = world2navigationRbs.orientation.inverse() * gtilde;//!gravity in body frame
-        //gtilde_body = stateEstimationSamples.orientation.inverse() * gtilde;//!gravity in body frame
-        //imusample.acc = imusample.acc - stateEstimationSamples.abias - gtilde_body;
-        imusample.acc = imusample.acc - inertialState.abias_onoff - gtilde_body;
+        if (localization::Util::isnotnan(accbias))
+        {
+            gtilde_body = poseEstimationSamples.orientation.inverse() * gtilde;//!gravity in current body frame
+            imusample.acc = imusample.acc - accbias;
+        }
+        else
+        {
+            gtilde_body = world2navigationRbs.orientation.inverse() * gtilde;//!gravity original body frame
+            imusample.acc = imusample.acc - inertialState.abias_onoff;
+        }
+
+        /** Inclinometers is NaN store accelerometers with gravity **/
+        if (!localization::Util::isnotnan(imusample.mag))
+        {
+            imusample.mag = imusample.acc;
+        }
+
+        /** Compensate acceleration for gravity perturbation in body frame **/
+        imusample.acc = imusample.acc - gtilde_body;
 
 	/** Push the corrected inertial values into the buffer **/
 	cbImuSamples.push_front(imusample);
 
         #ifdef DEBUG_PRINTS
-        std::cout<< "[PROCESSING INERTIAL-SAMPLES] To correct with Gravity in body\n"<<gtilde_body <<"\n";
+        std::cout<< "[PROCESSING INERTIAL_SAMPLES] To correct with Gravity in body\n"<<gtilde_body <<"\n";
         #endif
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"** [PROCESSING INERTIAL-SAMPLES] Corrected inertial ("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
+        std::cout<<"** [PROCESSING INERTIAL_SAMPLES] Corrected inertial ("<<counter.imuSamples<<") at ("<<inertial_samples_sample.time.toMicroseconds()<< ")**\n";
 	std::cout<<"acc(body_frame):\n"<<imusample.acc<<"\n";
 	std::cout<<"gyro(body_frame):\n"<<imusample.gyro<<"\n";
 	std::cout<<"mag(body_frame):\n"<<imusample.mag<<"\n";
@@ -736,12 +811,15 @@ bool Processing::configureHook()
 
     /** Initial size for initial acceleration leveling (using accelerometers) **/
     init_leveling_acc.resize (3, init_leveling_size);
+    init_leveling_acc.setZero();
 
     /** Initial size for initial acceleration leveling (using inclinometers) **/
     init_leveling_incl.resize (3, init_leveling_size);
+    init_leveling_incl.setZero();
 
     /** Initial values of Gyroscopes (sanity check) */
     init_gyroscopes.resize (3, init_leveling_size);
+    init_gyroscopes.setZero();
 
     /** Set the Input ports counter to Zero **/
     counter.reset();
@@ -815,10 +893,11 @@ bool Processing::configureHook()
 	referencePoseSamples[i].invalidate();
     }
 
-    /** Initialize values **/
-    stateEstimationSamples.time.fromMicroseconds (base::NaN<uint64_t>());
-    stateEstimationSamples.abias = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
-    stateEstimationSamples.gbias = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
+    /** Initialize Estimated Pose and bias values **/
+    poseEstimationSamples.time.fromMicroseconds (base::NaN<uint64_t>());
+    poseEstimationSamples.orientation = base::Orientation(Eigen::Vector4d::Ones() * base::NaN<double>());
+    accbias = base::NaN<double>() * Eigen::Vector3d::Ones();
+    gyrobias = base::NaN<double>() * Eigen::Vector3d::Ones();
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[PROCESSING CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";

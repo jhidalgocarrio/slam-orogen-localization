@@ -9,9 +9,28 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
+
+WSingleState processModel (const WSingleState &state,
+                        const Eigen::Matrix<double, 3, 1> &delta_position,
+                        const Eigen::Quaterniond &delta_orient)
+{
+    WSingleState s2;
+    s2.orient = state.orient * delta_orient;
+    s2.pos = state.pos + (state.orient * delta_position);
+    s2.gbias = state.gbias;
+    s2.abias = state.abias;
+
+    return s2;
+}
+
+Eigen::Vector3d attitudeObservationModel (const WSingleState &state)
+{
+    Eigen::AngleAxis<double> orientation (state.orient);
+    return orientation.angle() * orientation.axis();
+}
 
 StateOptimize::StateOptimize(std::string const& name)
     : StateOptimizeBase(name)
@@ -20,9 +39,6 @@ StateOptimize::StateOptimize(std::string const& name)
     /*** Control Flow Variables ***/
     /******************************/
     initFilter = false;
-    number.reset();
-    counter.reset();
-    flag.reset();
 
     /******************************************/
     /*** General Internal Storage Variables ***/
@@ -33,9 +49,12 @@ StateOptimize::StateOptimize(std::string const& name)
     /**************************/
     /** Input port variables **/
     /**************************/
-    poseSamples =  boost::circular_buffer< ::base::samples::RigidBodyState > (DEFAULT_CIRCULAR_BUFFER_SIZE);
-    inertialSamples = boost::circular_buffer< ::base::samples::IMUSensors >(DEFAULT_CIRCULAR_BUFFER_SIZE);
-    inertialState = boost::circular_buffer< rover_localization::InertialState >(DEFAULT_CIRCULAR_BUFFER_SIZE);
+    deltaPoseSamples.invalidate();
+    inertialState.time.fromMicroseconds(base::NaN<uint64_t>());
+    inertialSamples.acc  = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
+    inertialSamples.gyro  = base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
+    inertialState.abias_onoff =  base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
+    inertialState.gbias_onoff =  base::NaN<uint64_t>() * Eigen::Vector3d::Ones();
 
 }
 
@@ -47,237 +66,167 @@ StateOptimize::StateOptimize(std::string const& name, RTT::ExecutionEngine* engi
 StateOptimize::~StateOptimize()
 {
 }
-void StateOptimize::pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample)
+
+void StateOptimize::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &delta_pose_samples_sample)
 {
-    /** A new sample arrived to the input port **/
-    poseSamples.push_front(pose_samples_sample);
-    counter.poseSamples++;
+    Eigen::Affine3d tf; /** Transformer transformation **/
+    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
+
+    /** Get the transformation **/
+    if (!_world2navigation.get(ts, tf, false))
+    {
+       RTT::log(RTT::Fatal)<<"[FATAL ERROR]  No transformation provided."<<RTT::endlog();
+       return;
+    }
+
+    qtf = Eigen::Quaternion <double> (Eigen::AngleAxisd(0.00,  Eigen::Vector3d::UnitZ())*
+                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[1],  Eigen::Vector3d::UnitY()) *
+                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[2],  Eigen::Vector3d::UnitX()));//! Pitch and Roll
+
+    base::Time deltaTime = delta_pose_samples_sample.time - deltaPoseSamples.time;
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Received new samples at "<<poseSamples[0].time.toMicroseconds()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Received new samples at "<<delta_pose_samples_sample.time.toMicroseconds()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] deltaTime:\n"<<deltaTime.toSeconds()<<"\n";
     #endif
 
-    /***************************/
-    /** Filter Initialization **/
-    /***************************/
-    if(!initFilter)
-    {
-        /** Initialize if inertial state samples  **/
-        if (counter.inertialState > 0)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[STATE_OPTIMIZE INERTIAL_STATE] - "<<inertialState[0].time.toMicroseconds()<<" - Initializing Filter...";
-            #endif
-
-            /** Initialization of the filter with the first measurements **/
-//            this->initStateOptimizeFilter (filter, poseSamples, inertialState);
-
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[DONE]\n";
-            #endif
-
-            initFilter = true;
-        }
-    }
-
-    /** Set the flag of the Pose values valid to true **/
-    if (!flag.poseSamples && (poseSamples.size() == poseSamples.capacity()))
-        flag.poseSamples = true;
-
-    /** Reset counter in case of inconsistency **/
-    if (counter.poseSamples > poseSamples.size())
-        counter.poseSamples = 0;
-}
-
-void StateOptimize::inertial_stateTransformerCallback(const base::Time &ts, const ::rover_localization::InertialState &inertial_state_sample)
-{
     /** A new sample arrived to the input port **/
-    inertialState.push_front(inertial_state_sample);
-    counter.inertialState++;
-
-    #ifdef DEBUG_PRINTS
-    std::cout<<"[STATE_OPTIMIZE INERTIAL-SAMPLES] Received new samples at "<<inertialState[0].time.toMicroseconds()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE INERTIAL-SAMPLES] counter.inertialState "<< counter.inertialState<<"\n";
-    std::cout<<"[STATE_OPTIMIZE INERTIAL-SAMPLES] counter.poseSamples "<< counter.poseSamples<<"\n";
-    #endif
-
-    /***************************/
-    /** Filter Initialization **/
-    /***************************/
-    if(!initFilter)
-    {
-        /** Initialize if pose samples  **/
-        if (counter.poseSamples > 0)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] - "<<poseSamples[0].time.toMicroseconds()<<" - Initializing Filter...";
-            #endif
-
-            /** Initialization of the filter with the first measurements **/
-//            this->initStateOptimizeFilter (filter, poseSamples, inertialState);
-
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[DONE]\n";
-            #endif
-
-            initFilter = true;
-        }
-    }
-
-    /** Set the flag to true **/
-    if (!flag.inertialState && (inertialState.size() == inertialState.capacity()))
-        flag.inertialState = true;
-
-    /** Reset counter in case of inconsistency **/
-    if (counter.inertialState > inertialState.size())
-        counter.inertialState = 0;
-
-}
-
-void StateOptimize::inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample)
-{
-    /** A new sample arrived to the input port **/
-    inertialSamples.push_front(inertial_samples_sample);
-    counter.inertialSamples++;
-
-    if (counter.inertialSamples == number.inertialSamples)
-    {
-        flag.inertialSamples = true;
-        counter.inertialSamples = 0;
-    }
-    else
-        flag.inertialSamples = false;
+    deltaPoseSamples = delta_pose_samples_sample;
 
     if (initFilter)
     {
-        WSingleState statek_i; /** Current robot state (copy from the filter object) */
-        WSingleState deltaStatek_i; /** Delta in robot state to propagate the state (fill with info coming from FrontEnd) */
+        /** Check the time difference between inertial sensors and pose samples **/
+        base::Time diffTime = deltaPoseSamples.time - inertialSamples.time;
 
-        /**********************************************/
-        /** Propagation of the navigation quantities **/
-        /**********************************************/
+        /** Time in seconds between samples reading. If less than half of a period: perform the Motion Model **/
+        if (diffTime.toSeconds() < (_delta_pose_samples_period/2.0))
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] diffTime:\n"<<diffTime.toSeconds()<<"\n";
+            #endif
 
-        /** Get the current state **/
-        statek_i = filter->muState().statek_i;
+            /*******************/
+            /** Predict State **/
+            /*******************/
 
-        #ifdef DEBUG_PRINTS
-        std::cout<<"\n[STATE_OPTIMIZE POSE_SAMPLES] BEFORE_PROPAGATION \n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<statek_i.pos<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
-        Eigen::Matrix <double,localization::NUMAXIS,1> eulerb; /** In Euler angles **/
-        eulerb[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        eulerb[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        eulerb[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll:"
-            <<eulerb[0]*localization::R2D<<" Pitch:"
-            <<eulerb[1]*localization::R2D<<" Yaw:"
-            <<eulerb[2]*localization::R2D<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gbias:\n"<<statek_i.gbias<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
-        #endif
+            /** Process Model Uncertainty **/
+            typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;
+            SingleStateCovariance processCovQ;
+            processCovQ = localization::processNoiseCov <WSingleState, SingleStateCovariance > (static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_position),
+                                                                                            static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_orientation),
+                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.gbiasins),
+                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.abiasins));
 
-        /** Get the delta state **/
-//        deltaStatek_i = this->deltaState (delta_t, statek_i, poseSamples, inertialSamples);
+            /** Predict the filter state **/
+            filter->predict(boost::bind(processModel, _1 , static_cast<const Eigen::Vector3d>(deltaPoseSamples.position),
+                                    static_cast<const Eigen::Quaterniond>(deltaPoseSamples.orientation)),
+                                    processCovQ);
 
-        /** Propagate the rover state (navigation quantities) **/
-        statek_i = statek_i + deltaStatek_i.getVectorizedState(); filter->setStatek_i(statek_i);
+            /******************/
+            /** Update State **/
+            /******************/
+            //this->attitudeUpdate(deltaTime, qtf);
 
-        /** Get the current state (after propagation) **/
-        statek_i = filter->muState().statek_i;
-
-        #ifdef DEBUG_PRINTS
-        std::cout<<"\n[STATE_OPTIMIZE POSE_SAMPLES] AFTER_PROPAGATION \n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<statek_i.pos<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
-        Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
-        euler[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-        euler[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-        euler[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll:"
-            <<euler[0]*localization::R2D<<" Pitch:"
-            <<euler[1]*localization::R2D<<" Yaw:"
-            <<euler[2]*localization::R2D<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gbias:\n"<<statek_i.gbias<<"\n";
-        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
-        #endif
-
-        /*******************/
-        /** Predict State **/
-        /*******************/
-//        this->statePredict(delta_t, statek_i, poseSamples, inertialState);
-
-        /*******************/
-        /** Update State **/
-        /*******************/
-//        this->attitudeAndVelocityUpdate(delta_t, statek_i, poseSamples, inertialState);
-
-        /** Out port the information of the Back-End **/
-//        this->outputPortSamples (filter, accModel, accInertial);
-
-        /** Reset the error vector state and perform cloning */
-//        filter->muErrorSingleReset();
-//
-//        if (flag.poseSamples && flag.inertialState)
-//        {
-//            double delta_t = (1.0/config.backend_frequency); /** Position correction delta time */
-//
-//            #ifdef DEBUG_PRINTS
-//            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] - "<<inertialState[0].time.toMicroseconds()<<" - Position correction@"<< delta_t <<" seconds\n";
-//            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] acc:\n"<<inertialState[0].acc<<"\n";
-//            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gyro:\n"<<inertialState[0].gyro<<"\n";
-//            #endif
-//
-//            /***************************/
-//            /** Delay Position Update **/
-//            /***************************/
-//
-//            /** Observation matrix H (measurement model) **/
-//            Eigen::Matrix<double, 3, WAugmentedState::DOF> H;/** Observation matrix H (measurement model) */
-//            H = localization::delayPositionMeasurementMatrix<WAugmentedState, WSingleState>();
-//
-//            /** Create the measurement and the covariance **/
-//            typedef Eigen::Matrix<double, 3, 1> MeasurementVector;
-//            localization::DataModel<double, 3> relativePos = this->relativePosition(frontEndPose);
-//            MeasurementVector z = relativePos.data; /** Relative position measurement vector */
-//
-//            /** Update the filter **/
-//            slipVector.data += filter->ekfUpdate <MeasurementVector,
-//                       Eigen::Matrix<double, 3, WAugmentedState::DOF>,
-//                       Eigen::Matrix<double, 3, 3> > (z, H, relativePos.Cov);
-//
-//            /** Calculate the uncertainty of the slip vector **/
-//            slipVector.Cov += H * filter->PkAugmentedState() * H.transpose() +  relativePos.Cov;
-//
-//            #ifdef DEBUG_PRINTS
-//            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] SlipVector:\n"<<slipVector.data<<"\n";
-//            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] SlipVectorCov:\n"<<slipVector.Cov<<"\n";
-//            #endif
-//
-//            filter->cloning();
-
-    //        /** Get the corrected state **/
-    //        statek_i = filter->muState().statek_i;
-    //
-    //        #ifdef DEBUG_PRINTS
-    //        std::cout<<"\n[STATE_OPTIMIZE POSE_SAMPLES] AFTER_CORRECTION \n";
-    //        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<statek_i.pos<<"\n";
-    //        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<statek_i.vel<<"\n";
-    //        euler[2] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-    //        euler[1] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-    //        euler[0] = statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-    //        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll: "<<euler[0]*localization::R2D<<" Pitch: "<<euler[1]*localization::R2D<<" Yaw: "<<euler[2]*localization::R2D<<"\n";
-    //        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gbias:\n"<<statek_i.gbias<<"\n";
-    //        std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] abias:\n"<<statek_i.abias<<"\n\n";
-    //        #endif
+            this->outputPortSamples(deltaPoseSamples.time);
+        }
+    }
+}
 
 
-            flag.reset();
-        //}
+void StateOptimize::inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample)
+{
+    Eigen::Affine3d tf; /** Transformer transformation **/
+    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
+
+    /** Get the transformation **/
+    if (!_world2navigation.get(ts, tf, false))
+    {
+       RTT::log(RTT::Fatal)<<"[FATAL ERROR]  No transformation provided."<<RTT::endlog();
+       return;
     }
 
-    /** CAUTION: check how if the rover velocity comes in the body or in the navigation frame **/
+    qtf = Eigen::Quaternion <double> (Eigen::AngleAxisd(0.00,  Eigen::Vector3d::UnitZ())*
+                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[1],  Eigen::Vector3d::UnitY()) *
+                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[2],  Eigen::Vector3d::UnitX()));//! Pitch and Roll
+
+    base::Time deltaTime = inertial_samples_sample.time - inertialSamples.time;
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] Received new samples at "<<inertial_samples_sample.time.toMicroseconds()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] deltaTime:\n"<<deltaTime.toSeconds()<<"\n";
+    #endif
+
+    /** A new sample arrived to the input port **/
+    inertialSamples = inertial_samples_sample;
+
+    if (initFilter)
+    {
+        /** Check the time difference between inertial sensors and pose samples **/
+        base::Time diffTime = inertialSamples.time - deltaPoseSamples.time;
+
+        /** Time in seconds between samples reading. If less than half of a period: perform the Motion Model **/
+        if (diffTime.toSeconds() < (_inertial_samples_period/2.0))
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] diffTime:\n"<<diffTime.toSeconds()<<"\n";
+            #endif
+
+            /*******************/
+            /** Predict State **/
+            /*******************/
+
+            /** Process Model Uncertainty **/
+            typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;
+            SingleStateCovariance processCovQ;
+            processCovQ = localization::processNoiseCov <WSingleState, SingleStateCovariance > (static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_position),
+                                                                                            static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_orientation),
+                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.gbiasins),
+                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.abiasins));
+
+            /** Predict the filter state **/
+            filter->predict(boost::bind(processModel, _1 , static_cast<const Eigen::Vector3d>(deltaPoseSamples.position),
+                                    static_cast<const Eigen::Quaterniond>(deltaPoseSamples.orientation)),
+                                    processCovQ);
+
+            /******************/
+            /** Update State **/
+            /******************/
+            //this->attitudeUpdate(deltaTime, qtf);
+
+            this->outputPortSamples(deltaPoseSamples.time);
+        }
+    }
 
     return;
+}
+
+void StateOptimize::inertial_stateTransformerCallback(const base::Time &ts, const ::localization::InertialState &inertial_state_sample)
+{
+    /** A new sample arrived to the input port **/
+    inertialState = inertial_state_sample;
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[STATE_OPTIMIZE INERTIAL_STATE] Received new samples at "<<inertialState.time.toMicroseconds()<<"\n";
+    #endif
+
+    /***************************/
+    /** Filter Initialization **/
+    /***************************/
+    if(!initFilter)
+    {
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[STATE_OPTIMIZE INERTIAL_STATE] - Initializing Filter...";
+        #endif
+
+        /** Initialization of the filter with the first measurements **/
+        this->initStateOptimizeFilter (filter, inertialState);
+
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[DONE]\n";
+        #endif
+
+        initFilter = true;
+    }
 }
 
 void StateOptimize::exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample)
@@ -297,43 +246,16 @@ bool StateOptimize::configureHook()
     /************************/
     /** Read configuration **/
     /************************/
-    config = _configuration.value();
-    inertialNoise = _inertial_noise.value();
-    adaptiveConfig = _adaptive_config.value();
+    delayperiod = _delay_state_period.value();
+    inertialnoise = _inertial_noise.value();
+    adaptiveconfig = _adaptive_config.value();
 
     /***********************/
     /** Configure Values  **/
     /***********************/
 
-    /** Set the number of samples between each sensor input */
-    if (config.input_frequency != 0.00 && config.delay_state_frequency != 0.00)
-    {
-        number.poseSamples = config.input_frequency/config.delay_state_frequency;
-        number.inertialSamples =  config.input_frequency/config.delay_state_frequency;
-        number.inertialState =  config.input_frequency/config.delay_state_frequency;
-    }
-    else
-    {
-        RTT::log(RTT::Warning)<<"[STATE_OPTIMIZE FATAL ERROR] Configuration frequency cannot be zero."<<RTT::endlog();
-        return false;
-    }
-
-    /** Set the capacity of the circular_buffer according to the sampling rate **/
-    poseSamples.set_capacity(number.poseSamples);
-    inertialSamples.set_capacity(number.inertialSamples);
-    inertialState.set_capacity(number.inertialState);
-
-    #ifdef DEBUG_PRINTS
-    std::cout<<"[STATE_OPTIMIZE CONFIGURE] poseSamples has capacity "<<poseSamples.capacity()<<" and size "<<poseSamples.size()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE CONFIGURE] inertialSamples has capacity "<<inertialSamples.capacity()<<" and size "<<inertialSamples.size()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE CONFIGURE] inertialState has capacity "<<inertialState.capacity()<<" and size "<<inertialState.size()<<"\n";
-    #endif
-
     /** Create the class for the adaptive measurement update of the orientation **/
-    adapAtt.reset (new localization::AdaptiveAttitudeCov (adaptiveConfig.M1, adaptiveConfig.M2, adaptiveConfig.gamma, adaptiveConfig.r2count));
-
-    /** Create the class for the adaptive measurement update of the orientation **/
-    adapAcc.reset (new localization::AdaptiveAttitudeCov (adaptiveConfig.M1, adaptiveConfig.M2, adaptiveConfig.gamma/3.0, adaptiveConfig.r2count));
+    adapAtt.reset (new localization::AdaptiveAttitudeCov (adaptiveconfig.M1, adaptiveconfig.M2, adaptiveconfig.gamma, adaptiveconfig.r2count));
 
     /** Set Slip vector to zero **/
     slipVector.data.setZero();
@@ -342,12 +264,14 @@ bool StateOptimize::configureHook()
     /***********************/
     /** Info and Warnings **/
     /***********************/
-    RTT::log(RTT::Warning)<<"[Info] Frequency[Hertz]: "<<config.input_frequency<<RTT::endlog();
-
-    if (config.input_frequency < config.delay_state_frequency)
+    if (delayperiod < _delta_pose_samples_period)
     {
-        RTT::log(RTT::Warning)<<"[STATE_OPTIMIZE FATAL] State delay frequency cannot be higher than Input frequency."<<RTT::endlog();
-        return false;
+        throw std::runtime_error("[FATAL ERROR]: Delay State period cannot be smaller than delta pose samples period.");
+    }
+
+    if (delayperiod < _inertial_samples_period)
+    {
+        throw std::runtime_error("[FATAL ERROR]: Delay State period cannot be smaller than inertial samples period.");
     }
 
     return true;
@@ -377,46 +301,45 @@ void StateOptimize::cleanupHook()
     /** Liberate the memory of the shared_ptr **/
     filter.reset();
     adapAtt.reset();
-    adapAcc.reset();
 }
 
-inline WSingleState StateOptimize::deltaState (const double delta_t, const WSingleState &currentState,
-        base::samples::RigidBodyState &pose,
-        base::samples::RigidBodyState &delta_pose, base::samples::IMUSensors &inertialSamples)
-{
-
-    WSingleState delta_s;
-    Eigen::Vector3d deltaVelocity;
-    deltaVelocity = inertialSamples.acc * delta_t;
-    deltaVelocity[2] = delta_pose.velocity[2];
-
-    /** Robot's state estimate is propagated using the non-linear equation **/
-    delta_s.pos = (pose.orientation * (currentState.vel + deltaVelocity)) * delta_t; //! Increment in position
-    delta_s.vel = deltaVelocity; //! Increment in velocity using inertial sensors.
-    delta_s.orient = static_cast< MTK::SO3<double> > (delta_pose.orientation); //! Delta in orientation
-
-    #ifdef DEBUG_PRINTS
-    std::cout<<"\n[STATE_OPTIMIZE POSE_SAMPLES] DELTA_STATE \n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<delta_s.pos<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<delta_s.vel<<"\n";
-    Eigen::Matrix <double,localization::NUMAXIS,1> eulerdelta; /** In Euler angles **/
-    eulerdelta[2] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-    eulerdelta[1] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-    eulerdelta[0] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll:"
-        <<eulerdelta[0]*localization::R2D<<" Pitch:"
-        <<eulerdelta[1]*localization::R2D<<" Yaw:"
-        <<eulerdelta[2]*localization::R2D<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll(rad): "<<eulerdelta[0]<<" Pitch(rad): "<<eulerdelta[1]<<" Yaw(rad): "<<eulerdelta[2]<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] w: "<<delta_s.orient.w()<<" x: "<<delta_s.orient.x()<<" y: "<<delta_s.orient.y()<<" z:"<<delta_s.orient.z()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gbias:\n"<<delta_s.gbias<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] abias:\n"<<delta_s.abias<<"\n\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] DELTA_STATE in Vectorized_form:\n"<<delta_s.getVectorizedState(::localization::State::ERROR_QUATERNION)<<"\n\n";
-    #endif
-
-    return delta_s;
-
-}
+//inline WSingleState StateOptimize::deltaState (const double delta_t, const WSingleState &currentState,
+//        base::samples::RigidBodyState &pose,
+//        base::samples::RigidBodyState &delta_pose, base::samples::IMUSensors &inertialSamples)
+//{
+//
+//    WSingleState delta_s;
+//    Eigen::Vector3d deltaVelocity;
+//    deltaVelocity = inertialSamples.acc * delta_t;
+//    deltaVelocity[2] = delta_pose.velocity[2];
+//
+//    /** Robot's state estimate is propagated using the non-linear equation **/
+//    delta_s.pos = (pose.orientation * (currentState.vel + deltaVelocity)) * delta_t; //! Increment in position
+//    delta_s.vel = deltaVelocity; //! Increment in velocity using inertial sensors.
+//    delta_s.orient = static_cast< MTK::SO3<double> > (delta_pose.orientation); //! Delta in orientation
+//
+//    #ifdef DEBUG_PRINTS
+//    std::cout<<"\n[STATE_OPTIMIZE POSE_SAMPLES] DELTA_STATE \n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<delta_s.pos<<"\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<delta_s.vel<<"\n";
+//    Eigen::Matrix <double,localization::NUMAXIS,1> eulerdelta; /** In Euler angles **/
+//    eulerdelta[2] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+//    eulerdelta[1] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+//    eulerdelta[0] = delta_s.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll:"
+//        <<eulerdelta[0]*localization::R2D<<" Pitch:"
+//        <<eulerdelta[1]*localization::R2D<<" Yaw:"
+//        <<eulerdelta[2]*localization::R2D<<"\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll(rad): "<<eulerdelta[0]<<" Pitch(rad): "<<eulerdelta[1]<<" Yaw(rad): "<<eulerdelta[2]<<"\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] w: "<<delta_s.orient.w()<<" x: "<<delta_s.orient.x()<<" y: "<<delta_s.orient.y()<<" z:"<<delta_s.orient.z()<<"\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] gbias:\n"<<delta_s.gbias<<"\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] abias:\n"<<delta_s.abias<<"\n\n";
+//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] DELTA_STATE in Vectorized_form:\n"<<delta_s.getVectorizedState(::localization::State::ERROR_QUATERNION)<<"\n\n";
+//    #endif
+//
+//    return delta_s;
+//
+//}
 
 //inline void StateOptimize::statePredict(const double delta_t, const WSingleState &statek_i,
 //        boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
@@ -433,8 +356,8 @@ inline WSingleState StateOptimize::deltaState (const double delta_t, const WSing
 //    typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;//! Typedef for the statek_i covariance type
 //    SingleStateCovariance processCovQ;
 //    processCovQ = localization::processNoiseCov
-//                        <WSingleState, SingleStateCovariance > (processModelF, sensornoise.accrw, sensornoise.aresolut,
-//                                                                sensornoise.gyrorw, sensornoise.gbiasins, sensornoise.abiasins,
+//                        <WSingleState, SingleStateCovariance > (processModelF, inertialnoise.accrw, inertialnoise.aresolut,
+//                                                                inertialnoise.gyrorw, inertialnoise.gbiasins, inertialnoise.abiasins,
 //                                                                static_cast<const Eigen::Quaterniond&>(statek_i.orient), delta_t) ;
 //
 //    /** Robot's error state is propagated using the non-linear noise dynamic model (processModel) **/
@@ -442,135 +365,105 @@ inline WSingleState StateOptimize::deltaState (const double delta_t, const WSing
 //
 //    return;
 //}
-//
-//inline void StateOptimize::attitudeAndVelocityUpdate(const double delta_t, const WSingleState &statek_i,
-//                boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-//                boost::circular_buffer<rover_localization::InertialState> &inertialState)
-//{
-//    /** Observation matrix H (measurement model) **/
-//    Eigen::Matrix<double, 6, WSingleState::DOF> H;/** Observation matrix H (measurement model) */
-//    H = ::localization::proprioceptiveMeasurementMatrix<WSingleState::DOF>(statek_i.orient, inertialState[0].theoretical_g);
-//
-//    /** Create the measurement **/
-//    typedef Eigen::Matrix<double, 6, 1> MeasurementVector;
-//    MeasurementVector z; /** Unified measurement vector (velocity and acceleration) */
-//    localization::DataModel<double, 3> veloError = this->velocityError(frontEndPose, filter);
-//
-//    /** Fill the measurement vector **/
-//    z.block<3,1>(0,0) = veloError.data;
-//    z.block<3,1>(3,0) = inertialState[0].acc;
-//
-//    /** Form the measurement covariance matrix **/
-//    Eigen::Matrix<double, 6, 6> measuCovR;
-//    measuCovR = ::localization::proprioceptiveMeasurementNoiseCov(veloError.Cov,
-//                                        sensornoise.accrw, sensornoise.aresolut, delta_t);
-//
-//    /** Adaptive part of the measurement covariance needs the covariance of the process  **/
-//    StateOptimizeFilter::SingleStateCovariance Pksingle = filter->PkSingleState(); /** covariance of the single state */
-//
-//    /** Get the error state **/
-//    WSingleState errork_i = filter->muError().statek_i;
-//
-//    /** Adaptive covariance matrix of the measurement (3x3 bottomRight matrix part) **/
-//    measuCovR.bottomRightCorner<3,3>() = adapAtt->matrix<WSingleState::DOF>
-//        (errork_i.getVectorizedState(::localization::State::ERROR_QUATERNION),
-//         Pksingle, inertialState[0].acc,
-//         H.block<3, WSingleState::DOF>(3,0),
-//         measuCovR.bottomRightCorner<3,3>());
-//
-//
-//    /** Perform the update in an EKF form **/
-//    filter->ekfSingleUpdate < MeasurementVector,
-//                        Eigen::Matrix<double,6, WSingleState::DOF>,
-//                        Eigen::Matrix<double,6,6> > (z, H, measuCovR);
-//
-//    return;
-//}
-//
-//void StateOptimize::initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose,
-//                boost::circular_buffer<rover_localization::InertialState> &inertialState)
-//{
-//    /** The filter vector state variables one for the navigation quantities the other for the error **/
-//    WAugmentedState vstate;
-//    WAugmentedState verror;
-//
-//    /************************************/
-//    /** Initialize the Back-End Filter **/
-//    /************************************/
-//
-//    /** Initial covariance matrix **/
-//    StateOptimizeFilter::SingleStateCovariance P0single; /** Initial P(0) for one state **/
-//    P0single.setZero();
-//
-//    MTK::setDiagonal (P0single, &WSingleState::pos, 1e-03);
-//    MTK::setDiagonal (P0single, &WSingleState::vel, 1e-03);
-//    MTK::setDiagonal (P0single, &WSingleState::orient, 1e-03);
-//    MTK::setDiagonal (P0single, &WSingleState::gbias, 1e-10);
-//    MTK::setDiagonal (P0single, &WSingleState::abias, 1e-10);
-//
-//
-//    /** Initial covariance matrix for the Vector of States **/
-//    StateOptimizeFilter::AugmentedStateCovariance P0; /** Initial P(0) for the whole Vector State **/
-//
-//    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_l) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_i) = P0single;
-//
-//    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_l) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_i) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek) = P0single;
-//
-//    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_i) = P0single;
-//    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_l) = P0single;
-//
-//    /** Set the current pose to initialize the filter structure **/
-//    vstate.statek_i.pos = frontEndPose[0].position; //!Initial position from kinematics
-//    vstate.statek_i.vel = frontEndPose[0].velocity; //!Initial velocity from kinematics
-//    vstate.statek_i.orient = static_cast< Eigen::Quaternion<double> >(frontEndPose[0].orientation);
-//
-//    /** Set the initial accelerometers and gyros bias offset in the state vector **/
-//    vstate.statek_i.gbias = sensornoise.gbiasoff + inertialState[0].gbias_onoff; //!Initial gyros bias offset
-//    vstate.statek_i.abias = sensornoise.abiasoff + inertialState[0].abias_onoff; //!Initial accelerometers bias offset
-//
-//    /** Copy the state in the vector of states **/
-//    vstate.statek = vstate.statek_i;
-//    vstate.statek_l = vstate.statek_i;
-//
-//    /** Set the initial error of the verror state (by default pos, vel are zero and orient is identity) **/
-//    /**TO-DO: No needed in the vector state **/
-//    //verror.statek_i.gbias = vstate.statek_i.gbias;
-//    //verror.statek_i.abias = vstate.statek_i.abias;
-//
-//    /** Copy the error state in the vector of states **/
-//    verror.statek = verror.statek_i;
-//    verror.statek_l = verror.statek_i;
-//
-//    /** Create the filter **/
-//    filter.reset (new StateOptimizeFilter (static_cast<const WAugmentedState> (vstate),
-//                                    static_cast<const WAugmentedState> (verror),
-//                                    static_cast<const StateOptimizeFilter::AugmentedStateCovariance> (P0)));
-//
-//    #ifdef DEBUG_PRINTS
-//    std::cout<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Single P0|0 is of size " <<P0single.rows()<<" x "<<P0single.cols()<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Single P0|0:\n"<<P0single<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] P0|0 is of size " <<P0.rows()<<" x "<<P0.cols()<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] P0|0:\n"<<P0<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] state:\n"<<vstate.getVectorizedState()<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] position:\n"<<vstate.statek_i.pos<<"\n";
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] velocity:\n"<<vstate.statek_i.vel<<"\n";
-//    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
-//    euler[2] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
-//    euler[1] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
-//    euler[0] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-//    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Roll: "<<euler[0]*localization::R2D<<" Pitch: "<<euler[1]*localization::R2D<<" Yaw: "<<euler[2]*localization::R2D<<"\n";
-//    std::cout<<"\n";
-//    #endif
-//
-//    return;
-//}
-//
+
+inline void StateOptimize::attitudeUpdate(const base::Time &delta_t, const Eigen::Quaterniond &world2nav)
+{
+    /** Current filter state **/
+    WSingleState statek_i = filter->muState().statek_i;
+
+    /** Create the measurement **/
+    typedef Eigen::Vector3d MeasurementVector;
+    Eigen::Quaterniond world2body = attitudeMeasurement(static_cast<Eigen::Quaterniond>(statek_i.orient),
+                                        static_cast<Eigen::Vector3d>(inertialSamples.mag)); //mag has inclinometers
+
+    Eigen::AngleAxis<double> nav2body(world2nav.inverse() * world2body);
+    MeasurementVector z = nav2body.angle() * nav2body.axis();
+
+    /** Form the measurement covariance matrix **/
+    Eigen::Matrix<double, 3, 3> measuCovR;
+    measuCovR = ::localization::proprioceptiveMeasurementNoiseCov(inertialnoise.accrw, inertialnoise.aresolut, delta_t.toSeconds());
+
+    /** Adaptive part of the measurement covariance needs the covariance of the process  **/
+    StateOptimizeFilter::SingleStateCovariance Pksingle = filter->PkSingleState(); /** covariance of the single state */
+
+    /** Adaptive covariance matrix of the measurement **/
+    //measuCovR = adapAtt->matrix<WSingleState::DOF> (errork_i, Pksingle, inertialSamples.acc, H, measuCovR);
+
+    /** Perform the update **/
+    filter->singleUpdate(z, boost::bind(attitudeObservationModel, _1), measuCovR);
+
+    return;
+}
+
+void StateOptimize::initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, localization::InertialState &inertialState)
+{
+    /** The filter vector state variables one for the navigation quantities the other for the error **/
+    WAugmentedState vstate;
+
+    /************************************/
+    /** Initialize the Back-End Filter **/
+    /************************************/
+
+    /** Initial covariance matrix **/
+    StateOptimizeFilter::SingleStateCovariance P0single; /** Initial P(0) for one state **/
+    P0single.setZero();
+
+    MTK::setDiagonal (P0single, &WSingleState::pos, 1e-03);
+    MTK::setDiagonal (P0single, &WSingleState::orient, 1e-03);
+    MTK::setDiagonal (P0single, &WSingleState::gbias, 1e-10);
+    MTK::setDiagonal (P0single, &WSingleState::abias, 1e-10);
+
+
+    /** Initial covariance matrix for the Vector of States **/
+    StateOptimizeFilter::AugmentedStateCovariance P0; /** Initial P(0) for the whole Vector State **/
+
+    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_l) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_i) = P0single;
+
+    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_l) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_i) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek) = P0single;
+
+    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_i) = P0single;
+    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_l) = P0single;
+
+    /** Set the current pose to initialize the filter structure **/
+    vstate.statek_i.pos.setZero(); //!Initial position from kinematics
+    vstate.statek_i.orient = Eigen::Quaternion<double>::Identity();
+
+    /** Set the initial accelerometers and gyros bias offset in the state vector **/
+    vstate.statek_i.gbias = inertialnoise.gbiasoff + inertialState.gbias_onoff; //!Initial gyros bias offset
+    vstate.statek_i.abias = inertialnoise.abiasoff + inertialState.abias_onoff; //!Initial accelerometers bias offset
+
+    /** Copy the state in the vector of states **/
+    vstate.statek = vstate.statek_i;
+    vstate.statek_l = vstate.statek_i;
+
+    /** Create the filter **/
+    filter.reset (new StateOptimizeFilter (static_cast<const WAugmentedState> (vstate),
+                        static_cast<const StateOptimizeFilter::AugmentedStateCovariance> (P0)));
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] Single P0|0 is of size " <<P0single.rows()<<" x "<<P0single.cols()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] Single P0|0:\n"<<P0single<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] P0|0 is of size " <<P0.rows()<<" x "<<P0.cols()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] P0|0:\n"<<P0<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] state:\n"<<vstate.getVectorizedState()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INIT] position:\n"<<vstate.statek_i.pos<<"\n";
+    Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
+    euler[2] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+    euler[1] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+    euler[0] = vstate.statek_i.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+    std::cout<<"[STATE_OPTIMIZE INIT] Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
+    std::cout<<"\n";
+    #endif
+
+    return;
+}
+
 //localization::DataModel<double, 3> StateOptimize::relativePosition(const boost::circular_buffer<base::samples::RigidBodyState> &frontEndPose)
 //{
 //    localization::DataModel<double, 3> deltaPosition; /** Relative position **/
@@ -673,5 +566,54 @@ inline WSingleState StateOptimize::deltaState (const double delta_t, const WSing
 //
 //    return;
 //}
+
+
+inline Eigen::Quaterniond StateOptimize::attitudeMeasurement (const Eigen::Quaterniond &orient, const Eigen::Vector3d &acc)
+{
+    Eigen::Quaterniond attitude;
+    Eigen::Vector3d euler;
+
+    euler[0] = (double) asin((double)acc[1]/ (double)acc.norm()); // Roll
+    euler[1] = (double) -atan(acc[0]/acc[2]); //Pitch
+    euler[2] = orient.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+
+    attitude = Eigen::AngleAxis<double> (Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitZ())*
+        Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
+        Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitX()));
+
+    std::cout<< "******** [ATTITUDE_MEASUREMENT]\n";
+    std::cout<< " Roll: "<<euler[0]*180.00/M_PI<<" Pitch: "<<euler[1]*180.00/M_PI<<" Yaw: "<<euler[2]*180.00/M_PI<<"\n";
+
+    return attitude;
+}
+
+
+void StateOptimize::outputPortSamples(const base::Time &timestamp)
+{
+    base::samples::RigidBodyState poseOut; poseOut.invalidate();
+    WSingleState statek_i = filter->muState().statek_i;
+
+    /** Estimated Pose **/
+    poseOut.time = timestamp;
+    poseOut.sourceFrame = "navigation";
+    poseOut.targetFrame = "body";
+    poseOut.position = statek_i.pos;
+    poseOut.cov_position = filter->PkSingleState().block<3,3>(0,0);
+    poseOut.orientation = statek_i.orient;
+    poseOut.cov_orientation = filter->PkSingleState().block<3,3>(3,3);
+    poseOut.velocity = deltaPoseSamples.velocity;
+    poseOut.cov_velocity = deltaPoseSamples.cov_velocity;
+    _pose_samples_out.write(poseOut);
+
+    /** Gyroscopes bias **/
+    base::Vector3d gyrobias = static_cast<base::Vector3d>(statek_i.gbias);
+    _gyroscopes_bias_out.write(gyrobias);
+
+    /** Accelerometers bias **/
+    base::Vector3d accbias = static_cast<base::Vector3d>(statek_i.abias);
+    _accelerometers_bias_out.write(accbias);
+
+
+}
 
 

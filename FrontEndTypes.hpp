@@ -12,10 +12,15 @@ namespace rover_localization
     /** Properties **/
     /****************/
 
-     /** Processing Configuration **/
+    /** Processing Configuration **/
     struct Configuration
     {
         double output_frequency;//It cannot be higher that the sensor values of the aggregator (transformer).
+
+        bool align_world_to_navigation_frame; // Set at the same location the world imaginary frame and
+                                            //the navigation frame (relative frame to start robot driving/odometry).
+                                            //This is useful when GPS gives high values to the starting position
+                                            //with respect to the origin (world_frame). Note: only the position of a pose.
 
         bool use_inclinometers_as_theoretical_gravity;//Inclinometers are more stable than accelerometers at initial time.
                                                     //They cloud be use as theoretical local gravity value instead of using
@@ -48,30 +53,6 @@ namespace rover_localization
         bool zeroMark; /** True if sweeping unit passed the zero mark (set false by default) **/
         base::Quaterniond body2lcamera; /** Desired orientation of the left camera w.r.t the body **/
         base::Quaterniond quatError; /** Orientation error in the body2lcamera orientation**/
-    };
-
-    /**************************************/
-    /** Data struct for (internal) ports **/
-    /**************************************/
-
-    //Inertial sensor and extra information
-    struct InertialState
-    {
-        /** Time stamp */
-        base::Time time;
-
-         /** Theoretical gravity value computed from model */
-        double theoretical_g;
-
-        /** Experimental gravity value computed at initialization time (no-moving robot) */
-        double estimated_g;
-
-        /** On/Off initial accelerometers bias */
-        base::Vector3d abias_onoff;
-
-        /** On/Off initial gyro bias */
-        base::Vector3d gbias_onoff;
-
     };
 
 }

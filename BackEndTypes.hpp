@@ -3,16 +3,9 @@
 
 #include <base/time.h>
 #include <base/eigen.h>
-#include <base/samples/rigid_body_state.h>
 
 namespace rover_localization
 {
-    struct StateOptimizeConfig
-    {
-        double input_frequency;
-        double delay_state_frequency;
-    };
-
     //Data type for the Inertial measurement characteristic
     struct InertialNoiseParameters
     {
@@ -59,37 +52,6 @@ namespace rover_localization
             return;
         }
 
-    };
-
-    /**************************************/
-    /** Data struct for (internal) ports **/
-    /**************************************/
-
-    //Optimization problem information
-    struct StateEstimation
-    {
-	base::Time time;
-	base::VectorXd statek_i;
-	base::VectorXd errork_i;
-        base::Orientation orientation;
-	base::MatrixXd Pki;
-	base::MatrixXd K;
-	base::MatrixXd Qk;
-	base::MatrixXd Rk;
-	base::VectorXd innovation;
-	base::Matrix3d Hellinger;
-	base::Matrix3d Threshold;
-        double mahalanobis;
-        base::Vector3d abias;
-        base::Vector3d gbias;
-        base::Vector3d accModel;
-        base::Matrix3d accModelCov;
-        base::Vector3d accInertial;
-        base::Matrix3d accInertialCov;
-        base::Vector3d accError;
-        base::Matrix3d accErrorCov;
-        base::Vector3d deltaVeloCommon;
-        base::Matrix3d deltaVeloCommonCov;
     };
 }
 #endif

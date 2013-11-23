@@ -151,6 +151,9 @@ namespace rover_localization {
         /** Initial values of Gyroscopes (sanity check) */
 	Eigen::Matrix <double, 3, Eigen::Dynamic> init_gyroscopes;
 
+        /** Align of world to navigation (in case of true in the properties) **/
+        base::samples::RigidBodyState alignWorld2Navigation;
+
         /** Body to Left camera transformation **/
         base::samples::RigidBodyState body2lcameraRbs;
 
@@ -173,7 +176,10 @@ namespace rover_localization {
 	boost::circular_buffer<base::samples::RigidBodyState> referencePoseSamples; /** Pose information (init and debug)**/
 
         /** State information **/
-        rover_localization::StateEstimation stateEstimationSamples;
+        base::samples::RigidBodyState poseEstimationSamples;
+
+        /** Gyros and Accelerometers Bias **/
+        base::Vector3d accbias, gyrobias;
 
         /***************************/
         /** Output port variables **/
@@ -186,7 +192,7 @@ namespace rover_localization {
         base::samples::IMUSensors inertialSamples;
 
         /**  Inertial state **/
-        rover_localization::InertialState inertialState;
+        localization::InertialState inertialState;
 
         /** Ground truth out coming for an external system (if available like Vicon or GPS) */
         base::samples::RigidBodyState referenceOut;
