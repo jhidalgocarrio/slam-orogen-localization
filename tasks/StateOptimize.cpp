@@ -69,25 +69,11 @@ StateOptimize::~StateOptimize()
 
 void StateOptimize::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &delta_pose_samples_sample)
 {
-    Eigen::Affine3d tf; /** Transformer transformation **/
-    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
-
-    /** Get the transformation **/
-    if (!_world2navigation.get(ts, tf, false))
-    {
-       RTT::log(RTT::Fatal)<<"[FATAL ERROR]  No transformation provided."<<RTT::endlog();
-       return;
-    }
-
-    qtf = Eigen::Quaternion <double> (Eigen::AngleAxisd(0.00,  Eigen::Vector3d::UnitZ())*
-                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[1],  Eigen::Vector3d::UnitY()) *
-                                        Eigen::AngleAxisd(tf.rotation().eulerAngles(2,1,0)[2],  Eigen::Vector3d::UnitX()));//! Pitch and Roll
-
     base::Time deltaTime = delta_pose_samples_sample.time - deltaPoseSamples.time;
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] Received new samples at "<<delta_pose_samples_sample.time.toMicroseconds()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] deltaTime:\n"<<deltaTime.toSeconds()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] deltaTime: "<<deltaTime.toSeconds()<<"\n";
     #endif
 
     /** A new sample arrived to the input port **/
@@ -95,40 +81,23 @@ void StateOptimize::delta_pose_samplesTransformerCallback(const base::Time &ts, 
 
     if (initFilter)
     {
-        /** Check the time difference between inertial sensors and pose samples **/
-        base::Time diffTime = deltaPoseSamples.time - inertialSamples.time;
+        /*******************/
+        /** Predict State **/
+        /*******************/
 
-        /** Time in seconds between samples reading. If less than half of a period: perform the Motion Model **/
-        if (diffTime.toSeconds() < (_delta_pose_samples_period/2.0))
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[STATE_OPTIMIZE POSE_SAMPLES] diffTime:\n"<<diffTime.toSeconds()<<"\n";
-            #endif
+        /** Process Model Uncertainty **/
+        typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;
+        SingleStateCovariance processCovQ;
+        processCovQ = localization::processNoiseCov <WSingleState, SingleStateCovariance > (static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_position),
+                                                                                        static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_orientation),
+                                                                                        static_cast<const Eigen::Vector3d>(inertialnoise.gbiasins),
+                                                                                        static_cast<const Eigen::Vector3d>(inertialnoise.abiasins));
 
-            /*******************/
-            /** Predict State **/
-            /*******************/
+        /** Predict the filter state **/
+        filter->predict(boost::bind(processModel, _1 , static_cast<const Eigen::Vector3d>(deltaPoseSamples.position),
+                                static_cast<const Eigen::Quaterniond>(deltaPoseSamples.orientation)),
+                                processCovQ);
 
-            /** Process Model Uncertainty **/
-            typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;
-            SingleStateCovariance processCovQ;
-            processCovQ = localization::processNoiseCov <WSingleState, SingleStateCovariance > (static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_position),
-                                                                                            static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_orientation),
-                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.gbiasins),
-                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.abiasins));
-
-            /** Predict the filter state **/
-            filter->predict(boost::bind(processModel, _1 , static_cast<const Eigen::Vector3d>(deltaPoseSamples.position),
-                                    static_cast<const Eigen::Quaterniond>(deltaPoseSamples.orientation)),
-                                    processCovQ);
-
-            /******************/
-            /** Update State **/
-            /******************/
-            //this->attitudeUpdate(deltaTime, qtf);
-
-            this->outputPortSamples(deltaPoseSamples.time);
-        }
     }
 }
 
@@ -153,7 +122,7 @@ void StateOptimize::inertial_samplesTransformerCallback(const base::Time &ts, co
 
     #ifdef DEBUG_PRINTS
     std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] Received new samples at "<<inertial_samples_sample.time.toMicroseconds()<<"\n";
-    std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] deltaTime:\n"<<deltaTime.toSeconds()<<"\n";
+    std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] deltaTime: "<<deltaTime.toSeconds()<<"\n";
     #endif
 
     /** A new sample arrived to the input port **/
@@ -161,40 +130,12 @@ void StateOptimize::inertial_samplesTransformerCallback(const base::Time &ts, co
 
     if (initFilter)
     {
-        /** Check the time difference between inertial sensors and pose samples **/
-        base::Time diffTime = inertialSamples.time - deltaPoseSamples.time;
+        /******************/
+        /** Update State **/
+        /******************/
+        this->attitudeUpdate(_inertial_samples_period, qtf);
 
-        /** Time in seconds between samples reading. If less than half of a period: perform the Motion Model **/
-        if (diffTime.toSeconds() < (_inertial_samples_period/2.0))
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] diffTime:\n"<<diffTime.toSeconds()<<"\n";
-            #endif
-
-            /*******************/
-            /** Predict State **/
-            /*******************/
-
-            /** Process Model Uncertainty **/
-            typedef StateOptimizeFilter::SingleStateCovariance SingleStateCovariance;
-            SingleStateCovariance processCovQ;
-            processCovQ = localization::processNoiseCov <WSingleState, SingleStateCovariance > (static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_position),
-                                                                                            static_cast<const Eigen::Matrix3d>(deltaPoseSamples.cov_orientation),
-                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.gbiasins),
-                                                                                            static_cast<const Eigen::Vector3d>(inertialnoise.abiasins));
-
-            /** Predict the filter state **/
-            filter->predict(boost::bind(processModel, _1 , static_cast<const Eigen::Vector3d>(deltaPoseSamples.position),
-                                    static_cast<const Eigen::Quaterniond>(deltaPoseSamples.orientation)),
-                                    processCovQ);
-
-            /******************/
-            /** Update State **/
-            /******************/
-            //this->attitudeUpdate(deltaTime, qtf);
-
-            this->outputPortSamples(deltaPoseSamples.time);
-        }
+        this->outputPortSamples(inertialSamples.time);
     }
 
     return;
@@ -206,7 +147,7 @@ void StateOptimize::inertial_stateTransformerCallback(const base::Time &ts, cons
     inertialState = inertial_state_sample;
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[STATE_OPTIMIZE INERTIAL_STATE] Received new samples at "<<inertialState.time.toMicroseconds()<<"\n";
+    //std::cout<<"[STATE_OPTIMIZE INERTIAL_STATE] Received new samples at "<<inertialState.time.toMicroseconds()<<"\n";
     #endif
 
     /***************************/
@@ -366,7 +307,7 @@ void StateOptimize::cleanupHook()
 //    return;
 //}
 
-inline void StateOptimize::attitudeUpdate(const base::Time &delta_t, const Eigen::Quaterniond &world2nav)
+inline void StateOptimize::attitudeUpdate(const double &delta_t, const Eigen::Quaterniond &world2nav)
 {
     /** Current filter state **/
     WSingleState statek_i = filter->muState().statek_i;
@@ -381,7 +322,7 @@ inline void StateOptimize::attitudeUpdate(const base::Time &delta_t, const Eigen
 
     /** Form the measurement covariance matrix **/
     Eigen::Matrix<double, 3, 3> measuCovR;
-    measuCovR = ::localization::proprioceptiveMeasurementNoiseCov(inertialnoise.accrw, inertialnoise.aresolut, delta_t.toSeconds());
+    measuCovR = ::localization::proprioceptiveMeasurementNoiseCov(inertialnoise.accrw, inertialnoise.accresolut, delta_t);
 
     /** Adaptive part of the measurement covariance needs the covariance of the process  **/
     StateOptimizeFilter::SingleStateCovariance Pksingle = filter->PkSingleState(); /** covariance of the single state */

@@ -201,7 +201,7 @@ namespace rover_localization {
 
         /**@brief Method to perform the attitude update
          */
-        inline void attitudeUpdate(const base::Time &delta_t, const Eigen::Quaterniond &world2nav);
+        inline void attitudeUpdate(const double &delta_t, const Eigen::Quaterniond &world2nav);
 
         /**@brief Calculate the delta of the state over the delta interval
          */

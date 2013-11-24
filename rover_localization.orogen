@@ -248,7 +248,7 @@ task_context "StateOptimize" do
 	align_port("inertial_samples", 0.01)
 	align_port("inertial_state", 0.01)
         align_port("exteroceptive_samples", 0.5)
-	max_latency(0.8)
+	max_latency(0.02)
     end
 
     #******************************

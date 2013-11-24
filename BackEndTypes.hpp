@@ -23,15 +23,19 @@ namespace rover_localization
         base::Vector3d gyrorrw;//rate random walk for gyroscopes (rad/s/sqrt(s))
         base::Vector3d gbiasins; //gyros bias instability (rad/s)
 
-        /** Accelerometers Noise**/
+        /** Accelerometers Noise **/
         base::Vector3d abiasoff;//bias offset in static regimen for the Accelerometers
         base::Vector3d accrw;//velocity random walk for accelerometers (m/s/sqrt(s))
         base::Vector3d accrrw;//acceleration random walk for accelerometers (m/s^2/sqrt(s))
         base::Vector3d abiasins;//accelerometers bias instability (m/s^2)
-        base::Vector3d aresolut;//minimum accelerometers resolution (m/s^2)
+        base::Vector3d accresolut;//minimum accelerometers resolution (m/s^2)
 
-        /** Magnetometers Noise**/
-        base::Vector3d magrw; //random walk for magnetometers"
+        /** Magnetometers Noise **/
+        base::Vector3d magrw; //random walk for magnetometers
+
+        /** Inclinometers Noise **/
+        base::Vector3d incrw; //random walk for inclinometers (m/s/sqrt(s))
+        base::Vector3d incresolut;//minimum accelerometers resolution (m/s^2)
 
     };
 
