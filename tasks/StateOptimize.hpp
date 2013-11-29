@@ -26,6 +26,7 @@
 
 /** Boost **/
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
+#include <boost/algorithm/string.hpp> /** case insensitive string comapre **/
 
 namespace rover_localization {
 
@@ -62,13 +63,14 @@ namespace rover_localization {
         /*** Control Flow Variables ***/
         /******************************/
         bool initFilter;
+        bool absoluteFrame;
 
         /**************************/
         /*** Property Variables ***/
         /**************************/
 
         /** Delay state period **/
-        double delayperiod;
+        int delayIterations;
 
         /** Inertial noise parameters **/
         InertialNoiseParameters inertialnoise;
@@ -92,6 +94,10 @@ namespace rover_localization {
         /** SlipVector in Eigen class **/
         localization::DataModel <double, 3> slipVector;
 
+        /** Delay delta pose from accelerometers integration **/
+        Eigen::Vector3d deltaPosMeasurement;
+        Eigen::Matrix3d deltaPosMeasurementCov;
+
         /**************************/
         /** Input port variables **/
         /**************************/
@@ -101,6 +107,7 @@ namespace rover_localization {
 
         /** Inertial values **/
         ::base::samples::IMUSensors inertialSamples;
+        ::base::samples::IMUSensors meanInertialSamples;
 
         /** Inertial sensor state **/
         localization::InertialState inertialState;
@@ -197,7 +204,11 @@ namespace rover_localization {
 
         /**@brief Initialize the filter used in the Back-End
          */
-        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, localization::InertialState &inertialState);
+        void initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, localization::InertialState &inertialState, Eigen::Affine3d &tf);
+
+        /**@brief Method for the delay update
+         */
+        inline void delayUpdate(const Eigen::Vector3d &measurement, const double &delta_t);
 
         /**@brief Method to perform the attitude update
          */
@@ -237,6 +248,11 @@ namespace rover_localization {
         /** @brief Port out the values
         */
         void outputPortSamples(const base::Time &timestamp);
+
+        /** @brief Port out the values
+        */
+        void outputDebugPortSamples(base::samples::IMUSensors &inertialSamples, const base::Time &timestamp);
+
 
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW

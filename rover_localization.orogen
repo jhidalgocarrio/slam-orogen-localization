@@ -192,7 +192,7 @@ task_context "Processing" do
 
 end
 
-# Declare the  State Optimization class
+# Declare the State Optimization class
 task_context "StateOptimize" do
 
     #**************************
@@ -200,6 +200,10 @@ task_context "StateOptimize" do
     #**************************
     property('delay_state_period', 'double').
         doc 'Delay time in second to compare with the delayed state.'
+
+    property('pose_samples_out_relative_frame', 'string').
+        doc 'Relative frame in which the pose outputs samples are wanted.'+
+        'The names are relative to the task. Use "world" for absolute frame'
 
     property('adaptive_config', 'rover_localization/AdaptiveAttitudeConfig').
         doc 'Adaptive estimation of external acceleration.'
@@ -269,9 +273,19 @@ task_context "StateOptimize" do
     output_port('accelerometers_bias_out', 'base::Vector3d').
         doc 'Estimated accelerometers bias offset.'
 
+    #**********************************
+    #******* Output Debug Ports *******
+    #**********************************
+    output_port('odo_delta_pose_samples_out', '/base/samples/RigidBodyState').
+	doc 'Delta Odometry estimated robot pose (from body_frame k-1).'
+
+    output_port('acc_delta_pose_samples_out', '/base/samples/RigidBodyState').
+	doc 'Delta Accelerometers integration estimated robot pose (from body_frame k-1).'
+
+    output_port('inertial_samples_out', '/base/samples/IMUSensors').
+	doc 'Calibrated and compensated inertial measurements in the relative frame.'
 
     port_driven
 
 end
-
 
