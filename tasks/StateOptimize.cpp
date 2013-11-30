@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -161,38 +161,38 @@ void StateOptimize::inertial_samplesTransformerCallback(const base::Time &ts, co
         std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] delayIterations["<<delayIterations<<"]\n";
         #endif
 
-       // this->attitudeUpdate(_inertial_samples_period, qtf);
+        this->attitudeUpdate(_inertial_samples_period, qtf);
 
-        if (delayIterations == 0)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] DELAY UPDATE\n";
-            #endif
+        //if (delayIterations == 0)
+        //{
+        //    #ifdef DEBUG_PRINTS
+        //    std::cout<<"[STATE_OPTIMIZE INERTIAL_SAMPLES] DELAY UPDATE\n";
+        //    #endif
 
-            double iterations = _delay_state_period.value()/_inertial_samples_period.value();
-            meanInertialSamples.time = inertialSamples.time;
-            meanInertialSamples.acc /= iterations;
-            deltaPosMeasurement = meanInertialSamples.acc * _delay_state_period * _delay_state_period;
-            deltaPosMeasurement[2] = 0.00;
+        //    double iterations = _delay_state_period.value()/_inertial_samples_period.value();
+        //    meanInertialSamples.time = inertialSamples.time;
+        //    meanInertialSamples.acc /= iterations;
+        //    deltaPosMeasurement = meanInertialSamples.acc * _delay_state_period * _delay_state_period;
+        //    deltaPosMeasurement[2] = 0.00;
 
-            /******************/
-            /** Update State **/
-            /******************/
-            this->delayUpdate(deltaPosMeasurement, _delay_state_period);
+        //    /******************/
+        //    /** Update State **/
+        //    /******************/
+        //   // this->delayUpdate(deltaPosMeasurement, _delay_state_period);
 
-            /** Debug ports **/
-            this->outputDebugPortSamples(meanInertialSamples, inertialSamples.time);
+        //    /** Debug ports **/
+        //    this->outputDebugPortSamples(meanInertialSamples, inertialSamples.time);
 
-            /** Perform the cloning statek_i -> statek_l **/
-            filter->cloning(localization::STATEK_I);
+        //    /** Perform the cloning statek_i -> statek_l **/
+        //    filter->cloning(localization::STATEK_I);
 
-            /** Reset the values **/
-            meanInertialSamples.acc.setZero();
-            meanInertialSamples.gyro.setZero();
-            meanInertialSamples.mag.setZero();
-            delayIterations = _delay_state_period.value()/_inertial_samples_period.value();
+        //    /** Reset the values **/
+        //    meanInertialSamples.acc.setZero();
+        //    meanInertialSamples.gyro.setZero();
+        //    meanInertialSamples.mag.setZero();
+        //    delayIterations = _delay_state_period.value()/_inertial_samples_period.value();
 
-        }
+        //}
 
         this->outputPortSamples(inertialSamples.time);
     }
@@ -442,6 +442,9 @@ inline void StateOptimize::delayUpdate(const Eigen::Vector3d &measurement, const
 
 inline void StateOptimize::attitudeUpdate(const double &delta_t, const Eigen::Quaterniond &world2nav)
 {
+    if (inertialSamples.mag.norm() < 10.1)
+    {
+
     /** Current filter state **/
     WSingleState statek_i = filter->muState().statek_i;
 
@@ -450,7 +453,12 @@ inline void StateOptimize::attitudeUpdate(const double &delta_t, const Eigen::Qu
     Eigen::Quaterniond world2body = attitudeMeasurement(static_cast<Eigen::Quaterniond>(statek_i.orient),
                                         static_cast<Eigen::Vector3d>(inertialSamples.mag)); //mag has inclinometers
 
-    Eigen::AngleAxis<double> nav2body(world2nav.inverse() * world2body);
+    Eigen::AngleAxis<double> nav2body;
+    if (absoluteFrame)
+        nav2body = world2body;
+    else
+        nav2body = world2nav.inverse() * world2body;
+
     MeasurementVector z = nav2body.angle() * nav2body.axis();
 
     /** Form the measurement covariance matrix **/
@@ -466,7 +474,7 @@ inline void StateOptimize::attitudeUpdate(const double &delta_t, const Eigen::Qu
     /** Perform the update **/
     filter->singleUpdate(z, boost::bind(attitudeObservationModel, _1), measuCovR);
 
-    return;
+    }
 }
 
 void StateOptimize::initStateOptimizeFilter(boost::shared_ptr<StateOptimizeFilter> &filter, localization::InertialState &inertialState, Eigen::Affine3d &tf)

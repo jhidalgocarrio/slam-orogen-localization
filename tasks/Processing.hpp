@@ -34,6 +34,7 @@ namespace rover_localization {
             encoderSamples = 0;
             asguardStatusSamples = 0;
             imuSamples = 0;
+            orientSamples = 0;
             torqueSamples = 0;
             forceSamples = 0;
             referencePoseSamples = 0;
@@ -43,6 +44,7 @@ namespace rover_localization {
        	unsigned int encoderSamples; /** counter for encoders samples**/
  	unsigned int asguardStatusSamples; /** counter for Asguard status samples  **/
  	unsigned int imuSamples; /** counter of inertial sensors samples **/
+ 	unsigned int orientSamples; /** counter of orientation samples **/
  	unsigned int torqueSamples; /** counter for  Torque info samples **/
  	unsigned int forceSamples; /** counter of Ground Force info samples for the re-sampling **/
  	unsigned int referencePoseSamples; /** counter of pose information coming from external measurement **/
@@ -57,6 +59,7 @@ namespace rover_localization {
             encoderSamples = 0;
             asguardStatusSamples = 0;
             imuSamples = 0;
+            orientSamples = 0;
             torqueSamples = 0;
             forceSamples = 0;
             referencePoseSamples = 0;
@@ -66,6 +69,7 @@ namespace rover_localization {
 	unsigned int encoderSamples; /** number of encoders samples for the re-sampling**/
  	unsigned int asguardStatusSamples; /** number of  Asguard status samples for the re-sampling **/
  	unsigned int imuSamples; /** number of inertial sensors samples **/
+ 	unsigned int orientSamples; /** number of orientation samples **/
  	unsigned int torqueSamples; /** number of  Torque info samples for the re-sampling **/
  	unsigned int forceSamples; /** number of Ground Force info samples for the re-sampling **/
  	unsigned int referencePoseSamples; /** number of pose information coming from external measurement **/
@@ -79,6 +83,7 @@ namespace rover_localization {
             encoderSamples = false;
             asguardStatusSamples = false;
             imuSamples = false;
+            orientSamples = false;
             torqueSamples = false;
             forceSamples = false;
             referencePoseSamples = false;
@@ -88,6 +93,7 @@ namespace rover_localization {
         bool encoderSamples;//Encoders
         bool asguardStatusSamples;//Passive joint
         bool imuSamples;//Inertial sensors
+        bool orientSamples;//Orientation
         bool torqueSamples;//Torque
         bool forceSamples;//Ground Force
         bool referencePoseSamples;//Initial pose
@@ -168,11 +174,13 @@ namespace rover_localization {
  	boost::circular_buffer<base::actuators::Status> cbEncoderSamples;
 	boost::circular_buffer<sysmon::SystemStatus> cbAsguardStatusSamples;
 	boost::circular_buffer<base::samples::IMUSensors> cbImuSamples;
+	boost::circular_buffer<base::samples::RigidBodyState> cbOrientSamples;
 	
  	/** Buffer for filtered Inputs port samples (Store the samples and compute the velocities) **/
 	boost::circular_buffer<base::actuators::Status> encoderSamples; /** Encoder Status information  **/
 	boost::circular_buffer<sysmon::SystemStatus> asguardStatusSamples; /** Asguard status information **/
 	boost::circular_buffer<base::samples::IMUSensors> imuSamples; /** IMU samples **/
+	boost::circular_buffer<base::samples::RigidBodyState> orientSamples; /** IMU samples **/
 	boost::circular_buffer<base::samples::RigidBodyState> referencePoseSamples; /** Pose information (init and debug)**/
 
         /** State information **/
@@ -211,6 +219,8 @@ namespace rover_localization {
         virtual void reference_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &reference_pose_samples_sample);
 
         virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
+
+        virtual void orientation_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &orientation_samples_sample);
 
         virtual void torque_samplesTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_samples_sample);
 

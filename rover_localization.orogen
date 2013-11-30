@@ -69,6 +69,9 @@ task_context "Processing" do
         needs_reliable_connection.
         doc 'provides timestamped IMUReading samples containing the calibrated sensor readings (linear acceleration and angular velocity).'
 
+    input_port('orientation_samples', '/base/samples/RigidBodyState').
+        doc 'provides timestamped IMU orientation samples containing the quaternion (some IMUs provide this information from internal filters).'
+
     input_port("torque_samples", "torque_estimator/WheelTorques").
         doc "Estimated torque values"
 
@@ -89,7 +92,7 @@ task_context "Processing" do
     input_port("reference_pose_samples", "/base/samples/RigidBodyState").
         doc "Rover position and orientation information."
 
-    #******* State information   *********
+    #******* State information (no in the transformer) *********
     input_port('pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
 	doc 'Pose estimation information to subtract gravity vector (if available from a filter or odometry).'
@@ -116,6 +119,7 @@ task_context "Processing" do
         transform "laser", "body" #iMoby transformation laser expressed in body (it brings laser points in body frame pbody = Tbody2laser * plaser)
 	align_port("encoder_samples", 0.001)
 	align_port("inertial_samples", 0.002)
+	align_port("orientation_samples", 0.002)
 	align_port("systemstate_samples", 0.01)
 	align_port("torque_samples", 0.01)
 	align_port("ground_forces_samples", 0.01)

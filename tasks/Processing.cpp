@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -62,11 +62,13 @@ Processing::Processing(std::string const& name)
     cbEncoderSamples = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbAsguardStatusSamples = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     cbImuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    cbOrientSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
 
     /** Default size for the circular_buffer for the filtered port samples **/
     encoderSamples = boost::circular_buffer<base::actuators::Status>(DEFAULT_CIRCULAR_BUFFER_SIZE);
     asguardStatusSamples = boost::circular_buffer<sysmon::SystemStatus> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     imuSamples = boost::circular_buffer<base::samples::IMUSensors> (DEFAULT_CIRCULAR_BUFFER_SIZE);
+    orientSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
     referencePoseSamples = boost::circular_buffer<base::samples::RigidBodyState> (DEFAULT_CIRCULAR_BUFFER_SIZE);
 
 }
@@ -523,6 +525,44 @@ void Processing::inertial_samplesTransformerCallback(const base::Time &ts, const
 
 }
 
+
+void Processing::orientation_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &orientation_samples_sample)
+{
+    Eigen::Affine3d tf; /** Transformer transformation **/
+    Eigen::Quaternion <double> qtf; /** Rotation in quaternion form **/
+
+    /** Get the transformation (esa npi transformation) Tbody_imu**/
+    if (!_body2imu.get(ts, tf, false))
+	return;
+
+    qtf = Eigen::Quaternion <double> (tf.rotation());//!Quaternion from Body to imu
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"** [PROCESSING ORIENTATION_SAMPLES] counter.orientSamples("<<counter.orientSamples<<") at ("<<orientation_samples_sample.time.toMicroseconds()<< ")**\n";
+    #endif
+
+    if (initAttitude)
+    {
+        cbOrientSamples.push_front(orientation_samples_sample);
+        cbOrientSamples[0].orientation = orientation_samples_sample.orientation * qtf.inverse(); // Tworld_body = Tworld_imu * (Tbody_imu)^-1
+
+        #ifdef DEBUG_PRINTS
+        Eigen::Vector3d euler;
+        euler[2] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+        euler[1] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+        euler[0] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+        std::cout<< "******** [PROCESSING ORIENTATION_SAMPLES]\n";
+        std::cout<< "Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
+        #endif
+
+        /** Set the flag of IMU values valid to true **/
+        if (!flag.orientSamples && (cbOrientSamples.size() == cbOrientSamples.capacity()))
+            flag.orientSamples = true;
+
+        counter.orientSamples++;
+    }
+}
+
 void Processing::torque_samplesTransformerCallback(const base::Time &ts, const ::torque_estimator::WheelTorques &torque_samples_sample)
 {
     throw std::runtime_error("Transformer callback for torque_samples not implemented");
@@ -828,6 +868,7 @@ bool Processing::configureHook()
     if (config.output_frequency != 0.00)
     {
 	number.imuSamples = (1.0/_inertial_samples_period.value())/config.output_frequency;
+	number.orientSamples = (1.0/_orientation_samples_period.value())/config.output_frequency;
 	number.encoderSamples = (1.0/_encoder_samples_period.value())/config.output_frequency;
 	number.asguardStatusSamples = (1.0/_systemstate_samples_period.value())/config.output_frequency;
 	number.forceSamples = (1.0/_ground_forces_samples_period.value())/config.output_frequency;
@@ -839,12 +880,14 @@ bool Processing::configureHook()
     std::cout<<"[PROCESSING CONFIGURE] cbEncoderSamples has init capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] cbAsguardStatusSamples has init capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] cbImuSamples has init capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[PROCESSING CONFIGURE] cbOrientSamples has capacity "<<cbOrientSamples.capacity()<<" and size "<<cbOrientSamples.size()<<"\n";
     #endif
 
     /** Set the capacity of the circular_buffer according to the sampling rate **/
     cbEncoderSamples.set_capacity(number.encoderSamples);
     cbAsguardStatusSamples.set_capacity(number.asguardStatusSamples);
     cbImuSamples.set_capacity(number.imuSamples);
+    cbOrientSamples.set_capacity(number.orientSamples);
 
     for(register unsigned int i=0; i<cbEncoderSamples.size(); ++i)
     {
@@ -856,6 +899,7 @@ bool Processing::configureHook()
     std::cout<<"[PROCESSING CONFIGURE] cbEncoderSamples has capacity "<<cbEncoderSamples.capacity()<<" and size "<<cbEncoderSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] cbAsguardStatusSamples has capacity "<<cbAsguardStatusSamples.capacity()<<" and size "<<cbAsguardStatusSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] cbImuSamples has capacity "<<cbImuSamples.capacity()<<" and size "<<cbImuSamples.size()<<"\n";
+    std::cout<<"[PROCESSING CONFIGURE] cbOrientSamples has capacity "<<cbOrientSamples.capacity()<<" and size "<<cbOrientSamples.size()<<"\n";
     #endif
 
     /** Initialize the samples for the filtered buffer hbridge values **/
@@ -903,6 +947,7 @@ bool Processing::configureHook()
     std::cout<<"[PROCESSING CONFIGURE] encoderSamples has capacity "<<encoderSamples.capacity()<<" and size "<<encoderSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] asguardStatusSamples has capacity "<<asguardStatusSamples.capacity()<<" and size "<<asguardStatusSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] imuSamples has capacity "<<imuSamples.capacity()<<" and size "<<imuSamples.size()<<"\n";
+    std::cout<<"[PROCESSING CONFIGURE] orientSamples has capacity "<<orientSamples.capacity()<<" and size "<<orientSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] referencePoseSamples has capacity "<<referencePoseSamples.capacity()<<" and size "<<referencePoseSamples.size()<<"\n";
     #endif
 
@@ -940,6 +985,15 @@ bool Processing::configureHook()
 	RTT::log(RTT::Warning) << "[Info] Malfunction on the task!!" << RTT::endlog();
     }
 
+    if (_orientation_samples.connected())
+    {
+	RTT::log(RTT::Warning) << "[Info] Orientation samples connected" << RTT::endlog();
+    }
+    else
+    {
+	RTT::log(RTT::Warning) << "[Info] Orientation samples NO connected" << RTT::endlog();
+    }
+
     if (_encoder_samples.connected())
     {
 	RTT::log(RTT::Warning) << "[Info] Encoders Samples connected" << RTT::endlog();
@@ -947,7 +1001,7 @@ bool Processing::configureHook()
     else
     {
 	RTT::log(RTT::Warning) << "[Info] Encoders samples NO connected." << RTT::endlog();
-	RTT::log(RTT::Warning) << "Info] Malfunction on the task!!" << RTT::endlog();
+	RTT::log(RTT::Warning) << "[Info] Malfunction on the task!!" << RTT::endlog();
     }
 
     if (_systemstate_samples.connected())
@@ -990,6 +1044,7 @@ bool Processing::configureHook()
     }
 
     RTT::log(RTT::Warning)<<"[Info] Frequency of IMU samples[Hertz]: "<<(1.0/_inertial_samples_period.value())<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] Frequency of Orientation samples[Hertz]: "<<(1.0/_orientation_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Encoders Samples[Hertz]: "<<(1.0/_encoder_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Asguard Status Samples[Hertz]: "<<(1.0/_systemstate_samples_period.value())<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] Frequency of Torque Samples[Hertz]: "<<(1.0/_torque_samples_period.value())<<RTT::endlog();
@@ -1005,6 +1060,7 @@ bool Processing::configureHook()
         <<" Hertz are "<<init_leveling_size<<" #Samples"<<RTT::endlog();
 
     RTT::log(RTT::Warning)<<"[Info] number.imuSamples: "<<number.imuSamples<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[Info] number.orientSamples: "<<number.orientSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] number.encoderSamples: "<<number.encoderSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] number.asguardStatusSamples: "<<number.asguardStatusSamples<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[Info] number.forceSamples: "<<number.forceSamples<<RTT::endlog();
@@ -1047,6 +1103,7 @@ void Processing::inputPortSamples()
     unsigned int cbEncoderSize = cbEncoderSamples.size();
     unsigned int cbAsguardStatusSize = cbAsguardStatusSamples.size();
     unsigned int cbImuSize = cbImuSamples.size();
+    unsigned int cbOrientSize = cbOrientSamples.size();
 
     /** Local variable of the ports **/
     base::actuators::Status encoder;
@@ -1150,6 +1207,12 @@ void Processing::inputPortSamples()
     /** Push the result into the buffer **/
     imuSamples.push_front(imu);
 
+    /** ******************* **/
+    /** Orientation samples **/
+    /** ******************* **/
+    if (cbOrientSize > 0)
+        orientSamples.push_front(cbOrientSamples[0]);
+
     /*****************************/
     /** Store the Joint values  **/
     /*****************************/
@@ -1177,7 +1240,7 @@ void Processing::calculateVelocities()
     Eigen::Matrix<double, Eigen::Dynamic, 1> derivationAsguardStatusSamples; //!Local variable for the derivation of Asguard Status (pasive Joint)
 
     /** At least two values to perform the derivative **/
-    if (static_cast<int>(encoderSamples.size()) < 2)
+    if (encoderSamples.size() < 2)
     {
         for (register size_t i=0; i<config.jointsNames.size(); ++i)
         {
@@ -1256,6 +1319,22 @@ void Processing::calculateVelocities()
             _angular_rate.write(jointSamples[4].speed); //!Front Left
             _angular_rate_old.write((encoderSamples[0].states[3].positionExtern - encoderSamples[1].states[3].positionExtern)/delta_t);
         }
+    }
+
+    /** Orientation samples, use for the angular velocity **/
+    if (orientSamples.size() > 1)
+    {
+        Eigen::Quaterniond delta_quat = orientSamples[1].orientation.inverse() * orientSamples[0].orientation;
+        Eigen::Vector3d angular_velocity;
+        angular_velocity[2] = delta_quat.toRotationMatrix().eulerAngles(2,1,0)[0]/delta_t;//YAW
+        angular_velocity[1] = delta_quat.toRotationMatrix().eulerAngles(2,1,0)[1]/delta_t;//PITCH
+        angular_velocity[0] = delta_quat.toRotationMatrix().eulerAngles(2,1,0)[2]/delta_t;//ROLL
+        imuSamples[0].gyro = angular_velocity;
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[PROCESSING CALCULATING_VELO] Gyroscopes: "<<angular_velocity<<"\n";
+        Eigen::AngleAxisd angle(delta_quat);
+        std::cout<<"[PROCESSING CALCULATING_VELO] Gyroscopes: "<<(angle.angle() * angle.axis())/delta_t<<"\n";
+        #endif
     }
 
     return;
