@@ -20,7 +20,9 @@ import_types_from "BackEndTypes.hpp"
 
 # It processes the sensor values to facilitate data association
 task_context "Processing" do
-
+    # This is the default from now on, and should not be removed. Rock will
+    # transition to a setup where all components use a configuration step.
+    needs_configuration
 
     #*************************
     #**** Task Properties ****
@@ -198,6 +200,9 @@ end
 
 # Declare the State Optimization class
 task_context "StateOptimize" do
+    # This is the default from now on, and should not be removed. Rock will
+    # transition to a setup where all components use a configuration step.
+    needs_configuration
 
     #**************************
     #***** Task Properties ****
