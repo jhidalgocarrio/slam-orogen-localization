@@ -139,6 +139,9 @@ task_context "Processing" do
     output_port('joints_samples_out', '/base/samples/Joints').
 	doc 'Timestamped joints (active and passive) state samples providing odometry information.'
 
+    output_port('orientation_samples_out', '/base/samples/RigidBodyState').
+	doc 'Orientation samples measurements.'
+
     output_port('inertial_samples_out', '/base/samples/IMUSensors').
 	doc 'Calibrated and compensated inertial measurements.'
 
