@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace rover_localization;
 
@@ -32,11 +32,6 @@ Processing::Processing(std::string const& name)
     /***************************/
     world2navigationRbs.invalidate();
     referenceOut.invalidate();
-    inertialState.time.fromMicroseconds(base::NaN<uint64_t>());
-    inertialState.theoretical_g = base::NaN<double>();
-    inertialState.estimated_g = base::NaN<double>();
-    inertialState.abias_onoff = base::NaN<double>() * base::Vector3d::Ones();
-    inertialState.gbias_onoff = base::NaN<double>() * base::Vector3d::Ones();
 
     /**********************************/
     /*** Internal Storage Variables ***/
@@ -103,6 +98,7 @@ void Processing::reference_pose_samplesTransformerCallback(const base::Time &ts,
     referencePoseSamples[0].position -= tf.translation(); //position world_body = world_reference - body_reference
     referencePoseSamples[0].position -= alignWorld2Navigation.position; //Align to world to navigation if selected in the task properties
     referencePoseSamples[0].orientation = referencePoseSamples[0].orientation * qtf.inverse(); //world_2_body = world_2_reference * reference_2_body
+
 
     if (!initPosition)
     {
@@ -259,7 +255,7 @@ void Processing::orientation_samplesTransformerCallback(const base::Time &ts, co
 
     if(!initAttitude)
     {
-        Eigen::Quaterniond attitude = orientation_samples_sample.orientation;
+        Eigen::Quaterniond attitude = cbOrientSamples[0].orientation;
 
         /** Check if there is initial pose connected **/
         if (_reference_pose_samples.connected() && initPosition)
@@ -272,7 +268,7 @@ void Processing::orientation_samplesTransformerCallback(const base::Time &ts, co
             initAttitude = true;
 
         }
-        else if (!_reference_pose_samples.connected() || !initPosition)
+        else if (!_reference_pose_samples.connected() && initPosition)
         {
             initAttitude = true;
         }
@@ -290,9 +286,9 @@ void Processing::orientation_samplesTransformerCallback(const base::Time &ts, co
 
             #ifdef DEBUG_PRINTS
             Eigen::Vector3d euler;
-            euler[2] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
-            euler[1] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
-            euler[0] = orientation_samples_sample.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
+            euler[2] = attitude.toRotationMatrix().eulerAngles(2,1,0)[0];//YAW
+            euler[1] = attitude.toRotationMatrix().eulerAngles(2,1,0)[1];//PITCH
+            euler[0] = attitude.toRotationMatrix().eulerAngles(2,1,0)[2];//ROLL
             std::cout<< "******** [PROCESSING ORIENTATION_SAMPLES]\n";
             std::cout<< "******** Initial Attitude *******"<<"\n";
             std::cout<< "Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
@@ -548,7 +544,6 @@ bool Processing::configureHook()
     /************************/
     /** Read configuration **/
     /************************/
-    location = _location.value();
     config = _configuration.value();
     cameraSynch = _camera_synch.value();
 
@@ -695,9 +690,6 @@ bool Processing::configureHook()
     std::cout<<"[PROCESSING CONFIGURE] orientSamples has capacity "<<orientSamples.capacity()<<" and size "<<orientSamples.size()<<"\n";
     std::cout<<"[PROCESSING CONFIGURE] referencePoseSamples has capacity "<<referencePoseSamples.capacity()<<" and size "<<referencePoseSamples.size()<<"\n";
     #endif
-
-    /** Gravitational value according to the location. Ideal theoretical value **/
-    inertialState.theoretical_g = localization::Util::GravityModel (location.latitude, location.altitude);
 
     /** Output Joints state vector **/
     jointSamples.resize(config.jointsNames.size());
@@ -1003,11 +995,13 @@ void Processing::calculateVelocities()
 	
 	#ifdef DEBUG_PRINTS
         std::cout<<"[PROCESSING CALCULATING_VELO] ********************************************* \n";
-	std::cout<<"[PROCESSING CALCULATING_VELO] Timestamp New(asguardStatus): "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[PROCESSING CALCULATING_VELO] Delta time(asguardStatus): "<< asguardStatusDelta_t.toSeconds()<<"\n";
-	std::cout<<"[PROCESSING CALCULATING_VELO] Timestamp New(IMU): "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
-	std::cout<<"[PROCESSING CALCULATING_VELO] Delta time(IMU): "<< imuDelta_t.toSeconds()<<"\n";
-	std::cout<<"[PROCESSING CALCULATING_VELO] asguardStatus(passive Joint): "<< asguardStatusSamples[0].asguardJointEncoder <<" Prev: "<<asguardStatusSamples[1].asguardJointEncoder<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] Encoder timestamp New: "<< encoderSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<encoderSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] Delta time(encoder): "<< asguardStatusDelta_t.toSeconds()<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] IMU timestamp New: "<< imuSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<imuSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] Delta time(imu): "<< imuDelta_t.toSeconds()<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] Passive_Joint timestamp: "<< asguardStatusSamples[0].time.toMicroseconds() <<" Timestamp Prev: "<<asguardStatusSamples[1].time.toMicroseconds()<<"\n";
+	std::cout<<"[PROCESSING CALCULATING_VELO] Delta time(passive_joint): "<< asguardStatusDelta_t.toSeconds()<<"\n";
+        std::cout<<"[PROCESSING CALCULATING_VELO] ********************************************* \n";
 	#endif
 
 	/** Fill the derivative vector **/
@@ -1150,10 +1144,6 @@ void Processing::outputPortSamples()
 
     /** Orientation Samples  **/
     _orientation_samples_out.write(orientSamples[0]);
-
-   /** Inertial State  **/
-    inertialState.time = imuSamples[0].time;
-    _inertial_state_out.write(inertialState);
 
     /** The estimated world 2 navigation transform **/
     world2navigationRbs.time = encoderSamples[0].time;//timestamp;

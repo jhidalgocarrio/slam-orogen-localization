@@ -31,12 +31,6 @@ task_context "Processing" do
         doc 'General configuration values to run the task'
 
     #******************************
-    #**** Location Properties *****
-    #******************************
-    property('location',"rover_localization/LocationConfiguration").
-        doc 'Localization properties related to the geographic place (i.e.: latitude, longitude, magnetic declination).'
-
-    #******************************
     #**** Rover Properties ********
     #******************************
     property('camera_synch', 'rover_localization/CameraSynchConfiguration').

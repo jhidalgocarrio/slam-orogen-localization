@@ -135,9 +135,6 @@ namespace rover_localization {
         /*** Property Variables ***/
         /**************************/
 
-        /** Location configuration variables **/
-        LocationConfiguration location;
-
         /** Framework configuration values **/
         Configuration config;
 
@@ -198,9 +195,6 @@ namespace rover_localization {
 
         /** Calibrated and compensated inertial values **/
         base::samples::IMUSensors inertialSamples;
-
-        /**  Inertial state **/
-        localization::InertialState inertialState;
 
         /** Ground truth out coming for an external system (if available like Vicon or GPS) */
         base::samples::RigidBodyState referenceOut;

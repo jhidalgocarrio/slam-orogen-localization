@@ -34,18 +34,6 @@ namespace rover_localization
         std::vector<std::string> jointsNames; //complete vector of names for the joints of the complete robot (passive and active).
     };
 
-    //Data type to know the location
-    struct LocationConfiguration
-    {
-        double latitude;//Latitude in radians
-        double longitude;//Longitude in radians
-        double altitude;//Altitude in meters
-        double magnetic_declination;//Declination in radians
-        int magnetic_declination_mode;//The declination is positive when the magnetic north is east of true north
-                                    //1 is EAST, which means positive declination. 2 is WEST, which means negative declination.
-        double dip_angle;//Dip angle in radians
-    };
-
     /** Configuration parameters for the synchronization of a sweeping camera **/
     struct CameraSynchConfiguration
     {
