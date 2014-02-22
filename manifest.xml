@@ -3,9 +3,8 @@
   Orogen component running the rover localization approach developed within the ESA-NPI project
   </description>
   <author>Javier Hidalgo Carrio/javier.hidalgo_carrio@dfki.de</author>
-  <license></license>
-  <url>http://</url>
-  <logo>http://</logo>
+  <license>GPL-2</license>
+  <url>http://rock-robotics.org</url>
   <!--
    To add any dependencies use the depend tag
   <depend package="dummy-dependency-0" />

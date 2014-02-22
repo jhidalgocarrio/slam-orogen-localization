@@ -1,4 +1,4 @@
-name "rover_localization"
+name "localization"
 # Optionally declare the version number
 # version "0.1"
 
@@ -10,8 +10,6 @@ using_library "frame_helper" # Image Frames
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
 import_types_from "base"
-import_types_from 'sysmon'
-import_types_from "torque_estimator"
 import_types_from "frame_helper/Calibration.h"
 import_types_from "localization/core/Types.hpp"
 
@@ -27,13 +25,13 @@ task_context "Processing" do
     #*************************
     #**** Task Properties ****
     #*************************
-    property('configuration', 'rover_localization/Configuration').
+    property('configuration', 'localization/Configuration').
         doc 'General configuration values to run the task'
 
     #******************************
     #**** Rover Properties ********
     #******************************
-    property('camera_synch', 'rover_localization/CameraSynchConfiguration').
+    property('camera_synch', 'localization/CameraSynchConfiguration').
         doc 'Configuration values for synchronization of a sweeping camera on a robot.'
 
     #*******************************
@@ -53,13 +51,8 @@ task_context "Processing" do
     #******************************
 
     #******* Proprioceptive sensors *********
-    input_port('encoder_samples', '/base/actuators/Status').
-        needs_reliable_connection.
-	doc 'timestamped Motorstate samples providing odometry information.'
-
-    input_port('systemstate_samples', '/sysmon/SystemStatus').
-        needs_reliable_connection.
-        doc 'timestamped systemstate readings, used for the passive joint encoder.'
+    output_port('joints_samples', '/base/samples/Joints').
+	doc 'Timestamped robot joints.'
 
     input_port('inertial_samples', '/base/samples/IMUSensors').
         needs_reliable_connection.
@@ -67,12 +60,6 @@ task_context "Processing" do
 
     input_port('orientation_samples', '/base/samples/RigidBodyState').
         doc 'provides timestamped IMU orientation samples containing the quaternion (some IMUs provide this information from internal filters).'
-
-    input_port("torque_samples", "torque_estimator/WheelTorques").
-        doc "Estimated torque values"
-
-    input_port("ground_forces_samples", "torque_estimator/GroundForces").
-        doc "Estimated ground force values"
 
     #*******  Exteroceptive sensors *********
     input_port("left_frame", ro_ptr('base::samples::frame::Frame')).
@@ -113,12 +100,9 @@ task_context "Processing" do
 	transform "reference", "body" #iMoby transformation reference expressed in body (it brings reference to body)
         transform "lcamera", "body" #iMoby transformation lcamera expressed in body
         transform "laser", "body" #iMoby transformation laser expressed in body (it brings laser points in body frame pbody = Tbody2laser * plaser)
-	align_port("encoder_samples", 0.001)
+	align_port("joints_samples", 0.001)
 	align_port("inertial_samples", 0.002)
 	align_port("orientation_samples", 0.002)
-	align_port("systemstate_samples", 0.01)
-	align_port("torque_samples", 0.01)
-	align_port("ground_forces_samples", 0.01)
 	align_port("left_frame", 0.5)
 	align_port("right_frame", 0.5)
 	align_port("scan_samples", 0.025)
@@ -211,13 +195,13 @@ task_context "StateOptimize" do
         doc 'Relative frame in which the pose outputs samples are wanted.'+
         'The names are relative to the task. Use "world" for absolute frame'
 
-    property('adaptive_config', 'rover_localization/AdaptiveAttitudeConfig').
+    property('adaptive_config', 'localization/AdaptiveAttitudeConfig').
         doc 'Adaptive estimation of external acceleration.'
 
     #*********************************
     #**** Measurements Properties ****
     #*********************************
-    property('inertial_noise','rover_localization/InertialNoiseParameters').
+    property('inertial_noise','localization/InertialNoiseParameters').
         doc 'Proprioceptive Sensors property.'
 
     #******************************
