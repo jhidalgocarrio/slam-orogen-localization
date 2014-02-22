@@ -15,11 +15,9 @@
   -->
   <depend package="base/types" />
   <depend package="base/orogen/types" />
-  <depend package="asguard/orogen/sysmon"/>
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
-  <depend package="asguard/orogen/torque_estimator" />
-  <depend package="asguard/localization" />
+  <depend package="slam/localization" />
   <depend package="image_processing/frame_helper"/>
 
   <!--  <depend package="slam/envire" />
