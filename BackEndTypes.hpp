@@ -4,7 +4,7 @@
 #include <base/time.h>
 #include <base/eigen.h>
 
-namespace rover_localization
+namespace localization
 {
     //Data type for the Inertial measurement characteristic
     struct InertialNoiseParameters

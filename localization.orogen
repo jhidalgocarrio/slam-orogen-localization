@@ -5,182 +5,16 @@ name "localization"
 # If new data types need to be defined, they have to be put in a separate C++
 # header, and this header will be loaded here
 using_library "localization" # Localization library
-using_library "frame_helper" # Image Frames
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.
 import_types_from "base"
-import_types_from "frame_helper/Calibration.h"
 import_types_from "localization/core/Types.hpp"
 
-import_types_from "FrontEndTypes.hpp"
 import_types_from "BackEndTypes.hpp"
 
-# It processes the sensor values to facilitate data association
-task_context "Processing" do
-    # This is the default from now on, and should not be removed. Rock will
-    # transition to a setup where all components use a configuration step.
-    needs_configuration
-
-    #*************************
-    #**** Task Properties ****
-    #*************************
-    property('configuration', 'localization/Configuration').
-        doc 'General configuration values to run the task'
-
-    #******************************
-    #**** Rover Properties ********
-    #******************************
-    property('camera_synch', 'localization/CameraSynchConfiguration').
-        doc 'Configuration values for synchronization of a sweeping camera on a robot.'
-
-    #*******************************
-    #**** Camera Properties ********
-    #*******************************
-    property("left_camera_parameters", 'frame_helper/CameraCalibration').
-        doc 'Camera intrinsic parameters.'
-
-    property("right_camera_parameters", 'frame_helper/CameraCalibration').
-        doc 'Camera intrinsic parameters.'
-
-    property("extrinsic_camera_parameters", 'frame_helper/ExtrinsicCalibration').
-        doc 'Transformation from Left to Right camera principal points.'
-
-    #******************************
-    #******* Input ports  *********
-    #******************************
-
-    #******* Proprioceptive sensors *********
-    output_port('joints_samples', '/base/samples/Joints').
-	doc 'Timestamped robot joints.'
-
-    input_port('inertial_samples', '/base/samples/IMUSensors').
-        needs_reliable_connection.
-        doc 'provides timestamped IMUReading samples containing the calibrated sensor readings (linear acceleration and angular velocity).'
-
-    input_port('orientation_samples', '/base/samples/RigidBodyState').
-        doc 'provides timestamped IMU orientation samples containing the quaternion (some IMUs provide this information from internal filters).'
-
-    #*******  Exteroceptive sensors *********
-    input_port("left_frame", ro_ptr('base::samples::frame::Frame')).
-        doc 'Left camera frame.'
-
-    input_port("right_frame", ro_ptr('base::samples::frame::Frame')).
-        doc 'Right camera frame.'
-
-    input_port('scan_samples', '/base/samples/LaserScan').
-	doc 'timestamped laser scans'
-
-    #******* External Ground Truth *********
-    input_port("reference_pose_samples", "/base/samples/RigidBodyState").
-        doc "Rover position and orientation information."
-
-    #******* State information (no in the transformer) *********
-    input_port('pose_samples', '/base/samples/RigidBodyState').
-        needs_reliable_connection.
-	doc 'Pose estimation information to subtract gravity vector (if available from a filter or odometry).'
-
-    #*******  Bias information (no in the transformer) *********
-    input_port('gyroscopes_bias', 'base::Vector3d').
-        doc 'Estimated gyros bias offset.'
-
-    input_port('accelerometers_bias', 'base::Vector3d').
-        doc 'Estimated accelerometers bias offset.'
-
-    ##############################################
-    # Transformer:
-    # All robot transformations are required
-    # to compute the sensor output in body frame.
-    # It uses the iMoby convention with is:
-    # imu to body transformation is imu expressed in
-    # body frame.
-    ##############################################
-    transformer do
-	transform "body", "imu" #esa-npi body to imu in transformation convention
-	transform "reference", "body" #iMoby transformation reference expressed in body (it brings reference to body)
-        transform "lcamera", "body" #iMoby transformation lcamera expressed in body
-        transform "laser", "body" #iMoby transformation laser expressed in body (it brings laser points in body frame pbody = Tbody2laser * plaser)
-	align_port("joints_samples", 0.001)
-	align_port("inertial_samples", 0.002)
-	align_port("orientation_samples", 0.002)
-	align_port("left_frame", 0.5)
-	align_port("right_frame", 0.5)
-	align_port("scan_samples", 0.025)
-	align_port("reference_pose_samples", 0.01)
-	max_latency(1.0)
-    end
-
-    #******************************
-    #******* Output Ports *********
-    #******************************
-
-    output_port('joints_samples_out', '/base/samples/Joints').
-	doc 'Timestamped joints (active and passive) state samples providing odometry information.'
-
-    output_port('orientation_samples_out', '/base/samples/RigidBodyState').
-	doc 'Orientation samples measurements.'
-
-    output_port('inertial_samples_out', '/base/samples/IMUSensors').
-	doc 'Calibrated and compensated inertial measurements.'
-
-    output_port('inertial_state_out', 'localization/InertialState').
-	doc 'Useful information related inertial samples.'
-
-    output_port('point_cloud_samples_out', 'base/samples/Pointcloud').
-	doc 'Point cloud samples.'
-
-    output_port("left_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Undistorted Left camera frame (after synchronization with the dynamixel)'
-
-    output_port("right_frame_out", ro_ptr('base::samples::frame::Frame')).
-        doc 'Undistorted Right camera frame (after synchronization with the dynamixel).'
-
-    output_port('reference_pose_samples_out', 'base/samples/RigidBodyState').
-	doc 'Pose and velocities computed by the ground truth system.'
-
-    output_port('reference_delta_pose_samples_out', 'base/samples/RigidBodyState').
-	doc 'Delta pose and velocities computed from the ground truth system.'
-
-    output_port('world_to_navigation_out', 'base/samples/RigidBodyState').
-	doc 'Transformation: navigation frame expressed in the world frame.'
-
-
-    #**********************************
-    #******* Output Debug Ports *******
-    #**********************************
-    property('output_debug', 'bool', false).
-	doc 'Set to true if output debug information is desirable.'
-
-    output_port('angular_position', 'double').
-	doc 'Angular position of the FL wheel'
-
-    output_port('angular_rate', 'double').
-	doc 'Angular velocity of the FL wheel'
-
-    output_port('angular_rate_old', 'double').
-	doc 'Angular velocity of the FL wheel(using 2nd order)'
-
-    output_port('body_to_laser', 'base/samples/RigidBodyState').
-	doc 'Body to Laser transformation: laser frame expressed with respect to the body frame. Tbody2laser'
-
-    output_port('body_to_lcamera', 'base/samples/RigidBodyState').
-	doc 'Body to Left Camera transformation : left camera frame expressed with respect to the body frame. Tbody2lcamera'
-
-    output_port('body_to_rcamera', 'base/samples/RigidBodyState').
-	doc 'Body to Right Camera transformation : right camera frame expressed with respect to the body frame. Tbody2rcamera'
-
-    output_port('body_to_lcamera_euler', 'base/Vector3d')
-	doc 'Body to Laser transformation: laser frame expressed with respect to the body frame in Euler angles.'
-
-    output_port('error_body_to_lcamera_euler', 'base/Vector3d')
-	doc 'Body to Left Camera transformation: left camera frame expressed with respect to the body frame in Euler angles.'
-
-    port_driven
-
-end
-
 # Declare the State Optimization class
-task_context "StateOptimize" do
+task_context "Task" do
     # This is the default from now on, and should not be removed. Rock will
     # transition to a setup where all components use a configuration step.
     needs_configuration
@@ -194,9 +28,6 @@ task_context "StateOptimize" do
     property('pose_samples_out_relative_frame', 'string').
         doc 'Relative frame in which the pose outputs samples are wanted.'+
         'The names are relative to the task. Use "world" for absolute frame'
-
-    property('adaptive_config', 'localization/AdaptiveAttitudeConfig').
-        doc 'Adaptive estimation of external acceleration.'
 
     #*********************************
     #**** Measurements Properties ****
@@ -216,9 +47,6 @@ task_context "StateOptimize" do
     input_port('inertial_samples', '/base/samples/IMUSensors').
         needs_reliable_connection.
         doc 'Calibrated and compensated inertial values.'
-
-    input_port('inertial_state', 'localization/InertialState').
-	doc 'Context information related to inertial samples.'
 
     #******* Exteroceptive sensors *********
     input_port('exteroceptive_samples', '/base/samples/RigidBodyState')
@@ -240,7 +68,6 @@ task_context "StateOptimize" do
 	transform "world", "navigation" #esa-npi world to navigation in transformation convention
 	align_port("delta_pose_samples", 0.01)
 	align_port("inertial_samples", 0.01)
-	align_port("inertial_state", 0.01)
         align_port("exteroceptive_samples", 0.5)
 	max_latency(0.02)
     end
@@ -257,12 +84,6 @@ task_context "StateOptimize" do
     output_port('state_estimation_samples_out', 'localization/StateEstimation').
 	doc 'State estimation information.'
 
-    output_port('gyroscopes_bias_out', 'base::Vector3d').
-        doc 'Estimated gyros bias offset.'
-
-    output_port('accelerometers_bias_out', 'base::Vector3d').
-        doc 'Estimated accelerometers bias offset.'
-
     #**********************************
     #******* Output Debug Ports *******
     #**********************************
@@ -271,9 +92,6 @@ task_context "StateOptimize" do
 
     output_port('acc_delta_pose_samples_out', '/base/samples/RigidBodyState').
 	doc 'Delta Accelerometers integration estimated robot pose (from body_frame k-1).'
-
-    output_port('inertial_samples_out', '/base/samples/IMUSensors').
-	doc 'Calibrated and compensated inertial measurements in the relative frame.'
 
     port_driven
 
