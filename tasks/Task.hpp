@@ -5,7 +5,26 @@
 
 #include "localization/TaskBase.hpp"
 
+/** Framework Library dependencies includes **/
+#include <localization/Configuration.hpp> /** Constant values of the library */
+//#include <localization/core/DataModel.hpp> /** Simple Data Model with uncertainty */
+#include <localization/tools/Util.hpp> /** Util class library **/
+#include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
+#include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
+#include <localization/filters/State.hpp> /** Filter State */
+#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
+//#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
+
+/** Boost **/
+#include <boost/shared_ptr.hpp> /** For shared pointers **/
+#include <boost/algorithm/string.hpp> /** case insensitive string compare **/
+
 namespace localization {
+
+    /** Wrap the Augmented and Single State **/
+    typedef localization::MtkWrap<localization::State> WSingleState;
+    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
+    typedef localization::Usckf<WAugmentedState, WSingleState> StateFilter;
 
     /*! \class Task 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -24,9 +43,42 @@ namespace localization {
     class Task : public TaskBase
     {
 	friend class TaskBase;
+
     protected:
 
-        virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &delta_pose_samples_sample);
+        /******************************/
+        /*** Control Flow Variables ***/
+        /******************************/
+        bool initFilter;
+
+
+        /**************************/
+        /*** Property Variables ***/
+        /**************************/
+
+        /******************************************/
+        /*** General Internal Storage Variables ***/
+        /******************************************/
+
+        /** The filter uses by the Back-End **/
+        boost::shared_ptr<StateFilter> filter;
+
+
+        /**************************/
+        /** Input port variables **/
+        /**************************/
+
+        /** Pose estimation **/
+        ::base::samples::RigidBodyState pose_sample;
+
+        /***************************/
+        /** Output port variables **/
+        /***************************/
+        base::samples::RigidBodyState pose_out;
+
+    protected:
+
+        virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
 
         virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
 
@@ -107,6 +159,19 @@ namespace localization {
          * before calling start() again.
          */
         void cleanupHook();
+
+        /**@brief Initialize the filter used in the Back-End
+         */
+        void initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine3d &tf);
+
+        /** @brief Port out the values
+        */
+        void outputPortSamples(const base::Time &timestamp);
+
+    public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+
     };
 }
 

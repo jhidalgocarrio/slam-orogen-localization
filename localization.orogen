@@ -22,25 +22,19 @@ task_context "Task" do
     #**************************
     #***** Task Properties ****
     #**************************
-    property('delay_state_period', 'double').
-        doc 'Delay time in second to compare with the delayed state.'
+    property('localization_source_frame', '/std/string').doc 'From Frame for the transformer'
 
-    property('pose_samples_out_relative_frame', 'string').
+    property('localization_target_frame', 'string').
         doc 'Relative frame in which the pose outputs samples are wanted.'+
-        'The names are relative to the task. Use "world" for absolute frame'
-
-    #*********************************
-    #**** Measurements Properties ****
-    #*********************************
-    property('inertial_noise','localization/InertialNoiseParameters').
-        doc 'Proprioceptive Sensors property.'
+        'The names are relative to the task and uses the transformer names. Use "world" for absolute frame'+
+        'Use "navigation" for relative frame ("navigation" is by default)'
 
     #******************************
     #******* Input ports  *********
     #******************************
 
     #******* Proprioceptive sensors *********
-    input_port('delta_pose_samples', '/base/samples/RigidBodyState').
+    input_port('pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
         doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
 
@@ -52,9 +46,6 @@ task_context "Task" do
     input_port('exteroceptive_samples', '/base/samples/RigidBodyState')
         doc 'Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).'
 
-    input_port('point_cloud_samples', '/base/samples/Pointcloud').
-	doc 'Set of points used to compute the delta transformation.(Laser scans, stereo triangulation, etc..).'
-
     input_port('point_cloud_variance', '/base/MatrixXd').
         doc 'Uncertainty of the points in the point_cloud.'
 
@@ -65,8 +56,8 @@ task_context "Task" do
     # Transformer
     ##########################
     transformer do
-	transform "world", "navigation" #esa-npi world to navigation in transformation convention
-	align_port("delta_pose_samples", 0.01)
+	transform "navigation", "world" # navigation to world in "Source in target" convention
+	align_port("pose_samples", 0.01)
 	align_port("inertial_samples", 0.01)
         align_port("exteroceptive_samples", 0.5)
 	max_latency(0.02)
@@ -77,9 +68,6 @@ task_context "Task" do
     #******************************
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
 	doc 'Corrected estimated robot pose.'
-
-    output_port('pose_error_samples_out', '/base/samples/RigidBodyState').
-	doc 'Estimated pose error samples'
 
     output_port('state_estimation_samples_out', 'localization/StateEstimation').
 	doc 'State estimation information.'
