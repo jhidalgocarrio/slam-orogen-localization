@@ -19,12 +19,13 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &ve
 
     /** Apply Rotation **/
     Eigen::Vector3d scaled_axis = angular_velocity * dt;
-    s2.orient.boxplus(scaled_axis);
+    SO3 rot = SO3::exp (scaled_axis);
+    s2.orient = state.orient * rot ;
     s2.angvelo = angular_velocity;
 
     /** Apply Translation **/
-    s2.velo = s2.orient * velocity;
-    s2.pos = state.pos + s2.velo * dt;
+    s2.velo = velocity;
+    s2.pos = state.pos + state.velo * dt;
 
     return s2;
 };
@@ -96,6 +97,7 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
     }
 
     base::Time delta_t = pose_samples_sample.time - pose_sample.time;
+    //base::Time delta_t = base::Time::fromSeconds(_pose_samples_period.get());
 
     /** A new sample arrived to the input port **/
     pose_sample = pose_samples_sample;
@@ -230,7 +232,7 @@ void Task::initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine
     vstate.statek_i.pos = tf.translation(); //!Initial position
     vstate.statek_i.orient = Eigen::Quaternion<double>(tf.rotation());
 
-    /** Set the initial accelerometers and gyros bias offset in the state vector **/
+    /** Set the initial velocities in the state vector **/
     vstate.statek_i.velo.setZero(); //!Initial linear velocity
     vstate.statek_i.angvelo.setZero(); //!Initial angular velocity
 

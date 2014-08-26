@@ -26,8 +26,9 @@ task_context "Task" do
 
     property('localization_target_frame', 'string').
         doc 'Relative frame in which the pose outputs samples are wanted.'+
-        'The names are relative to the task and uses the transformer names. Use "world" for absolute frame'+
-        'Use "navigation" for relative frame ("navigation" is by default)'
+        'The names are relative to the task and uses the transformer names.'+
+        'Use "world" for an absolute frame.'+
+        'Use "navigation" for relative frame when the robot started ("navigation" is by default).'
 
     #******************************
     #******* Input ports  *********
