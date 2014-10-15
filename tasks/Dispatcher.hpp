@@ -31,7 +31,7 @@ namespace localization {
         typedef RTT::InputPort<base::MatrixXd> InputPortCov;
         typedef RTT::OutputPort<localization::ExteroceptiveSample> OutputPort;
 
-        /**Dispatcher  Configuration **/
+        /**Dispatcher Configuration **/
         std::vector<OutputPortsConfiguration> config;
 
         /* Input ports variables **/
@@ -45,6 +45,8 @@ namespace localization {
 
         /** Output ports variables **/
         std::vector<OutputPort*> mOutputPorts;
+
+    protected:
 
         /** Deletes all defined input and output ports */
         void clearPorts();

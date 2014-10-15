@@ -124,11 +124,6 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
     this->outputPortSamples(pose_sample.time);
 }
 
-/*void Task::exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample)
-{
-    throw std::runtime_error("Transformer callback for exteroceptive_samples not implemented");
-}*/
-
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See Task.hpp for more detailed
 // documentation about them.
@@ -155,6 +150,23 @@ bool Task::configureHook()
     }
 
     pose_out.targetFrame = _localization_target_frame.value();
+
+    /***********************************/
+    /** Dynamic Exteroceptive Inputs  **/
+    /***********************************/
+    std::vector<std::string> exteroceptive_config (_exteroceptive_inputs.value());
+    clearPorts(); // make sure all created ports are removed first, in case we aborted one configureHook already
+    for (size_t i = 0; i < exteroceptive_config.size(); ++i)
+    {
+        /** Create the input ports **/
+        std::string const& name(exteroceptive_config[i]);
+        if (!getPort(name))
+        {
+            InputPortExtero* port = new InputPortExtero(name);
+            mInputExtero.push_back(port);
+            addEventPort(*port);
+        }
+    }
 
     /***********************/
     /** Info and Warnings **/
@@ -184,6 +196,9 @@ void Task::stopHook()
 void Task::cleanupHook()
 {
     TaskBase::cleanupHook();
+
+    /** Clean ports **/
+    clearPorts();
 
     /** Liberate the memory of the shared_ptr **/
     filter.reset();
@@ -277,3 +292,15 @@ void Task::outputPortSamples(const base::Time &timestamp)
     _pose_samples_out.write(pose_out);
 
 }
+
+void Task::clearPorts()
+{
+    /** Input ports delta displacements **/
+    for (register size_t i = 0; i < mInputExtero.size(); ++i)
+    {
+        ports()->removePort(mInputExtero[i]->getName());
+        delete mInputExtero[i];
+    }
+    mInputExtero.clear();
+}
+

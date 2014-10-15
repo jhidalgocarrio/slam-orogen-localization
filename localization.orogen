@@ -46,6 +46,8 @@ task_context "Task" do
         'Use "world" for an absolute frame.'+
         'Use "navigation" for relative frame when the robot started ("navigation" is by default).'
 
+    property("exteroceptive_inputs", "std/vector<std/string>").doc 'Names of the desired exteroceptive inputs.'
+
     #******************************
     #******* Input ports  *********
     #******************************
@@ -58,7 +60,7 @@ task_context "Task" do
     #******* Exteroceptive sensors *********
 
     # Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
-    #dynamic_output_port /\w+/, '/localization/ExteroceptiveSample'
+    dynamic_output_port /\w+/, '/localization/ExteroceptiveSample'
 
     ##########################
     # Transformer

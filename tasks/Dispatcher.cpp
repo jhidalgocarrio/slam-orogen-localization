@@ -3,7 +3,7 @@
 #include "Dispatcher.hpp"
 #include <base/Logging.hpp>
 
-
+#define DEBUG_PRINTS 1
 
 using namespace localization;
 
@@ -56,6 +56,7 @@ bool Dispatcher::configureHook()
             /** Create the rigid body state **/
             if (!getPort(conf.delta_pose_name))
             {
+                std::cout<<"Create input port: "<<conf.delta_pose_name<<"\n";
                 InputPortPose* port = new InputPortPose(conf.delta_pose_name);
                 mInputPose.push_back(port);
                 addEventPort(*port);
@@ -64,6 +65,7 @@ bool Dispatcher::configureHook()
             /** Create the Jacobian **/
             if (!getPort(conf.jacobian_k_name))
             {
+                std::cout<<"Create input port: "<<conf.jacobian_k_name<<"\n";
                 InputPortJacob* port = new InputPortJacob(conf.jacobian_k_name);
                 mInputJacobk.push_back(port);
                 addEventPort(*port);
@@ -72,6 +74,7 @@ bool Dispatcher::configureHook()
             /** Create the Jacobian **/
             if (!getPort(conf.jacobian_k_m_name))
             {
+                std::cout<<"Create input port: "<<conf.jacobian_k_m_name<<"\n";
                 InputPortJacob* port = new InputPortJacob(conf.jacobian_k_m_name);
                 mInputJacobk_m.push_back(port);
                 addEventPort(*port);
@@ -80,6 +83,7 @@ bool Dispatcher::configureHook()
             /** Create the Covariance **/
             if (!getPort(conf.covariance_name))
             {
+                std::cout<<"Create input port: "<<conf.covariance_name<<"\n";
                 InputPortCov* port = new InputPortCov(conf.covariance_name);
                 mInputCov.push_back(port);
                 addEventPort(*port);
@@ -92,7 +96,7 @@ bool Dispatcher::configureHook()
         }
     }
 
-
+//    for (std::vector<InputPortPose*>::iterator it = mInputPose.begin() ; it != mInputPose.end(); ++it)
 
 
     return true;
@@ -112,6 +116,8 @@ void Dispatcher::updateHook()
     base::NamedVector<base::MatrixXd> jacobian_k_m_namedvector;
     base::NamedVector<base::MatrixXd> covariance_namedvector;
 
+    std::cout<<"In updateHook\n";
+
     delta_pose_namedvector.resize(config.size());
     jacobian_k_namedvector.resize(config.size());
     jacobian_k_m_namedvector.resize(config.size());
@@ -121,8 +127,10 @@ void Dispatcher::updateHook()
     for (register size_t i = 0; i < mInputPose.size(); ++i)
     {
         base::samples::RigidBodyState rbs;
+        std::cout<<"Looking for  "<<mInputPose[i]->getName()<<"\n";
         while (mInputPose[i]->read(rbs, false) == RTT::NewData)
         {
+            std::cout<<"received: "<<mInputPose[i]->getName()<<"\n";
             delta_pose_namedvector.names[i] = mInputPose[i]->getName();
             delta_pose_namedvector.elements[i] = rbs;
         }
@@ -133,8 +141,10 @@ void Dispatcher::updateHook()
     for (register size_t i = 0; i < mInputJacobk.size(); ++i)
     {
         base::MatrixXd jacob;
+        std::cout<<"Looking for  "<<mInputJacobk[i]->getName()<<"\n";
         while (mInputJacobk[i]->read(jacob, false) == RTT::NewData)
         {
+            std::cout<<"received: "<<mInputJacobk[i]->getName()<<"\n";
             jacobian_k_namedvector.names[i] = mInputJacobk[i]->getName();
             jacobian_k_namedvector.elements[i] = jacob;
         }
@@ -144,14 +154,28 @@ void Dispatcher::updateHook()
     for (register size_t i = 0; i < mInputJacobk_m.size(); ++i)
     {
         base::MatrixXd jacob;
+        std::cout<<"Looking for  "<<mInputJacobk_m[i]->getName()<<"\n";
         while (mInputJacobk_m[i]->read(jacob, false) == RTT::NewData)
         {
+            std::cout<<"received: "<<mInputJacobk_m[i]->getName()<<"\n";
             jacobian_k_m_namedvector.names[i] = mInputJacobk_m[i]->getName();
             jacobian_k_m_namedvector.elements[i] = jacob;
         }
     }
 
     /** Check input port samples for Covariance **/
+    for (register size_t i = 0; i < mInputCov.size(); ++i)
+    {
+        base::MatrixXd cov;
+        std::cout<<"Looking for  "<<mInputCov[i]->getName()<<"\n";
+        while (mInputCov[i]->read(cov, false) == RTT::NewData)
+        {
+            std::cout<<"received: "<<mInputCov[i]->getName()<<"\n";
+            covariance_namedvector.names[i] = mInputCov[i]->getName();
+            covariance_namedvector.elements[i] = cov;
+        }
+    }
+
 
     /** Create Exteroceptive samples **/
     for (register size_t i = 0; i < config.size(); ++i)
@@ -159,18 +183,33 @@ void Dispatcher::updateHook()
         localization::ExteroceptiveSample extero_sample;
         OutputPortsConfiguration const& conf(config[i]);
 
-        extero_sample.delta_pose = delta_pose_namedvector[conf.delta_pose_name];
-        extero_sample.jacobian_k = jacobian_k_namedvector[conf.jacobian_k_name];
-        extero_sample.jacobian_k_m = jacobian_k_m_namedvector[conf.jacobian_k_m_name];
-        extero_sample.covariance = covariance_namedvector[conf.covariance_name];
+        if (delta_pose_namedvector.hasNames() &&
+            jacobian_k_namedvector.hasNames() &&
+            jacobian_k_m_namedvector.hasNames() &&
+            covariance_namedvector.hasNames())
+        {
+            try
+            {
+                extero_sample.delta_pose = delta_pose_namedvector[conf.delta_pose_name];
+                extero_sample.jacobian_k = jacobian_k_namedvector[conf.jacobian_k_name];
+                extero_sample.jacobian_k_m = jacobian_k_m_namedvector[conf.jacobian_k_m_name];
+                extero_sample.covariance = covariance_namedvector[conf.covariance_name];
 
-        dispatcher[conf.output_name] = extero_sample;
+                dispatcher[conf.output_name] = extero_sample;
+
+            } catch (std::runtime_error)
+            {
+                LOG_ERROR("Missing inputs samples\n");
+                break;
+            }
+        }
     }
 
 
     /** Exteroceptive Samples to output ports **/
     for (register size_t i = 0; i < mOutputPorts.size(); ++i)
     {
+        std::cout<<"sending: "<<mOutputPorts[i]->getName()<<"\n";
         localization::ExteroceptiveSample extero_sample = dispatcher[mOutputPorts[i]->getName()];
         mOutputPorts[i]->write(extero_sample);
     }
@@ -185,6 +224,9 @@ void Dispatcher::stopHook()
 }
 void Dispatcher::cleanupHook()
 {
+    /** Clean ports **/
+    clearPorts();
+
     DispatcherBase::cleanupHook();
 }
 
