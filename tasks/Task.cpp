@@ -124,15 +124,10 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
     this->outputPortSamples(pose_sample.time);
 }
 
-void Task::exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample)
+/*void Task::exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample)
 {
     throw std::runtime_error("Transformer callback for exteroceptive_samples not implemented");
-}
-
-void Task::inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample)
-{
-    throw std::runtime_error("Transformer callback for inertial_samples not implemented");
-}
+}*/
 
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See Task.hpp for more detailed

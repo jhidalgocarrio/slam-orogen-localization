@@ -17,10 +17,6 @@
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
   <depend package="slam/localization" />
-  <depend package="image_processing/frame_helper"/>
-
-  <!--  <depend package="slam/envire" />
-  <depend package="slam/orogen/envire"/> -->
 
 <!--
   <tags>Debug</tags>

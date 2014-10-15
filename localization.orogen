@@ -11,7 +11,23 @@ using_library "localization" # Localization library
 import_types_from "base"
 import_types_from "localization/core/Types.hpp"
 
-import_types_from "BackEndTypes.hpp"
+import_types_from "localizationTypes.hpp"
+
+# Declare the State Optimization class
+task_context "Dispatcher" do
+
+    property("outputs", "std/vector</localization/OutputPortsConfiguration>").doc 'Names of the output port and the desired inputs.'
+
+    # Dynamic input port declaration for the delta displacement inputs
+    dynamic_input_port /\w+/, 'base/samples/RigidBodyState'
+
+    # Dynamic input port declaration for the Jacobian of the displacement with respect to the current samples,  previous samples and covariance
+    dynamic_input_port /\w+/, 'base/MatrixXd'
+
+    # Dynamic output port declaration for the inputs
+    dynamic_output_port /\w+/, 'localization/ExteroceptiveSample'
+
+end
 
 # Declare the State Optimization class
 task_context "Task" do
@@ -39,19 +55,10 @@ task_context "Task" do
         needs_reliable_connection.
         doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
 
-    input_port('inertial_samples', '/base/samples/IMUSensors').
-        needs_reliable_connection.
-        doc 'Calibrated and compensated inertial values.'
-
     #******* Exteroceptive sensors *********
-    input_port('exteroceptive_samples', '/base/samples/RigidBodyState')
-        doc 'Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).'
 
-    input_port('point_cloud_variance', '/base/MatrixXd').
-        doc 'Uncertainty of the points in the point_cloud.'
-
-    input_port('point_cloud_jacobian', '/base/MatrixXd').
-        doc 'Jacobian with respect to the points in the point_cloud.'
+    # Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
+    #dynamic_output_port /\w+/, '/localization/ExteroceptiveSample'
 
     ##########################
     # Transformer
@@ -59,8 +66,7 @@ task_context "Task" do
     transformer do
 	transform "navigation", "world" # navigation to world in "Source in target" convention
 	align_port("pose_samples", 0.01)
-	align_port("inertial_samples", 0.01)
-        align_port("exteroceptive_samples", 0.5)
+        #align_port("exteroceptive_samples", 0.5)
 	max_latency(0.02)
     end
 

@@ -1,106 +1,71 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef LOCALIZATION_TASK_TASK_HPP
-#define LOCALIZATION_TASK_TASK_HPP
+#ifndef LOCALIZATION_DISPATCHER_TASK_HPP
+#define LOCALIZATION_DISPATCHER_TASK_HPP
 
-#include "localization/TaskBase.hpp"
-
-/** Framework Library dependencies includes **/
-#include <localization/Configuration.hpp> /** Constant values of the library */
-//#include <localization/core/DataModel.hpp> /** Simple Data Model with uncertainty */
-#include <localization/tools/Util.hpp> /** Util class library **/
-#include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
-#include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
-#include <localization/filters/State.hpp> /** Filter State */
-#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
-//#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
-
-/** Boost **/
-#include <boost/shared_ptr.hpp> /** For shared pointers **/
-#include <boost/algorithm/string.hpp> /** case insensitive string compare **/
+#include "localization/DispatcherBase.hpp"
 
 namespace localization {
 
-    /** Wrap the Augmented and Single State **/
-    typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
-    typedef localization::Usckf<WAugmentedState, WSingleState> StateFilter;
-
-    /*! \class Task 
+    /*! \class Dispatcher 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
      * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
-     * Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
+     * Declare the State Optimization class
      * \details
      * The name of a TaskContext is primarily defined via:
      \verbatim
      deployment 'deployment_name'
-         task('custom_task_name','localization::Task')
+         task('custom_task_name','localization::Dispatcher')
      end
      \endverbatim
      *  It can be dynamically adapted when the deployment is called with a prefix argument. 
      */
-    class Task : public TaskBase
+    class Dispatcher : public DispatcherBase
     {
-	friend class TaskBase;
-
+	friend class DispatcherBase;
     protected:
 
-        /******************************/
-        /*** Control Flow Variables ***/
-        /******************************/
-        bool initFilter;
+        typedef RTT::InputPort<base::samples::RigidBodyState> InputPortPose;
+        typedef RTT::InputPort<base::MatrixXd> InputPortJacob;
+        typedef RTT::InputPort<base::MatrixXd> InputPortCov;
+        typedef RTT::OutputPort<localization::ExteroceptiveSample> OutputPort;
 
+        /**Dispatcher  Configuration **/
+        std::vector<OutputPortsConfiguration> config;
 
-        /**************************/
-        /*** Property Variables ***/
-        /**************************/
+        /* Input ports variables **/
+        std::vector<InputPortPose*> mInputPose;
+        std::vector<InputPortJacob*> mInputJacobk;
+        std::vector<InputPortJacob*> mInputJacobk_m;
+        std::vector<InputPortCov*> mInputCov;
 
-        /******************************************/
-        /*** General Internal Storage Variables ***/
-        /******************************************/
+        /* Dispatch variables **/
+        base::NamedVector<localization::ExteroceptiveSample> dispatcher;
 
-        /** The filter uses by the Back-End **/
-        boost::shared_ptr<StateFilter> filter;
+        /** Output ports variables **/
+        std::vector<OutputPort*> mOutputPorts;
 
-
-        /**************************/
-        /** Input port variables **/
-        /**************************/
-
-        /** Pose estimation **/
-        ::base::samples::RigidBodyState pose_sample;
-
-        /***************************/
-        /** Output port variables **/
-        /***************************/
-        base::samples::RigidBodyState pose_out;
-
-    protected:
-
-        virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
-
-        //virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
-
-        //virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
+        /** Deletes all defined input and output ports */
+        void clearPorts();
 
     public:
-        /** TaskContext constructor for Task
+        /** TaskContext constructor for Dispatcher
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Task(std::string const& name = "localization::Task");
+        Dispatcher(std::string const& name = "localization::Dispatcher", TaskCore::TaskState initial_state = Stopped);
 
-        /** TaskContext constructor for Task 
+        /** TaskContext constructor for Dispatcher 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task. 
-         * 
+         * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Task(std::string const& name, RTT::ExecutionEngine* engine);
+        Dispatcher(std::string const& name, RTT::ExecutionEngine* engine, TaskCore::TaskState initial_state = Stopped);
 
-        /** Default deconstructor of Task
+        /** Default deconstructor of Dispatcher
          */
-	~Task();
+	~Dispatcher();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -159,19 +124,6 @@ namespace localization {
          * before calling start() again.
          */
         void cleanupHook();
-
-        /**@brief Initialize the filter used in the Back-End
-         */
-        void initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine3d &tf);
-
-        /** @brief Port out the values
-        */
-        void outputPortSamples(const base::Time &timestamp);
-
-    public:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-
     };
 }
 
