@@ -68,7 +68,6 @@ task_context "Task" do
     transformer do
 	transform "navigation", "world" # navigation to world in "Source in target" convention
 	align_port("pose_samples", 0.01)
-        #align_port("exteroceptive_samples", 0.5)
 	max_latency(0.02)
     end
 

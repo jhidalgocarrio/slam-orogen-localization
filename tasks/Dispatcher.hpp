@@ -7,6 +7,43 @@
 
 namespace localization {
 
+    struct DispatcherNamedVector
+    {
+        void clear()
+        {
+            delta_pose.clear();
+            jacobian_k.clear();
+            jacobian_k_m.clear();
+            covariance.clear();
+            return;
+        }
+
+        void erase( std::string const& delta_pose_name,
+                    std::string const& jacobian_k_name,
+                    std::string const& jacobian_k_m_name,
+                    std::string const& covariance_name)
+        {
+            delta_pose.elements.erase(delta_pose.elements.begin() + delta_pose.mapNameToIndex(delta_pose_name));
+            delta_pose.names.erase(delta_pose.names.begin() + delta_pose.mapNameToIndex(delta_pose_name));
+
+            jacobian_k.elements.erase(jacobian_k.elements.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
+            jacobian_k.names.erase(jacobian_k.names.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
+
+            jacobian_k_m.elements.erase(jacobian_k_m.elements.begin() + jacobian_k_m.mapNameToIndex(jacobian_k_m_name));
+            jacobian_k_m.names.erase(jacobian_k_m.names.begin() + jacobian_k_m.mapNameToIndex(jacobian_k_m_name));
+
+            covariance.elements.erase(covariance.elements.begin() + covariance.mapNameToIndex(covariance_name));
+            covariance.names.erase(covariance.names.begin() + covariance.mapNameToIndex(covariance_name));
+
+            return;
+        }
+
+        base::NamedVector<base::samples::RigidBodyState> delta_pose;
+        base::NamedVector<base::MatrixXd> jacobian_k;
+        base::NamedVector<base::MatrixXd> jacobian_k_m;
+        base::NamedVector<base::MatrixXd> covariance;
+    };
+
     /*! \class Dispatcher 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
@@ -31,17 +68,17 @@ namespace localization {
         typedef RTT::InputPort<base::MatrixXd> InputPortCov;
         typedef RTT::OutputPort<localization::ExteroceptiveSample> OutputPort;
 
-        /**Dispatcher Configuration **/
+        /** Dispatcher Configuration **/
         std::vector<OutputPortsConfiguration> config;
 
-        /* Input ports variables **/
+        /** Input ports variables **/
         std::vector<InputPortPose*> mInputPose;
         std::vector<InputPortJacob*> mInputJacobk;
         std::vector<InputPortJacob*> mInputJacobk_m;
         std::vector<InputPortCov*> mInputCov;
 
-        /* Dispatch variables **/
-        base::NamedVector<localization::ExteroceptiveSample> dispatcher;
+        /** Internal storage variables **/
+        DispatcherNamedVector dispatcher;
 
         /** Output ports variables **/
         std::vector<OutputPort*> mOutputPorts;

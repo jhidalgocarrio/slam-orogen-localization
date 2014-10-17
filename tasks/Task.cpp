@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace localization;
 
@@ -184,6 +184,20 @@ bool Task::startHook()
 void Task::updateHook()
 {
     TaskBase::updateHook();
+
+    for (register size_t i = 0; i < mInputExtero.size(); ++i)
+    {
+        /** Exteroceptive sample **/
+        localization::ExteroceptiveSample extero_sample;
+
+        if (mInputExtero[i]->read(extero_sample, false) == RTT::NewData)
+        {
+            /** Perform Measurements Update **/
+            //#ifdef DEBUG_PRINTS
+            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive sample at time "<< extero_sample.delta_pose.time.toString()<<"\n";
+            //#endif
+        }
+    }
 }
 void Task::errorHook()
 {

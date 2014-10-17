@@ -64,7 +64,6 @@ namespace localization {
         /** The filter uses by the Back-End **/
         boost::shared_ptr<StateFilter> filter;
 
-
         /**************************/
         /** Input port variables **/
         /**************************/
