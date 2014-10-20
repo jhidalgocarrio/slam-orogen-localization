@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace localization;
 
@@ -193,9 +193,9 @@ void Task::updateHook()
         if (mInputExtero[i]->read(extero_sample, false) == RTT::NewData)
         {
             /** Perform Measurements Update **/
-            //#ifdef DEBUG_PRINTS
-            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive sample at time "<< extero_sample.delta_pose.time.toString()<<"\n";
-            //#endif
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive "<<mInputExtero[i]->getName()<<"sample at time "<< extero_sample.delta_pose.time.toString()<<"\n";
+            #endif
         }
     }
 }
@@ -238,19 +238,24 @@ void Task::initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine
 
 
     /** Initial covariance matrix for the Vector of States **/
+    StateFilter::MultiStateCovariance P0_states; /** Initial P(0) for the Multiple states **/
+
+    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek_l) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek_i) = P0single;
+
+    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek_l) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek_i) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek) = P0single;
+
+    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek_i) = P0single;
+    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek_l) = P0single;
+
     StateFilter::AugmentedStateCovariance P0; /** Initial P(0) for the whole Vector State **/
 
-    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_l) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_i) = P0single;
-
-    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_l) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek, &WAugmentedState::statek_i) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek) = P0single;
-
-    MTK::subblock (P0, &WAugmentedState::statek_l, &WAugmentedState::statek_i) = P0single;
-    MTK::subblock (P0, &WAugmentedState::statek_i, &WAugmentedState::statek_l) = P0single;
+    /** Assign the initial covariance **/
+    P0 = P0_states;
 
     /** Set the current pose to initialize the filter structure **/
     vstate.statek_i.pos = tf.translation(); //!Initial position
