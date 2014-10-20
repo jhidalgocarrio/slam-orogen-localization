@@ -113,7 +113,9 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
 
     /** Process Model Uncertainty **/
     typedef StateFilter::SingleStateCovariance SingleStateCovariance;
-    SingleStateCovariance processCovQ; processCovQ.setIdentity();
+    SingleStateCovariance processCovQ; processCovQ.setZero();
+    MTK::subblock (processCovQ, &WSingleState::velo, &WSingleState::velo) = pose_sample.cov_velocity;
+    MTK::subblock (processCovQ, &WSingleState::angvelo, &WSingleState::angvelo) = pose_sample.cov_angular_velocity;
 
     /** Predict the filter state **/
     filter->predict(boost::bind(processModel, _1 ,
@@ -231,8 +233,8 @@ void Task::initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine
     StateFilter::SingleStateCovariance P0single; /** Initial P(0) for one state **/
     P0single.setZero();
 
-    MTK::setDiagonal (P0single, &WSingleState::pos, 1e-03);
-    MTK::setDiagonal (P0single, &WSingleState::orient, 1e-03);
+    MTK::setDiagonal (P0single, &WSingleState::pos, 1e-06);
+    MTK::setDiagonal (P0single, &WSingleState::orient, 1e-06);
     MTK::setDiagonal (P0single, &WSingleState::velo, 1e-10);
     MTK::setDiagonal (P0single, &WSingleState::angvelo, 1e-10);
 
