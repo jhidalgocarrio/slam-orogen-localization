@@ -24,6 +24,9 @@ namespace localization
         /* 2. Names of the input covariance. Inaccuracies in the displacement-estimation. **/
         std::string pointcloud_name;
 
+        /* 2. Names of the input index. Index previous to next feature. **/
+        std::string index_name;
+
         /* 3. Names of the input covariance. Inaccuracies in the displacement-estimation. **/
         std::string covariance_name;
 
@@ -40,6 +43,7 @@ namespace localization
         base::samples::RigidBodyState delta_pose; // Relative displacement
         base::samples::Pointcloud point_cloud; // Point cloud used for the delta displacement
         std::vector<base::Matrix3d> covariance; // Uncertainty of the points/samples uses to compute the relative measurement
+        std::vector<unsigned int> index; // Indexes of the points/samples uses to compute the relative measurement
         base::MatrixXd jacobian_k; // Displacement Jacobian with respect of the point/samples at time k
         base::MatrixXd jacobian_k_m; // Displacement Jacobian with respect of the point/samples at time k+m
     };

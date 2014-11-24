@@ -78,6 +78,15 @@ bool Dispatcher::configureHook()
                 addEventPort(*port);
             }
 
+            /** Create the Index **/
+            if (!getPort(conf.index_name))
+            {
+                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.index_name<<"\n";
+                InputPortIdx* port = new InputPortIdx(conf.index_name);
+                mInputIdx.push_back(port);
+                addEventPort(*port);
+            }
+
             /** Create the Jacobian **/
             if (!getPort(conf.jacobian_k_name))
             {
@@ -156,6 +165,20 @@ void Dispatcher::updateHook()
         }
     }
 
+    /** Check input port samples for Indexes **/
+    for (register size_t i = 0; i < mInputIdx.size(); ++i)
+    {
+        std::vector<unsigned int> idx;
+        while (mInputIdx[i]->read(idx, false) == RTT::NewData)
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"received: "<<mInputIdx[i]->getName()<<"\n";
+            #endif
+            dispatcher.index.names.push_back(mInputIdx[i]->getName());
+            dispatcher.index.elements.push_back(idx);
+        }
+    }
+
 
     /** Check input port samples for Jacobian **/
     for (register size_t i = 0; i < mInputJacobk.size(); ++i)
@@ -196,6 +219,7 @@ void Dispatcher::updateHook()
         std::cout<<"dispatcher.delta_pose: "<<dispatcher.delta_pose.size()<<"\n";
         std::cout<<"dispatcher.point_cloud: "<<dispatcher.point_cloud.size()<<"\n";
         std::cout<<"dispatcher.covariance: "<<dispatcher.covariance.size()<<"\n";
+        std::cout<<"dispatcher.index: "<<dispatcher.index.size()<<"\n";
         std::cout<<"dispatcher.jacobian_k: "<<dispatcher.jacobian_k.size()<<"\n";
         std::cout<<"dispatcher.jacobian_k_m: "<<dispatcher.jacobian_k_m.size()<<"\n";
         #endif
@@ -203,6 +227,7 @@ void Dispatcher::updateHook()
         if (dispatcher.delta_pose.hasNames() &&
             dispatcher.point_cloud.hasNames() &&
             dispatcher.covariance.hasNames() &&
+            dispatcher.index.hasNames() &&
             dispatcher.jacobian_k.hasNames() &&
             dispatcher.jacobian_k_m.hasNames())
         {
@@ -214,6 +239,7 @@ void Dispatcher::updateHook()
                 extero_sample.delta_pose = dispatcher.delta_pose[conf.delta_pose_name];
                 extero_sample.point_cloud = dispatcher.point_cloud[conf.pointcloud_name];
                 extero_sample.covariance = dispatcher.covariance[conf.covariance_name];
+                extero_sample.index = dispatcher.index[conf.index_name];
                 extero_sample.jacobian_k = dispatcher.jacobian_k[conf.jacobian_k_name];
                 extero_sample.jacobian_k_m = dispatcher.jacobian_k_m[conf.jacobian_k_m_name];
 
@@ -226,7 +252,7 @@ void Dispatcher::updateHook()
                 mOutputPorts[i]->write(extero_sample);
 
                 /** Delete the according entries **/
-                dispatcher.erase(conf.delta_pose_name, conf.pointcloud_name, conf.covariance_name, conf.jacobian_k_name, conf.jacobian_k_m_name);
+                dispatcher.erase(conf.delta_pose_name, conf.pointcloud_name, conf.covariance_name, conf.index_name, conf.jacobian_k_name, conf.jacobian_k_m_name);
 
             } catch (std::runtime_error)
             {
@@ -279,6 +305,15 @@ void Dispatcher::clearPorts()
         delete mInputCov[i];
     }
     mInputCov.clear();
+
+    /** Input ports Index **/
+    for (size_t i = 0; i < mInputIdx.size(); ++i)
+    {
+        ports()->removePort(mInputIdx[i]->getName());
+        delete mInputIdx[i];
+    }
+    mInputIdx.clear();
+
 
     /** Input ports Jacobian **/
     for (size_t i = 0; i < mInputJacobk.size(); ++i)

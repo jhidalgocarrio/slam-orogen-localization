@@ -14,6 +14,7 @@ namespace localization {
             delta_pose.clear();
             point_cloud.clear();
             covariance.clear();
+            index.clear();
             jacobian_k.clear();
             jacobian_k_m.clear();
             return;
@@ -22,6 +23,7 @@ namespace localization {
         void erase( std::string const& delta_pose_name,
                     std::string const& pointcloud_name,
                     std::string const& covariance_name,
+                    std::string const& index_name,
                     std::string const& jacobian_k_name,
                     std::string const& jacobian_k_m_name)
         {
@@ -33,6 +35,9 @@ namespace localization {
 
             covariance.elements.erase(covariance.elements.begin() + covariance.mapNameToIndex(covariance_name));
             covariance.names.erase(covariance.names.begin() + covariance.mapNameToIndex(covariance_name));
+
+            index.elements.erase(index.elements.begin() + index.mapNameToIndex(index_name));
+            index.names.erase(index.names.begin() + index.mapNameToIndex(index_name));
 
             jacobian_k.elements.erase(jacobian_k.elements.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
             jacobian_k.names.erase(jacobian_k.names.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
@@ -46,6 +51,7 @@ namespace localization {
         base::NamedVector<base::samples::RigidBodyState> delta_pose;
         base::NamedVector<base::samples::Pointcloud> point_cloud;
         base::NamedVector<std::vector<base::Matrix3d> > covariance;
+        base::NamedVector<std::vector<unsigned int> > index;
         base::NamedVector<base::MatrixXd> jacobian_k;
         base::NamedVector<base::MatrixXd> jacobian_k_m;
     };
@@ -72,6 +78,7 @@ namespace localization {
         typedef RTT::InputPort<base::samples::RigidBodyState> InputPortPose;
         typedef RTT::InputPort<base::samples::Pointcloud> InputPortPointcloud;
         typedef RTT::InputPort< std::vector<base::Matrix3d> > InputPortCov;
+        typedef RTT::InputPort< std::vector<unsigned int> > InputPortIdx;
         typedef RTT::InputPort<base::MatrixXd> InputPortJacob;
         typedef RTT::OutputPort<localization::ExteroceptiveSample> OutputPort;
 
@@ -82,6 +89,7 @@ namespace localization {
         std::vector<InputPortPose*> mInputPose;
         std::vector<InputPortPointcloud*> mInputPointcloud;
         std::vector<InputPortCov*> mInputCov;
+        std::vector<InputPortIdx*> mInputIdx;
         std::vector<InputPortJacob*> mInputJacobk;
         std::vector<InputPortJacob*> mInputJacobk_m;
 

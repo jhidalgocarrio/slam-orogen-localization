@@ -27,6 +27,9 @@ task_context "Dispatcher" do
     # Dynamic input port declaration for the covariance of the Point cloud
     dynamic_input_port /\w+/, 'std::vector<base::Matrix3d>'
 
+    # Dynamic input port declaration for the index of the Point cloud
+    dynamic_input_port /\w+/, 'std::vector<unsigned int>'
+
     # Dynamic input port declaration for the Jacobian of the displacement with respect to the current samples, previous samples and covariance
     dynamic_input_port /\w+/, 'base/MatrixXd'
 

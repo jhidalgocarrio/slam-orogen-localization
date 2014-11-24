@@ -6,14 +6,18 @@
 #include "localization/TaskBase.hpp"
 
 /** Framework Library dependencies includes **/
-#include <localization/Configuration.hpp> /** Constant values of the library */
+//#include <localization/Configuration.hpp> /** Constant values of the library */
 //#include <localization/core/DataModel.hpp> /** Simple Data Model with uncertainty */
 #include <localization/tools/Util.hpp> /** Util class library **/
 #include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
 #include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
 #include <localization/filters/State.hpp> /** Filter State */
-#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
+//#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
 //#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
+
+/** Eigen **/
+#include <Eigen/Core> /** Core */
+#include <Eigen/StdVector> /** For STL container with Eigen types **/
 
 /** Boost **/
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
@@ -21,9 +25,11 @@
 
 namespace localization {
 
+    static const size_t NUMBER_MEASUREMENTS = 10;
+
     /** Wrap the Augmented and Single State **/
     typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkWrap<localization::AugmentedState> WAugmentedState;
+    typedef localization::MtkDynamicWrap<localization::AugmentedState<Eigen::Dynamic> > WAugmentedState;
     typedef localization::Usckf<WAugmentedState, WSingleState> StateFilter;
 
     /*! \class Task 

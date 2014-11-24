@@ -30,6 +30,51 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &ve
     return s2;
 };
 
+WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &delta_position, const localization::SO3 &delta_orientation,
+                            const Eigen::Vector3d &velocity, const Eigen::Vector3d &angular_velocity)
+{
+    WSingleState s2; /** Propagated state */
+
+    /** Apply Rotation **/
+    s2.orient = state.orient * delta_orientation;
+    s2.angvelo = angular_velocity;
+
+    /** Apply Translation **/
+    s2.velo = velocity;
+    s2.pos = state.pos + delta_position;
+
+    return s2;
+};
+
+
+localization::AugmentedState<Eigen::Dynamic>::MeasurementType measurementModelK_K_i (const WAugmentedState &wastate)
+{
+    WSingleState delta_state, statek, statek_i; /** Propagated state */
+    localization::AugmentedState<Eigen::Dynamic>::MeasurementType z_hat;
+    z_hat = wastate.featuresk;
+    statek = wastate.statek;
+    statek_i = wastate.statek_i;
+
+    delta_state = statek - statek_i;
+    Eigen::Affine3d delta_transform (delta_state.orient);
+    delta_transform.translation() = delta_state.pos;
+
+    for (register unsigned int i = 0; i < z_hat.size(); i+=3)
+    {
+        Eigen::Vector3d coord;
+        coord<<wastate.featuresk[i], wastate.featuresk[i+1], wastate.featuresk[i+2];
+        coord = delta_transform * coord;
+        z_hat[i] = coord[0];
+        z_hat[i+1] = coord[1];
+        z_hat[i+2] = coord[2];
+    }
+//    std::cout<<"z_hat "<<z_hat<<"\n";
+
+    return z_hat;
+};
+
+
+
 Task::Task(std::string const& name)
     : TaskBase(name)
 {
@@ -197,7 +242,75 @@ void Task::updateHook()
             /** Perform Measurements Update **/
             #ifdef DEBUG_PRINTS
             std::cout<<"[LOCALIZATION TASK] Received Exteroceptive "<<mInputExtero[i]->getName()<<"sample at time "<< extero_sample.delta_pose.time.toString()<<"\n";
+            std::cout<<"[LOCALIZATION TASK] Received Measurements Number "<< extero_sample.point_cloud.points.size()<<"\n";
+            std::cout<<"[LOCALIZATION TASK] Received Jacobian k size "<< extero_sample.jacobian_k.rows()<<" x "<<extero_sample.jacobian_k.cols()<<"\n";
+            std::cout<<"[LOCALIZATION TASK] Received Jacobian k+m size "<< extero_sample.jacobian_k_m.rows()<<" x "<<extero_sample.jacobian_k_m.cols()<<"\n";
             #endif
+
+            /** Get the measurement vector and uncertainty **/
+            localization::AugmentedState<Eigen::Dynamic>::MeasurementType measurement;
+            Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
+//            size_t number_measurements = std::max (NUMBER_MEASUREMENTS, extero_sample.point_cloud.points.size());
+//            measurement.resize(3*NUMBER_MEASUREMENTS, 1);
+            measurement.resize(3*extero_sample.point_cloud.points.size());
+            measurementCov.resize(measurement.size(), measurement.size());
+
+
+            /** Measurement for state k **/
+            if (i == 0)
+            {
+                register size_t k = 0;
+                measurement.setZero();
+                measurementCov.setZero();
+
+                /** First measurement **/
+                if (filter->muState().featuresk.size() == 0 )
+                {
+
+                    for (register size_t j = 0; j < extero_sample.point_cloud.points.size(); ++j)
+                    {
+                        measurement.block(0+k, 0, 3, 1) = extero_sample.point_cloud.points[j];
+                        measurementCov.block(0+k, 0+k, 3, 3) = extero_sample.covariance[j];
+                        k=k+3;
+                        if (k >= static_cast<size_t>(measurement.size()))
+                            break;
+
+                    }
+
+                    /** Set the first features samples in the vector state **/
+                    filter->setMeasurement<localization::AugmentedState<Eigen::Dynamic>::MeasurementType,
+                        Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> >(localization::STATEK, measurement, measurementCov);
+
+                    #ifdef DEBUG_PRINTS
+                    std::cout<<"[LOCALIZATION TASK] FIRST_FEATURES_SAMPLES "<<std::endl;
+                    std::cout<<"[LOCALIZATION TASK] Measurement\n"<<measurement<<"\n";
+                    std::cout<<"[LOCALIZATION TASK] Filter featuresk size "<<filter->muState().featuresk.size() <<"\n";
+                    std::cout<<"[LOCALIZATION TASK] Pk is of size "<<filter->PkAugmentedState().rows() <<" x "<<filter->PkAugmentedState().cols()<<std::endl;
+                    std::cout<<"[LOCALIZATION TASK] Filter State "<<filter->muState()<<"\n";
+                    #endif
+                }
+                else
+                {
+                    #ifdef DEBUG_PRINTS
+                    std::cout<<"[LOCALIZATION TASK] UPDATE "<<std::endl;
+                    std::cout<<"[LOCALIZATION TASK] Measurement\n"<<measurement<<"\n";
+                    std::cout<<"[LOCALIZATION TASK] Measurement Covariance size "<<measurementCov.rows() <<" x "<< measurementCov.cols()<<"\n";
+                    std::cout<<"[LOCALIZATION TASK] Filter featuresk size "<<filter->muState().featuresk.size() <<"\n";
+                    #endif
+
+                    /************/
+                    /** UPDATE **/
+                    /************/
+                    filter->updateEKF(static_cast< Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), measurementCov, measurementCov);
+                    //filter->update(static_cast< Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), boost::bind(measurementModelK_K_i, _1), measurementCov);
+
+                }
+            }
+            else if (i == 1) /** Measurement for state k+l **/
+            {
+                /** NO IMPLEMENTED **/
+
+            }
         }
     }
 }
@@ -222,65 +335,41 @@ void Task::cleanupHook()
 
 void Task::initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine3d &tf)
 {
-    /** The filter vector state variables one for the navigation quantities the other for the error **/
-    WAugmentedState vstate;
+    /** The filter vector state variables for the navigation quantities **/
+    WSingleState single_state;
 
     /************************************/
     /** Initialize the Back-End Filter **/
     /************************************/
 
     /** Initial covariance matrix **/
-    StateFilter::SingleStateCovariance P0single; /** Initial P(0) for one state **/
-    P0single.setZero();
+    StateFilter::SingleStateCovariance P0_single; /** Initial P(0) for one state **/
+    P0_single.setZero();
 
-    MTK::setDiagonal (P0single, &WSingleState::pos, 1e-06);
-    MTK::setDiagonal (P0single, &WSingleState::orient, 1e-06);
-    MTK::setDiagonal (P0single, &WSingleState::velo, 1e-10);
-    MTK::setDiagonal (P0single, &WSingleState::angvelo, 1e-10);
-
-
-    /** Initial covariance matrix for the Vector of States **/
-    StateFilter::MultiStateCovariance P0_states; /** Initial P(0) for the Multiple states **/
-
-    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek_l) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek_i) = P0single;
-
-    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek_l) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek, &WAugmentedState::statek_i) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek) = P0single;
-
-    MTK::subblock (P0_states, &WAugmentedState::statek_l, &WAugmentedState::statek_i) = P0single;
-    MTK::subblock (P0_states, &WAugmentedState::statek_i, &WAugmentedState::statek_l) = P0single;
-
-    StateFilter::AugmentedStateCovariance P0; /** Initial P(0) for the whole Vector State **/
-
-    /** Assign the initial covariance **/
-    P0 = P0_states;
+    MTK::setDiagonal (P0_single, &WSingleState::pos, 1e-06);
+    MTK::setDiagonal (P0_single, &WSingleState::orient, 1e-06);
+    MTK::setDiagonal (P0_single, &WSingleState::velo, 1e-10);
+    MTK::setDiagonal (P0_single, &WSingleState::angvelo, 1e-10);
 
     /** Set the current pose to initialize the filter structure **/
-    vstate.statek_i.pos = tf.translation(); //!Initial position
-    vstate.statek_i.orient = Eigen::Quaternion<double>(tf.rotation());
+    single_state.pos = tf.translation(); //!Initial position
+    single_state.orient = Eigen::Quaternion<double>(tf.rotation());
 
     /** Set the initial velocities in the state vector **/
-    vstate.statek_i.velo.setZero(); //!Initial linear velocity
-    vstate.statek_i.angvelo.setZero(); //!Initial angular velocity
-
-    /** Copy the state in the vector of states **/
-    vstate.statek = vstate.statek_i;
-    vstate.statek_l = vstate.statek_i;
+    single_state.velo.setZero(); //!Initial linear velocity
+    single_state.angvelo.setZero(); //!Initial angular velocity
 
     /** Create the filter **/
-    filter.reset (new StateFilter (static_cast<const WAugmentedState> (vstate),
-                        static_cast<const StateFilter::AugmentedStateCovariance> (P0)));
+    filter.reset (new StateFilter (static_cast<const WSingleState> (single_state),
+                        static_cast<const StateFilter::SingleStateCovariance> (P0_single)));
 
     #ifdef DEBUG_PRINTS
+    WAugmentedState vstate = filter->muState();
     std::cout<<"\n";
-    std::cout<<"[LOCALIZATION INIT] State P0|0 is of size " <<P0single.rows()<<" x "<<P0single.cols()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] State P0|0:\n"<<P0single<<"\n";
-    std::cout<<"[LOCALIZATION INIT] Augmented P0|0 is of size " <<P0.rows()<<" x "<<P0.cols()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] Augmented P0|0:\n"<<P0<<"\n";
+    std::cout<<"[LOCALIZATION INIT] State P0|0 is of size " <<P0_single.rows()<<" x "<<P0_single.cols()<<"\n";
+    std::cout<<"[LOCALIZATION INIT] State P0|0:\n"<<P0_single<<"\n";
+    std::cout<<"[LOCALIZATION INIT] Augmented P0|0 is of size " <<filter->PkAugmentedState().rows()<<" x "<<filter->PkAugmentedState().cols()<<"\n";
+    std::cout<<"[LOCALIZATION INIT] Augmented P0|0:\n"<<filter->PkAugmentedState()<<"\n";
     std::cout<<"[LOCALIZATION INIT] state:\n"<<vstate.getVectorizedState()<<"\n";
     std::cout<<"[LOCALIZATION INIT] position:\n"<<vstate.statek_i.pos<<"\n";
     Eigen::Matrix <double,localization::NUMAXIS,1> euler; /** In Euler angles **/
