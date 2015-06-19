@@ -9,10 +9,11 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace localization;
 
+/** Process model when integrating delta velocities **/
 WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &velocity, const Eigen::Vector3d &angular_velocity, double dt)
 {
     WSingleState s2; /** Propagated state */
@@ -30,6 +31,7 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &ve
     return s2;
 };
 
+/** Process model when accumulating delta poses **/
 WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &delta_position, const localization::SO3 &delta_orientation,
                             const Eigen::Vector3d &velocity, const Eigen::Vector3d &angular_velocity)
 {
@@ -40,8 +42,8 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
     s2.angvelo = angular_velocity;
 
     /** Apply Translation **/
+    s2.pos = state.pos + (s2.orient * delta_position);
     s2.velo = velocity;
-    s2.pos = state.pos + delta_position;
 
     return s2;
 };
@@ -92,21 +94,18 @@ Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
     /**************************/
     /** Input port variables **/
     /**************************/
-    pose_sample.invalidate();
+    delta_pose.invalidate();
 }
 
 Task::~Task()
 {
 }
 
-void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample)
+void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample)
 {
 
     if(!initFilter)
     {
-        /** Set an initial pose samples **/
-        pose_sample = pose_samples_sample;
-
         /***************************/
         /** Filter Initialization **/
         /***************************/
@@ -131,7 +130,7 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
         std::cout<<"[LOCALIZATION POSE_SAMPLES] - Initializing Filter...";
         #endif
 
-        /** Initialization of the filter with the first measurements **/
+        /** Initialization of the filter **/
         this->initStateFilter (filter, tf);
 
         #ifdef DEBUG_PRINTS
@@ -141,14 +140,14 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
         initFilter = true;
     }
 
-    base::Time delta_t = pose_samples_sample.time - pose_sample.time;
+    /** A new sample arrived to the input port **/
+    this->delta_pose = delta_pose_samples_sample;
+
+    base::Time delta_t = delta_pose_samples_sample.time - this->delta_pose.time;
     //base::Time delta_t = base::Time::fromSeconds(_pose_samples_period.get());
 
-    /** A new sample arrived to the input port **/
-    pose_sample = pose_samples_sample;
-
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LOCALIZATION POSE_SAMPLES] Received new samples at "<<pose_samples_sample.time.toString()<<"\n";
+    std::cout<<"[LOCALIZATION POSE_SAMPLES] Received new samples at "<<delta_pose_samples_sample.time.toString()<<"\n";
     std::cout<<"[LOCALIZATION POSE_SAMPLES] delta_t: "<<delta_t.toSeconds()<<"\n";
     #endif
 
@@ -158,17 +157,21 @@ void Task::pose_samplesTransformerCallback(const base::Time &ts, const ::base::s
 
     /** Process Model Uncertainty **/
     typedef StateFilter::SingleStateCovariance SingleStateCovariance;
-    SingleStateCovariance processCovQ; processCovQ.setZero();
-    MTK::subblock (processCovQ, &WSingleState::velo, &WSingleState::velo) = pose_sample.cov_velocity;
-    MTK::subblock (processCovQ, &WSingleState::angvelo, &WSingleState::angvelo) = pose_sample.cov_angular_velocity;
+    SingleStateCovariance cov_process; cov_process.setZero();
+    MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
+    MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
+    MTK::subblock (cov_process, &WSingleState::velo, &WSingleState::velo) = this->delta_pose.cov_linear_velocity();
+    MTK::subblock (cov_process, &WSingleState::angvelo, &WSingleState::angvelo) = this->delta_pose.cov_angular_velocity();
 
     /** Predict the filter state **/
     filter->predict(boost::bind(processModel, _1 ,
-                            static_cast<const Eigen::Vector3d>(pose_sample.velocity),
-                            static_cast<const Eigen::Vector3d>(pose_sample.angular_velocity),
-                            delta_t.toSeconds()), processCovQ);
+                            static_cast<const Eigen::Vector3d>(delta_pose.position()),
+                            static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation())),
+                            static_cast<const Eigen::Vector3d>(delta_pose.linear_velocity()),
+                            static_cast<const Eigen::Vector3d>(delta_pose.angular_velocity())),
+                            cov_process);
 
-    this->outputPortSamples(pose_sample.time);
+    this->outputPortSamples(delta_pose.time);
 }
 
 /// The following lines are template definitions for the various state machine

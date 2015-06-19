@@ -62,9 +62,9 @@ task_context "Task" do
     #******************************
 
     #******* Proprioceptive sensors *********
-    input_port('pose_samples', '/base/samples/RigidBodyState').
+    input_port('delta_pose_samples', '/base/samples/BodyState').
         needs_reliable_connection.
-        doc 'Odometry estimated robot pose (Odometry => Statistical Motion Model + IMU orientation).'
+        doc 'Delta pose displacement.'
 
     #******* Exteroceptive sensors *********
 
@@ -75,28 +75,23 @@ task_context "Task" do
     # Transformer
     ##########################
     transformer do
-	transform "navigation", "world" # navigation to world in "Source in target" convention
-	align_port("pose_samples", 0.01)
-	max_latency(0.02)
+	    transform "navigation", "world" # navigation to world in "Source in target" convention
+    	align_port("delta_pose_samples", 0.01)
+    	max_latency(0.02)
     end
 
     #******************************
     #******* Output ports  ********
     #******************************
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Corrected estimated robot pose.'
+	    doc 'Corrected estimated robot pose.'
+
+    output_port('body_pose_samples_out', '/base/samples/BodyState').
+	    doc 'Corrected estimated robot pose.'
 
     output_port('state_estimation_samples_out', 'localization/StateEstimation').
-	doc 'State estimation information.'
+    	doc 'State estimation information.'
 
-    #**********************************
-    #******* Output Debug Ports *******
-    #**********************************
-    output_port('odo_delta_pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Delta Odometry estimated robot pose (from body_frame k-1).'
-
-    output_port('acc_delta_pose_samples_out', '/base/samples/RigidBodyState').
-	doc 'Delta Accelerometers integration estimated robot pose (from body_frame k-1).'
 
     port_driven
 

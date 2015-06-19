@@ -75,7 +75,7 @@ namespace localization {
         /**************************/
 
         /** Pose estimation **/
-        ::base::samples::RigidBodyState pose_sample;
+        ::base::samples::BodyState delta_pose;
 
         /* Input ports variables for Exteroceptive **/
         std::vector<InputPortExtero*> mInputExtero;
@@ -85,17 +85,14 @@ namespace localization {
         /** Output port variables **/
         /***************************/
         base::samples::RigidBodyState pose_out;
+        base::samples::RigidBodyState body_pose_out;
 
     protected:
 
         /** Deletes all defined input and output ports */
         void clearPorts();
 
-        virtual void pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pose_samples_sample);
-
-        //virtual void exteroceptive_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &exteroceptive_samples_sample);
-
-        //virtual void inertial_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &inertial_samples_sample);
+        virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample);
 
     public:
         /** TaskContext constructor for Task
