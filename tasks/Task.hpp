@@ -18,6 +18,9 @@
 
 /** Boost **/
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+
 
 namespace localization {
 
@@ -50,7 +53,7 @@ namespace localization {
 	friend class TaskBase;
 
     protected:
-        typedef RTT::InputPort<localization::ExteroceptiveSample> InputPortExtero;
+        typedef RTT::InputPort< ExteroPort > InputPortExtero;
 
         /******************************/
         /*** Control Flow Variables ***/

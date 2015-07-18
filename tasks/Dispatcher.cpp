@@ -51,12 +51,12 @@ bool Dispatcher::configureHook()
 
         /** Create the input ports **/
         {
-            /** Create the rigid body state **/
-            if (!getPort(conf.delta_pose_name))
+            /** Create the Index **/
+            if (!getPort(conf.index_name))
             {
-                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.delta_pose_name<<"\n";
-                InputPortPose* port = new InputPortPose(conf.delta_pose_name);
-                mInputPose.push_back(port);
+                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.index_name<<"\n";
+                InputPortIdx* port = new InputPortIdx(conf.index_name);
+                mInputIdx.push_back(port);
                 addEventPort(*port);
             }
 
@@ -78,33 +78,6 @@ bool Dispatcher::configureHook()
                 addEventPort(*port);
             }
 
-            /** Create the Index **/
-            if (!getPort(conf.index_name))
-            {
-                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.index_name<<"\n";
-                InputPortIdx* port = new InputPortIdx(conf.index_name);
-                mInputIdx.push_back(port);
-                addEventPort(*port);
-            }
-
-            /** Create the Jacobian **/
-            if (!getPort(conf.jacobian_k_name))
-            {
-                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.jacobian_k_name<<"\n";
-                InputPortJacob* port = new InputPortJacob(conf.jacobian_k_name);
-                mInputJacobk.push_back(port);
-                addEventPort(*port);
-            }
-
-            /** Create the Jacobian **/
-            if (!getPort(conf.jacobian_k_m_name))
-            {
-                RTT::log(RTT::Warning)<<"[LOCALIZATION_DISPATCHER] Create input port: "<< conf.jacobian_k_m_name<<"\n";
-                InputPortJacob* port = new InputPortJacob(conf.jacobian_k_m_name);
-                mInputJacobk_m.push_back(port);
-                addEventPort(*port);
-            }
-
         }
     }
 
@@ -121,19 +94,17 @@ void Dispatcher::updateHook()
 {
     DispatcherBase::updateHook();
 
-
-    /** Check input port samples for delta displacements **/
-    for (register size_t i = 0; i < mInputPose.size(); ++i)
+    /** Check input port samples for Indexes **/
+    for (register size_t i = 0; i < mInputIdx.size(); ++i)
     {
-        base::samples::RigidBodyState rbs;
-        while (mInputPose[i]->read(rbs, false) == RTT::NewData)
+        std::vector<boost::uuids::uuid> idx;
+        while (mInputIdx[i]->read(idx, false) == RTT::NewData)
         {
             #ifdef DEBUG_PRINTS
-            std::cout<<"received: "<<mInputPose[i]->getName();
-            std::cout<<" at time "<< rbs.time.toString()<<"\n";
+            std::cout<<"received: "<<mInputIdx[i]->getName()<<"\n";
             #endif
-            dispatcher.delta_pose.names.push_back(mInputPose[i]->getName());
-            dispatcher.delta_pose.elements.push_back(rbs);
+            dispatcher.index.names.push_back(mInputIdx[i]->getName());
+            dispatcher.index.elements.push_back(idx);
         }
     }
 
@@ -165,94 +136,57 @@ void Dispatcher::updateHook()
         }
     }
 
-    /** Check input port samples for Indexes **/
-    for (register size_t i = 0; i < mInputIdx.size(); ++i)
-    {
-        std::vector<unsigned int> idx;
-        while (mInputIdx[i]->read(idx, false) == RTT::NewData)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"received: "<<mInputIdx[i]->getName()<<"\n";
-            #endif
-            dispatcher.index.names.push_back(mInputIdx[i]->getName());
-            dispatcher.index.elements.push_back(idx);
-        }
-    }
-
-
-    /** Check input port samples for Jacobian **/
-    for (register size_t i = 0; i < mInputJacobk.size(); ++i)
-    {
-        base::MatrixXd jacob;
-        while (mInputJacobk[i]->read(jacob, false) == RTT::NewData)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"received: "<<mInputJacobk[i]->getName()<<"\n";
-            #endif
-            dispatcher.jacobian_k.names.push_back(mInputJacobk[i]->getName());
-            dispatcher.jacobian_k.elements.push_back(jacob);
-        }
-    }
-
-    /** Check input port samples for Jacobian **/
-    for (register size_t i = 0; i < mInputJacobk_m.size(); ++i)
-    {
-        base::MatrixXd jacob;
-        while (mInputJacobk_m[i]->read(jacob, false) == RTT::NewData)
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"received: "<<mInputJacobk_m[i]->getName()<<"\n";
-            #endif
-            dispatcher.jacobian_k_m.names.push_back(mInputJacobk_m[i]->getName());
-            dispatcher.jacobian_k_m.elements.push_back(jacob);
-        }
-    }
-
-
     /** Create Exteroceptive samples **/
     for (register size_t i = 0; i < config.size(); ++i)
     {
-        localization::ExteroceptiveSample extero_sample;
+        ExteroPort extero_samples;
         OutputPortsConfiguration const& conf(config[i]);
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"dispatcher.delta_pose: "<<dispatcher.delta_pose.size()<<"\n";
+        std::cout<<"dispatcher.index: "<<dispatcher.index.size()<<"\n";
         std::cout<<"dispatcher.point_cloud: "<<dispatcher.point_cloud.size()<<"\n";
         std::cout<<"dispatcher.covariance: "<<dispatcher.covariance.size()<<"\n";
-        std::cout<<"dispatcher.index: "<<dispatcher.index.size()<<"\n";
-        std::cout<<"dispatcher.jacobian_k: "<<dispatcher.jacobian_k.size()<<"\n";
-        std::cout<<"dispatcher.jacobian_k_m: "<<dispatcher.jacobian_k_m.size()<<"\n";
         #endif
 
-        if (dispatcher.delta_pose.hasNames() &&
+        if (dispatcher.index.hasNames() &&
             dispatcher.point_cloud.hasNames() &&
-            dispatcher.covariance.hasNames() &&
-            dispatcher.index.hasNames() &&
-            dispatcher.jacobian_k.hasNames() &&
-            dispatcher.jacobian_k_m.hasNames())
+            dispatcher.covariance.hasNames())
         {
             try
             {
                 #ifdef DEBUG_PRINTS
                 std::cout<<"creating output for: "<<conf.output_name<<"\n";
                 #endif
-                extero_sample.delta_pose = dispatcher.delta_pose[conf.delta_pose_name];
-                extero_sample.point_cloud = dispatcher.point_cloud[conf.pointcloud_name];
-                extero_sample.covariance = dispatcher.covariance[conf.covariance_name];
-                extero_sample.index = dispatcher.index[conf.index_name];
-                extero_sample.jacobian_k = dispatcher.jacobian_k[conf.jacobian_k_name];
-                extero_sample.jacobian_k_m = dispatcher.jacobian_k_m[conf.jacobian_k_m_name];
+                extero_samples.time = dispatcher.point_cloud[conf.pointcloud_name].time;
+                extero_samples.features.resize(dispatcher.index[conf.index_name].size());
 
+                /** Store the values **/
+                std::vector<boost::uuids::uuid> vector_uuids = dispatcher.index[conf.index_name];
+                std::vector<base::Vector3d> vector_points = dispatcher.point_cloud[conf.pointcloud_name].points;
+                std::vector<base::Matrix3d> vector_cov = dispatcher.covariance[conf.covariance_name];
+
+                std::vector<ExteroFeature>::iterator it_feature = extero_samples.features.begin();
+                std::vector<boost::uuids::uuid>::iterator it_uuid = vector_uuids.begin();
+                std::vector<base::Vector3d>::iterator it_point = vector_points.begin();
+                std::vector<base::Matrix3d>::iterator it_cov = vector_cov.begin();
+
+                for(; it_feature != extero_samples.features.end();
+                        ++it_feature, ++it_uuid, ++it_point, ++it_cov)
+                {
+                    it_feature->index = *it_uuid;
+                    it_feature->point = *it_point;
+                    it_feature->cov = *it_cov;
+                }
 
                 /** Exteroceptive Samples to output ports **/
                 #ifdef DEBUG_PRINTS
                 std::cout<<"sending: "<<mOutputPorts[i]->getName();
-                std::cout<<" at time "<< extero_sample.delta_pose.time.toString()<<"\n";
+                std::cout<<" at time "<< extero_samples.time.toString()<<"\n";
                 #endif
-                mOutputPorts[i]->write(extero_sample);
+                mOutputPorts[i]->write(extero_samples);
 
                 /** Delete the according entries **/
-                dispatcher.erase(conf.delta_pose_name, conf.pointcloud_name, conf.covariance_name, conf.index_name, conf.jacobian_k_name, conf.jacobian_k_m_name);
+                dispatcher.erase(conf.index_name, conf.pointcloud_name, conf.covariance_name);
 
             } catch (std::runtime_error)
             {
@@ -282,13 +216,13 @@ void Dispatcher::cleanupHook()
 void Dispatcher::clearPorts()
 {
 
-    /** Input ports delta displacements **/
-    for (size_t i = 0; i < mInputPose.size(); ++i)
+    /** Input ports Index **/
+    for (size_t i = 0; i < mInputIdx.size(); ++i)
     {
-        ports()->removePort(mInputPose[i]->getName());
-        delete mInputPose[i];
+        ports()->removePort(mInputIdx[i]->getName());
+        delete mInputIdx[i];
     }
-    mInputPose.clear();
+    mInputIdx.clear();
 
     /** Input ports Point Cloud **/
     for (size_t i = 0; i < mInputPointcloud.size(); ++i)
@@ -305,31 +239,6 @@ void Dispatcher::clearPorts()
         delete mInputCov[i];
     }
     mInputCov.clear();
-
-    /** Input ports Index **/
-    for (size_t i = 0; i < mInputIdx.size(); ++i)
-    {
-        ports()->removePort(mInputIdx[i]->getName());
-        delete mInputIdx[i];
-    }
-    mInputIdx.clear();
-
-
-    /** Input ports Jacobian **/
-    for (size_t i = 0; i < mInputJacobk.size(); ++i)
-    {
-        ports()->removePort(mInputJacobk[i]->getName());
-        delete mInputJacobk[i];
-    }
-    mInputJacobk.clear();
-
-    /** Input ports Jacobian **/
-    for (size_t i = 0; i < mInputJacobk_m.size(); ++i)
-    {
-        ports()->removePort(mInputJacobk_m[i]->getName());
-        delete mInputJacobk_m[i];
-    }
-    mInputJacobk_m.clear();
 
     /** Output ports **/
     for (size_t i = 0; i < mOutputPorts.size(); ++i)

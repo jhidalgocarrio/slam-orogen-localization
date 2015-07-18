@@ -194,23 +194,19 @@ void Task::updateHook()
     for (register size_t i = 0; i < mInputExtero.size(); ++i)
     {
         /** Exteroceptive sample **/
-        localization::ExteroceptiveSample extero_sample;
+        ExteroPort extero_samples;
 
-        if (mInputExtero[i]->read(extero_sample, false) == RTT::NewData)
+        if (mInputExtero[i]->read(extero_samples, false) == RTT::NewData)
         {
             /** Perform Measurements Update **/
             #ifdef DEBUG_PRINTS
-            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive "<<mInputExtero[i]->getName()<<"sample at time "<< extero_sample.delta_pose.time.toString()<<"\n";
-            std::cout<<"[LOCALIZATION TASK] Received Measurements Number "<< extero_sample.point_cloud.points.size()<<"\n";
-            std::cout<<"[LOCALIZATION TASK] Received Jacobian k size "<< extero_sample.jacobian_k.rows()<<" x "<<extero_sample.jacobian_k.cols()<<"\n";
-            std::cout<<"[LOCALIZATION TASK] Received Jacobian k+m size "<< extero_sample.jacobian_k_m.rows()<<" x "<<extero_sample.jacobian_k_m.cols()<<"\n";
+            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive "<<mInputExtero[i]->getName()<<"sample at time "<< extero_samples.time.toString()<<"\n";
+            std::cout<<"[LOCALIZATION TASK] Received Measurements Number "<< extero_samples.features.size()<<"\n";
             #endif
 
             /** Get the measurement vector and uncertainty **/
             MeasurementType measurement;
             Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
-            measurement.resize(3*extero_sample.point_cloud.points.size());
-            measurementCov.resize(measurement.size(), measurement.size());
 
         }
     }

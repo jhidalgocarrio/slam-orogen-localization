@@ -5,30 +5,28 @@
 
 #include "localization/DispatcherBase.hpp"
 
+/** Boost **/
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+
 namespace localization {
 
     struct DispatcherNamedVector
     {
         void clear()
         {
-            delta_pose.clear();
+            index.clear();
             point_cloud.clear();
             covariance.clear();
-            index.clear();
-            jacobian_k.clear();
-            jacobian_k_m.clear();
             return;
         }
 
-        void erase( std::string const& delta_pose_name,
+        void erase( std::string const& index_name,
                     std::string const& pointcloud_name,
-                    std::string const& covariance_name,
-                    std::string const& index_name,
-                    std::string const& jacobian_k_name,
-                    std::string const& jacobian_k_m_name)
+                    std::string const& covariance_name)
         {
-            delta_pose.elements.erase(delta_pose.elements.begin() + delta_pose.mapNameToIndex(delta_pose_name));
-            delta_pose.names.erase(delta_pose.names.begin() + delta_pose.mapNameToIndex(delta_pose_name));
+            index.elements.erase(index.elements.begin() + index.mapNameToIndex(index_name));
+            index.names.erase(index.names.begin() + index.mapNameToIndex(index_name));
 
             point_cloud.elements.erase(point_cloud.elements.begin() + point_cloud.mapNameToIndex(pointcloud_name));
             point_cloud.names.erase(point_cloud.names.begin() + point_cloud.mapNameToIndex(pointcloud_name));
@@ -36,24 +34,12 @@ namespace localization {
             covariance.elements.erase(covariance.elements.begin() + covariance.mapNameToIndex(covariance_name));
             covariance.names.erase(covariance.names.begin() + covariance.mapNameToIndex(covariance_name));
 
-            index.elements.erase(index.elements.begin() + index.mapNameToIndex(index_name));
-            index.names.erase(index.names.begin() + index.mapNameToIndex(index_name));
-
-            jacobian_k.elements.erase(jacobian_k.elements.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
-            jacobian_k.names.erase(jacobian_k.names.begin() + jacobian_k.mapNameToIndex(jacobian_k_name));
-
-            jacobian_k_m.elements.erase(jacobian_k_m.elements.begin() + jacobian_k_m.mapNameToIndex(jacobian_k_m_name));
-            jacobian_k_m.names.erase(jacobian_k_m.names.begin() + jacobian_k_m.mapNameToIndex(jacobian_k_m_name));
-
             return;
         }
 
-        base::NamedVector<base::samples::RigidBodyState> delta_pose;
+        base::NamedVector<std::vector<boost::uuids::uuid> > index;
         base::NamedVector<base::samples::Pointcloud> point_cloud;
         base::NamedVector<std::vector<base::Matrix3d> > covariance;
-        base::NamedVector<std::vector<unsigned int> > index;
-        base::NamedVector<base::MatrixXd> jacobian_k;
-        base::NamedVector<base::MatrixXd> jacobian_k_m;
     };
 
     /*! \class Dispatcher 
@@ -75,23 +61,18 @@ namespace localization {
 	friend class DispatcherBase;
     protected:
 
-        typedef RTT::InputPort<base::samples::RigidBodyState> InputPortPose;
+        typedef RTT::InputPort< std::vector<boost::uuids::uuid> > InputPortIdx;
         typedef RTT::InputPort<base::samples::Pointcloud> InputPortPointcloud;
         typedef RTT::InputPort< std::vector<base::Matrix3d> > InputPortCov;
-        typedef RTT::InputPort< std::vector<unsigned int> > InputPortIdx;
-        typedef RTT::InputPort<base::MatrixXd> InputPortJacob;
-        typedef RTT::OutputPort<localization::ExteroceptiveSample> OutputPort;
+        typedef RTT::OutputPort< ExteroPort> OutputPort;
 
         /** Dispatcher Configuration **/
         std::vector<OutputPortsConfiguration> config;
 
         /** Input ports variables **/
-        std::vector<InputPortPose*> mInputPose;
+        std::vector<InputPortIdx*> mInputIdx;
         std::vector<InputPortPointcloud*> mInputPointcloud;
         std::vector<InputPortCov*> mInputCov;
-        std::vector<InputPortIdx*> mInputIdx;
-        std::vector<InputPortJacob*> mInputJacobk;
-        std::vector<InputPortJacob*> mInputJacobk_m;
 
         /** Internal storage variables **/
         DispatcherNamedVector dispatcher;

@@ -4,6 +4,8 @@
 #include <vector>
 #include <string>
 
+#include <boost/uuid/uuid.hpp>
+
 #include <base/time.h>
 #include <base/eigen.h>
 #include <base/samples/RigidBodyState.hpp>
@@ -18,35 +20,30 @@ namespace localization
 
         /**  This is a five element vector **/
 
-        /* 1. Name of the input ports with the delta displacement, */
-        std::string delta_pose_name;
-
-        /* 2. Names of the input covariance. Inaccuracies in the displacement-estimation. **/
-        std::string pointcloud_name;
-
-        /* 2. Names of the input index. Index previous to next feature. **/
+        /* Names of the input index. Index previous to next feature. **/
         std::string index_name;
 
-        /* 3. Names of the input covariance. Inaccuracies in the displacement-estimation. **/
+        /* Names of the input covariance. Inaccuracies in the displacement-estimation. **/
+        std::string pointcloud_name;
+
+        /* Names of the input covariance. Inaccuracies in the displacement-estimation. **/
         std::string covariance_name;
-
-        /* 4. Name of the input Jacobian with respect to the exteroceptive measurements at time k,*/
-        std::string jacobian_k_name;
-
-        /* 5. Names of the input Jacobian with respect to the exteroceptive measurements at time k+m,*/
-        std::string jacobian_k_m_name;
-
     };
 
-    struct ExteroceptiveSample
+    struct ExteroFeature
     {
-        base::samples::RigidBodyState delta_pose; // Relative displacement
-        base::samples::Pointcloud point_cloud; // Point cloud used for the delta displacement
-        std::vector<base::Matrix3d> covariance; // Uncertainty of the points/samples uses to compute the relative measurement
-        std::vector<unsigned int> index; // Indexes of the points/samples uses to compute the relative measurement
-        base::MatrixXd jacobian_k; // Displacement Jacobian with respect of the point/samples at time k
-        base::MatrixXd jacobian_k_m; // Displacement Jacobian with respect of the point/samples at time k+m
+        boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
+        base::Vector3d point; // Point cloud used for the delta displacement
+        base::Matrix3d cov; // Covariance of the points/samples uses to compute the relative measurement
     };
+
+    struct ExteroPort
+    {
+        base::Time time;
+        std::vector<ExteroFeature> features;
+    };
+
+    typedef boost::uuids::uuid samples_uuid;
 }
 
 #endif
