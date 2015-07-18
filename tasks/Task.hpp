@@ -53,7 +53,6 @@ namespace localization {
 	friend class TaskBase;
 
     protected:
-        typedef RTT::InputPort< ExteroPort > InputPortExtero;
 
         /******************************/
         /*** Control Flow Variables ***/
@@ -79,22 +78,17 @@ namespace localization {
         /** Pose estimation **/
         ::base::samples::BodyState delta_pose;
 
-        /* Input ports variables for Exteroceptive **/
-        std::vector<InputPortExtero*> mInputExtero;
-
-
         /***************************/
         /** Output port variables **/
         /***************************/
         base::samples::RigidBodyState pose_out;
-        base::samples::RigidBodyState body_pose_out;
+        //base::samples::BodyState body_pose_out;
 
     protected:
 
-        /** Deletes all defined input and output ports */
-        void clearPorts();
-
         virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample);
+
+        virtual void visual_feature_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample);
 
     public:
         /** TaskContext constructor for Task

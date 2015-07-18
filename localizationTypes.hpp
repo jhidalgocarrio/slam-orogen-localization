@@ -30,17 +30,17 @@ namespace localization
         std::string covariance_name;
     };
 
-    struct ExteroFeature
+    struct Feature
     {
         boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
         base::Vector3d point; // Point cloud used for the delta displacement
         base::Matrix3d cov; // Covariance of the points/samples uses to compute the relative measurement
     };
 
-    struct ExteroPort
+    struct ExteroFeatures
     {
         base::Time time;
-        std::vector<ExteroFeature> features;
+        std::vector<Feature> features;
     };
 
     typedef boost::uuids::uuid samples_uuid;

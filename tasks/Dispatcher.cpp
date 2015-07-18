@@ -3,7 +3,7 @@
 #include "Dispatcher.hpp"
 #include <base/Logging.hpp>
 
-//#define DEBUG_PRINTS 1
+#define DEBUG_PRINTS 1
 
 using namespace localization;
 
@@ -139,7 +139,7 @@ void Dispatcher::updateHook()
     /** Create Exteroceptive samples **/
     for (register size_t i = 0; i < config.size(); ++i)
     {
-        ExteroPort extero_samples;
+        ExteroFeatures extero_samples;
         OutputPortsConfiguration const& conf(config[i]);
 
         #ifdef DEBUG_PRINTS
@@ -165,7 +165,7 @@ void Dispatcher::updateHook()
                 std::vector<base::Vector3d> vector_points = dispatcher.point_cloud[conf.pointcloud_name].points;
                 std::vector<base::Matrix3d> vector_cov = dispatcher.covariance[conf.covariance_name];
 
-                std::vector<ExteroFeature>::iterator it_feature = extero_samples.features.begin();
+                std::vector<Feature>::iterator it_feature = extero_samples.features.begin();
                 std::vector<boost::uuids::uuid>::iterator it_uuid = vector_uuids.begin();
                 std::vector<base::Vector3d>::iterator it_point = vector_points.begin();
                 std::vector<base::Matrix3d>::iterator it_cov = vector_cov.begin();

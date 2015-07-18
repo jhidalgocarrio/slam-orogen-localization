@@ -64,7 +64,7 @@ namespace localization {
         typedef RTT::InputPort< std::vector<boost::uuids::uuid> > InputPortIdx;
         typedef RTT::InputPort<base::samples::Pointcloud> InputPortPointcloud;
         typedef RTT::InputPort< std::vector<base::Matrix3d> > InputPortCov;
-        typedef RTT::OutputPort< ExteroPort> OutputPort;
+        typedef RTT::OutputPort< ExteroFeatures> OutputPort;
 
         /** Dispatcher Configuration **/
         std::vector<OutputPortsConfiguration> config;

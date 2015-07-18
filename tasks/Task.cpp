@@ -135,6 +135,23 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     this->outputPortSamples(delta_pose.time);
 }
 
+void Task::visual_feature_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample)
+{
+    /** Exteroceptive sample **/
+
+    /** Perform Measurements Update **/
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received sample at time "<< visual_features_samples_sample.time.toString()<<"\n";
+    std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received Measurements Number "<< visual_features_samples_sample.features.size()<<"\n";
+    #endif
+
+    /** Get the measurement vector and uncertainty **/
+    MeasurementType measurement;
+    Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
+
+
+}
+
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See Task.hpp for more detailed
 // documentation about them.
@@ -157,23 +174,6 @@ bool Task::configureHook()
     /** Relative Frame to port out the samples **/
     pose_out.targetFrame = _world_frame.value();
 
-    /***********************************/
-    /** Dynamic Exteroceptive Inputs  **/
-    /***********************************/
-    std::vector<std::string> exteroceptive_config (_exteroceptive_inputs.value());
-    clearPorts(); // make sure all created ports are removed first, in case we aborted one configureHook already
-    for (size_t i = 0; i < exteroceptive_config.size(); ++i)
-    {
-        /** Create the input ports **/
-        std::string const& name(exteroceptive_config[i]);
-        if (!getPort(name))
-        {
-            InputPortExtero* port = new InputPortExtero(name);
-            mInputExtero.push_back(port);
-            addEventPort(*port);
-        }
-    }
-
     /***********************/
     /** Info and Warnings **/
     /***********************/
@@ -190,26 +190,6 @@ bool Task::startHook()
 void Task::updateHook()
 {
     TaskBase::updateHook();
-
-    for (register size_t i = 0; i < mInputExtero.size(); ++i)
-    {
-        /** Exteroceptive sample **/
-        ExteroPort extero_samples;
-
-        if (mInputExtero[i]->read(extero_samples, false) == RTT::NewData)
-        {
-            /** Perform Measurements Update **/
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[LOCALIZATION TASK] Received Exteroceptive "<<mInputExtero[i]->getName()<<"sample at time "<< extero_samples.time.toString()<<"\n";
-            std::cout<<"[LOCALIZATION TASK] Received Measurements Number "<< extero_samples.features.size()<<"\n";
-            #endif
-
-            /** Get the measurement vector and uncertainty **/
-            MeasurementType measurement;
-            Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
-
-        }
-    }
 }
 void Task::errorHook()
 {
@@ -222,9 +202,6 @@ void Task::stopHook()
 void Task::cleanupHook()
 {
     TaskBase::cleanupHook();
-
-    /** Clean ports **/
-    clearPorts();
 
     /** Liberate the memory of the shared_ptr **/
     filter.reset();
@@ -306,14 +283,4 @@ void Task::outputPortSamples(const base::Time &timestamp)
 
 }
 
-void Task::clearPorts()
-{
-    /** Input ports delta displacements **/
-    for (register size_t i = 0; i < mInputExtero.size(); ++i)
-    {
-        ports()->removePort(mInputExtero[i]->getName());
-        delete mInputExtero[i];
-    }
-    mInputExtero.clear();
-}
 

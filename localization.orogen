@@ -28,7 +28,7 @@ task_context "Dispatcher" do
     dynamic_input_port /\w+/, 'std::vector<base::Matrix3d>'
 
     # Dynamic output port declaration for the inputs
-    dynamic_output_port /\w+/, 'localization/ExteroPort'
+    dynamic_output_port /\w+/, 'localization/ExteroFeatures'
 
 end
 
@@ -45,8 +45,6 @@ task_context "Task" do
         doc 'Frame of the localization (normally body frame)'+
             'The localization target frame is taken from the world frame of the transformer.'
 
-    property("exteroceptive_inputs", "std/vector<std/string>").doc 'Names of the desired exteroceptive inputs.'
-
     #******************************
     #******* Input ports  *********
     #******************************
@@ -59,7 +57,8 @@ task_context "Task" do
     #******* Exteroceptive sensors *********
 
     # Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
-    dynamic_input_port /\w+/, 'localization/ExteroPort'
+    input_port('visual_feature_samples', 'localization::ExteroFeatures').
+        doc 'Visual features samples.'
 
     ##########################
     # Transformer
@@ -67,6 +66,7 @@ task_context "Task" do
     transformer do
 	    transform "navigation", "world" # navigation to world in "Source in target" convention
     	align_port("delta_pose_samples", 0.01)
+    	align_port("visual_feature_samples", 0.01)
     	max_latency(0.02)
     end
 
