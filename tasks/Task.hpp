@@ -6,8 +6,8 @@
 #include "localization/TaskBase.hpp"
 
 /** Framework Library dependencies includes **/
-#include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
-#include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
+#include <localization/filters/Msckf.hpp> /** MSCKF class with Manifolds */
+#include <localization/filters/MtkWrap.hpp> /** MSCKF wrapper for the state vector */
 #include <localization/filters/State.hpp> /** Filter State */
 //#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
 //#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
@@ -22,12 +22,15 @@
 
 namespace localization {
 
-    static const size_t NUMBER_MEASUREMENTS = 10;
-
-    /** Wrap the Augmented and Single State **/
+    /** Wrap the Multi and Single State **/
     typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkDynamicWrap<localization::AugmentedState<Eigen::Dynamic> > WAugmentedState;
-    typedef localization::Usckf<WAugmentedState, WSingleState> StateFilter;
+    typedef localization::MtkMultiStateWrap< localization::MultiState<4> > WMultiState;
+
+    /** Filter and covariances types **/
+    typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
+    typedef Eigen::Matrix<double, int(WMultiState::DOF), int(WMultiState::DOF)> MultiStateCovariance;
+    typedef ::MTK::vect<Eigen::Dynamic, double> MeasurementType;
+
 
     /*! \class Task 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -65,7 +68,7 @@ namespace localization {
         /******************************************/
 
         /** The filter uses by the Back-End **/
-        boost::shared_ptr<StateFilter> filter;
+        boost::shared_ptr<MultiStateFilter> filter;
 
         /**************************/
         /** Input port variables **/
@@ -169,7 +172,7 @@ namespace localization {
 
         /**@brief Initialize the filter used in the Back-End
          */
-        void initStateFilter(boost::shared_ptr<StateFilter> &filter, Eigen::Affine3d &tf);
+        void initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eigen::Affine3d &tf);
 
         /** @brief Port out the values
         */
