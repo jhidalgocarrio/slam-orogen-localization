@@ -47,13 +47,9 @@ task_context "Task" do
     #**************************
     #***** Task Properties ****
     #**************************
-    property('localization_source_frame', '/std/string').doc 'From Frame for the transformer'
-
-    property('localization_target_frame', 'string').
-        doc 'Relative frame in which the pose outputs samples are wanted.'+
-        'The names are relative to the task and uses the transformer names.'+
-        'Use "world" for an absolute frame.'+
-        'Use "navigation" for relative frame when the robot started ("navigation" is by default).'
+    property('localization_source_frame', '/std/string').
+        doc 'Frame of the localization (normally body frame)'+
+            'The localization target frame is taken from the world frame of the transformer.'
 
     property("exteroceptive_inputs", "std/vector<std/string>").doc 'Names of the desired exteroceptive inputs.'
 

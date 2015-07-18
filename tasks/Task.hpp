@@ -18,7 +18,6 @@
 
 /** Boost **/
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
-#include <boost/algorithm/string.hpp> /** case insensitive string compare **/
 
 namespace localization {
 

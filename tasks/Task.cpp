@@ -77,17 +77,14 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
         Eigen::Affine3d tf; /** Transformer transformation **/
 
         /** Get the transformation **/
-        if (boost::iequals(_localization_target_frame.value(), _world_frame.value()))
-        {
-            if (!_navigation2world.get(ts, tf, false))
-            {
-               RTT::log(RTT::Fatal)<<"[LOCALIZATION FATAL ERROR]  No transformation provided."<<RTT::endlog();
-               return;
-            }
-        }
-        else
+        if (_navigation_frame.value().compare(_world_frame.value()) == 0)
         {
             tf.setIdentity();
+        }
+        else if (!_navigation2world.get(ts, tf, false))
+        {
+           RTT::log(RTT::Fatal)<<"[LOCALIZATION FATAL ERROR]  No transformation provided."<<RTT::endlog();
+           return;
         }
 
         #ifdef DEBUG_PRINTS
@@ -158,12 +155,7 @@ bool Task::configureHook()
     pose_out.sourceFrame = _localization_source_frame.value();
 
     /** Relative Frame to port out the samples **/
-    if (!boost::iequals(_localization_target_frame.value(), _world_frame.value()))
-    {
-        _localization_target_frame.set(_navigation_frame.value());
-    }
-
-    pose_out.targetFrame = _localization_target_frame.value();
+    pose_out.targetFrame = _world_frame.value();
 
     /***********************************/
     /** Dynamic Exteroceptive Inputs  **/
