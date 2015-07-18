@@ -6,9 +6,6 @@
 #include "localization/TaskBase.hpp"
 
 /** Framework Library dependencies includes **/
-//#include <localization/Configuration.hpp> /** Constant values of the library */
-//#include <localization/core/DataModel.hpp> /** Simple Data Model with uncertainty */
-#include <localization/tools/Util.hpp> /** Util class library **/
 #include <localization/filters/Usckf.hpp> /** USCKF class with Manifolds */
 #include <localization/filters/MtkWrap.hpp> /** USCKF wrapper for the state vector */
 #include <localization/filters/State.hpp> /** Filter State */
