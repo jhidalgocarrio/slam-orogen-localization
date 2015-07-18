@@ -14,25 +14,6 @@ import_types_from "localization/core/Types.hpp"
 import_types_from "localizationTypes.hpp"
 
 # Declare the State Optimization class
-task_context "Dispatcher" do
-
-    property("outputs", "std/vector</localization/OutputPortsConfiguration>").doc 'Names of the output port and the desired inputs.'
-
-    # Dynamic input port declaration for the index of the Point cloud
-    dynamic_input_port /\w+/, 'std::vector<boost::uuids::uuid>'
-
-    # Dynamic input port declaration for the Point cloud
-    dynamic_input_port /\w+/, 'base::samples::Pointcloud'
-
-    # Dynamic input port declaration for the covariance of the Point cloud
-    dynamic_input_port /\w+/, 'std::vector<base::Matrix3d>'
-
-    # Dynamic output port declaration for the inputs
-    dynamic_output_port /\w+/, 'localization/ExteroFeatures'
-
-end
-
-# Declare the State Optimization class
 task_context "Task" do
     # This is the default from now on, and should not be removed. Rock will
     # transition to a setup where all components use a configuration step.
