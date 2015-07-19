@@ -12,6 +12,9 @@
 //#include <localization/filters/ProcessModels.hpp> /** Filter Process Models */
 //#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
 
+/** STD **/
+#include <cstdlib>
+
 /** Eigen **/
 #include <Eigen/Core> /** Core */
 #include <Eigen/StdVector> /** For STL container with Eigen types **/
@@ -26,13 +29,12 @@ namespace localization {
 
     /** Wrap the Multi and Single State **/
     typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkMultiStateWrap< localization::MultiState<4> > WMultiState;
+    typedef localization::MtkMultiStateWrap< localization::MultiState<localization::SensorState> > WMultiState;
 
     /** Filter and covariances types **/
     typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
-    typedef Eigen::Matrix<double, int(WMultiState::DOF), int(WMultiState::DOF)> MultiStateCovariance;
+    typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MultiStateCovariance;
     typedef ::MTK::vect<Eigen::Dynamic, double> MeasurementType;
-
 
     /*! \class Task 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -58,7 +60,6 @@ namespace localization {
         /*** Control Flow Variables ***/
         /******************************/
         bool initFilter;
-
 
         /**************************/
         /*** Property Variables ***/
@@ -88,7 +89,7 @@ namespace localization {
 
         virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample);
 
-        virtual void visual_feature_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample);
+        virtual void visual_features_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample);
 
     public:
         /** TaskContext constructor for Task

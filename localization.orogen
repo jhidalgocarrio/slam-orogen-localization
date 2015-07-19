@@ -26,6 +26,9 @@ task_context "Task" do
         doc 'Frame of the localization (normally body frame)'+
             'The localization target frame is taken from the world frame of the transformer.'
 
+    property('maximum_number_sensor_poses', 'unsigned int', 0).
+        doc 'Maximum number of sensor camera poses in the filter state.'
+
     #******************************
     #******* Input ports  *********
     #******************************
@@ -38,16 +41,17 @@ task_context "Task" do
     #******* Exteroceptive sensors *********
 
     # Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
-    input_port('visual_feature_samples', 'localization::ExteroFeatures').
+    input_port('visual_features_samples', 'localization::ExteroFeatures').
         doc 'Visual features samples.'
 
     ##########################
     # Transformer
     ##########################
     transformer do
-	    transform "navigation", "world" # navigation to world in "Source in target" convention
+	    transform "navigation", "world" # navigation in world in "Source IN target" convention
+	    transform "sensor", "body" # sensor in body in "Source IN target" convention
     	align_port("delta_pose_samples", 0.01)
-    	align_port("visual_feature_samples", 0.01)
+    	align_port("visual_features_samples", 0.01)
     	max_latency(0.02)
     end
 

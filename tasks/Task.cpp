@@ -135,15 +135,83 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     this->outputPortSamples(delta_pose.time);
 }
 
-void Task::visual_feature_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample)
+void Task::visual_features_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample)
 {
-    /** Exteroceptive sample **/
+    Eigen::Affine3d tf; /** Transformer transformation **/
+
+    /** Get the transformation (transformation) Tbody_left_camera **/
+    if (_body_frame.value().compare(_sensor_frame.value()) == 0)
+    {
+        tf.setIdentity();
+    }
+    else if (!_sensor2body.get(ts, tf, false))
+    {
+        throw std::runtime_error("[THREED_ODOMETRY] Transformation from imu to body is not provided.");
+        return;
+    }
+
+    Eigen::Quaternion <double> qtf = Eigen::Quaternion <double> (tf.rotation());
 
     /** Perform Measurements Update **/
     #ifdef DEBUG_PRINTS
     std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received sample at time "<< visual_features_samples_sample.time.toString()<<"\n";
     std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received Measurements Number "<< visual_features_samples_sample.features.size()<<"\n";
     #endif
+
+    if (initFilter)
+    {
+        MultiStateCovariance J (filter->muState().getDOF() + localization::SensorState::DOF, filter->muState().getDOF()); J.setZero();
+        J.block(0, 0, filter->muState().getDOF(), filter->muState().getDOF()) = Eigen::MatrixXd::Identity(filter->muState().getDOF(), filter->muState().getDOF());
+
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[LOCALIZATION VISUAL_FEATURES] J is of size "<<J.rows()<<" x "<<J.cols()<<"\n";
+        std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
+        #endif
+
+
+        /** Extend state by new camera pose **/
+        localization::SensorState camera_pose;
+        camera_pose.orient = filter->muSingleState().orient * qtf;//Tnav_camera = Tnav_body * Tbody_camera
+        Eigen::Vector3d pbody_camera = camera_pose.orient * tf.translation(); //pbody_camera in navigation frame
+        camera_pose.pos = filter->muSingleState().pos + pbody_camera; //pnav_camera = pnav_body + Tnav_camera * pbody_camera
+        filter->muState().sensorsk.push_back(camera_pose);
+
+        /** Extend filter covariance matrix **/
+        MultiStateCovariance Pk_i (filter->muState().getDOF(), filter->muState().getDOF());
+        Pk_i = J * filter->getPk() * J.transpose();
+        filter->setPk(Pk_i);
+
+        /** Reduce the number of camera poses in case the maximum number is exceeded **/
+        if (filter->muState().sensorsk.size() > _maximum_number_sensor_poses.value())
+        {
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[LOCALIZATION VISUAL_FEATURES] Sensor size: "<<filter->muState().sensorsk.size()<<" > maximum("<<_maximum_number_sensor_poses.value()<<")\n";
+            #endif
+
+            MultiStateCovariance Pk_i (filter->muState().getDOF(), filter->muState().getDOF());
+            Pk_i = filter->getPk();
+
+            std::srand( time( NULL ) );  //  using the time seed from srand explanation
+            unsigned int it_die = std::rand() % (filter->muState().sensorsk.size());
+            filter->muState().sensorsk.erase(filter->muState().sensorsk.begin() + it_die);
+
+            #ifdef DEBUG_PRINTS
+            std::cout<<"[LOCALIZATION VISUAL_FEATURES] it_die: "<<it_die<<"\n";
+            #endif
+
+            for (register unsigned int i = WSingleState::DOF; i < filter->getPk().cols(); ++i)
+            {
+                std::cout<<"i -> "<<i<<"\n";
+                if (i > WSingleState::DOF + (localization::SensorState::DOF * it_die) &&
+                        (i < WSingleState::DOF + (localization::SensorState::DOF * it_die +1)))
+                {
+                    std::cout<<it_die<<" between "<< WSingleState::DOF + (localization::SensorState::DOF * it_die)
+                        <<" and "<<WSingleState::DOF + (localization::SensorState::DOF * it_die + 1)<<"\n";
+                }
+            }
+        }
+    }
+
 
     /** Get the measurement vector and uncertainty **/
     MeasurementType measurement;
@@ -230,18 +298,20 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
 
     /** Initial covariance matrix **/
     MultiStateFilter::SingleStateCovariance P0_single; /** Initial P(0) for the state **/
-    MultiStateCovariance Pk_0;
-    P0_single.setZero(); Pk_0.setZero();
+    MultiStateCovariance P0;
+    P0_single.setZero();
+    P0.resize(WSingleState::DOF, WSingleState::DOF);
+    P0.setIdentity();
 
     MTK::setDiagonal (P0_single, &WSingleState::pos, 1e-06);
     MTK::setDiagonal (P0_single, &WSingleState::orient, 1e-06);
     MTK::setDiagonal (P0_single, &WSingleState::velo, 1e-10);
     MTK::setDiagonal (P0_single, &WSingleState::angvelo, 1e-10);
 
-    MTK::subblock(Pk_0, &WMultiState::statek, &WMultiState::statek) = P0_single;
+    P0.block(0, 0, WSingleState::DOF, WSingleState::DOF) = P0_single;
 
     /** Create the filter **/
-    filter.reset (new MultiStateFilter (statek_0, Pk_0));
+    filter.reset (new MultiStateFilter (statek_0, P0));
 
     #ifdef DEBUG_PRINTS
     WMultiState vstate = filter->muState();
