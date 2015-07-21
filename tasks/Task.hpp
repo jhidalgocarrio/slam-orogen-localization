@@ -19,7 +19,12 @@
 #include <Eigen/Core> /** Core */
 #include <Eigen/StdVector> /** For STL container with Eigen types **/
 
+/** Envire **/
+#include <envire_core/Item.hpp>
+#include <envire_core/TransformTree.hpp>
+
 /** Boost **/
+#include <boost/lexical_cast.hpp> /** to string conversion in < C++11 */
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -72,6 +77,9 @@ namespace localization {
         /** The filter uses by the Back-End **/
         boost::shared_ptr<MultiStateFilter> filter;
 
+        /** Envire Tree **/
+        envire::core::TransformTree envire_tree;
+
         /**************************/
         /** Input port variables **/
         /**************************/
@@ -107,7 +115,7 @@ namespace localization {
 
         /** Default deconstructor of Task
          */
-	~Task();
+	    ~Task();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -174,6 +182,48 @@ namespace localization {
         /** @brief Port out the values
         */
         void outputPortSamples(const base::Time &timestamp);
+
+        void addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf);
+
+        std::string removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter);
+
+    public:
+        static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)
+        {
+            unsigned int numRows = matrix.rows()-1;
+            unsigned int numCols = matrix.cols();
+
+            if( rowToRemove < numRows )
+                matrix.block(rowToRemove,0,numRows-rowToRemove,numCols) =
+                    matrix.block(rowToRemove+1,0,numRows-rowToRemove,numCols);
+
+            matrix.conservativeResize(numRows,numCols);
+        }
+
+        static void removeColumn(Eigen::MatrixXd& matrix, unsigned int colToRemove)
+        {
+            unsigned int numRows = matrix.rows();
+            unsigned int numCols = matrix.cols()-1;
+
+            if( colToRemove < numCols )
+                matrix.block(0,colToRemove,numRows,numCols-colToRemove) =
+                    matrix.block(0,colToRemove+1,numRows,numCols-colToRemove);
+
+            matrix.conservativeResize(numRows,numCols);
+        }
+
+        template <typename Derived>
+        static inline Eigen::Matrix<typename Derived::Scalar, 3, 3> makeSkewSymmetric(const Eigen::MatrixBase<Derived>& v)
+        {
+            EIGEN_STATIC_ASSERT_VECTOR_SPECIFIC_SIZE(Derived,3)
+
+            Eigen::Matrix<typename Derived::Scalar, 3, 3> out;
+            out <<   0, -v[2],  v[1],
+                  v[2],     0, -v[0],
+                 -v[1],  v[0],     0;
+
+            return out;
+        }
 
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW

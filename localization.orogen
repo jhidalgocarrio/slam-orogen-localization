@@ -5,6 +5,7 @@ name "localization"
 # If new data types need to be defined, they have to be put in a separate C++
 # header, and this header will be loaded here
 using_library "localization" # Localization library
+using_library "envire_core" # Environment representation library
 
 # If the component/deployments use data types that are defined in other oroGen
 # projects, these projects should be imported there as well.

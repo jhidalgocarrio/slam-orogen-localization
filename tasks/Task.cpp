@@ -150,7 +150,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         return;
     }
 
-    Eigen::Quaternion <double> qtf = Eigen::Quaternion <double> (tf.rotation());
 
     /** Perform Measurements Update **/
     #ifdef DEBUG_PRINTS
@@ -160,56 +159,14 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
     if (initFilter)
     {
-        MultiStateCovariance J (filter->muState().getDOF() + localization::SensorState::DOF, filter->muState().getDOF()); J.setZero();
-        J.block(0, 0, filter->muState().getDOF(), filter->muState().getDOF()) = Eigen::MatrixXd::Identity(filter->muState().getDOF(), filter->muState().getDOF());
+        /** New sensor camera pose in the filter**/
+        this->addSensorPoseToFilter(filter, tf);
 
-        #ifdef DEBUG_PRINTS
-        std::cout<<"[LOCALIZATION VISUAL_FEATURES] J is of size "<<J.rows()<<" x "<<J.cols()<<"\n";
+        /** New measurement to envire **/
+
+        std::cout<<"[LOCALIZATION VISUAL_FEATURES] mu_state\n"<<filter->muState()<<"\n";
         std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
-        #endif
-
-
-        /** Extend state by new camera pose **/
-        localization::SensorState camera_pose;
-        camera_pose.orient = filter->muSingleState().orient * qtf;//Tnav_camera = Tnav_body * Tbody_camera
-        Eigen::Vector3d pbody_camera = camera_pose.orient * tf.translation(); //pbody_camera in navigation frame
-        camera_pose.pos = filter->muSingleState().pos + pbody_camera; //pnav_camera = pnav_body + Tnav_camera * pbody_camera
-        filter->muState().sensorsk.push_back(camera_pose);
-
-        /** Extend filter covariance matrix **/
-        MultiStateCovariance Pk_i (filter->muState().getDOF(), filter->muState().getDOF());
-        Pk_i = J * filter->getPk() * J.transpose();
-        filter->setPk(Pk_i);
-
-        /** Reduce the number of camera poses in case the maximum number is exceeded **/
-        if (filter->muState().sensorsk.size() > _maximum_number_sensor_poses.value())
-        {
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[LOCALIZATION VISUAL_FEATURES] Sensor size: "<<filter->muState().sensorsk.size()<<" > maximum("<<_maximum_number_sensor_poses.value()<<")\n";
-            #endif
-
-            MultiStateCovariance Pk_i (filter->muState().getDOF(), filter->muState().getDOF());
-            Pk_i = filter->getPk();
-
-            std::srand( time( NULL ) );  //  using the time seed from srand explanation
-            unsigned int it_die = std::rand() % (filter->muState().sensorsk.size());
-            filter->muState().sensorsk.erase(filter->muState().sensorsk.begin() + it_die);
-
-            #ifdef DEBUG_PRINTS
-            std::cout<<"[LOCALIZATION VISUAL_FEATURES] it_die: "<<it_die<<"\n";
-            #endif
-
-            for (register unsigned int i = WSingleState::DOF; i < filter->getPk().cols(); ++i)
-            {
-                std::cout<<"i -> "<<i<<"\n";
-                if (i > WSingleState::DOF + (localization::SensorState::DOF * it_die) &&
-                        (i < WSingleState::DOF + (localization::SensorState::DOF * it_die +1)))
-                {
-                    std::cout<<it_die<<" between "<< WSingleState::DOF + (localization::SensorState::DOF * it_die)
-                        <<" and "<<WSingleState::DOF + (localization::SensorState::DOF * it_die + 1)<<"\n";
-                }
-            }
-        }
+        //std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk\n"<<filter->getPk()<<"\n";
     }
 
 
@@ -242,6 +199,8 @@ bool Task::configureHook()
     /** Relative Frame to port out the samples **/
     pose_out.targetFrame = _world_frame.value();
 
+    /** Initialize environment tree **/
+
     /***********************/
     /** Info and Warnings **/
     /***********************/
@@ -273,6 +232,9 @@ void Task::cleanupHook()
 
     /** Liberate the memory of the shared_ptr **/
     filter.reset();
+
+    /** Remove the content in the envire tree **/
+    envire_tree.clear();
 }
 
 void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eigen::Affine3d &tf)
@@ -353,4 +315,77 @@ void Task::outputPortSamples(const base::Time &timestamp)
 
 }
 
+
+void Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf)
+{
+    Eigen::Quaternion <double> qtf = Eigen::Quaternion <double> (tf.rotation());
+
+    /** Create the camera pose **/
+    localization::SensorState camera_pose;
+    camera_pose.orient = filter->muSingleState().orient * qtf;//Tnav_camera = Tnav_body * Tbody_camera
+    Eigen::Vector3d pbody_camera = camera_pose.orient * tf.translation(); //pbody_camera in navigation frame
+    camera_pose.pos = filter->muSingleState().pos + pbody_camera; //pnav_camera = pnav_body + Tnav_camera * pbody_camera
+
+    /** Jacobian matrix for new sensor camera pose estimation **/
+    MultiStateCovariance J (filter->muState().getDOF() + localization::SensorState::DOF, filter->muState().getDOF()); J.setZero();
+    J.block(0, 0, filter->muState().getDOF(), filter->muState().getDOF()) = Eigen::MatrixXd::Identity(filter->muState().getDOF(), filter->muState().getDOF());
+
+    /** Identity in position **/
+    J.block(filter->muState().getDOF(), 0, localization::vec3::DOF, localization::vec3::DOF) = Eigen::MatrixXd::Identity(localization::vec3::DOF, localization::vec3::DOF);
+
+    /** Skew symmetric matrix with orientation of the state **/
+    J.block(filter->muState().getDOF(), localization::vec3::DOF, localization::vec3::DOF, localization::vec3::DOF) = Task::makeSkewSymmetric(pbody_camera);
+
+    /* Sensor orientation **/
+    J.block(filter->muState().getDOF()+localization::vec3::DOF, localization::vec3::DOF, localization::vec3::DOF, localization::vec3::DOF) = tf.rotation();
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] J is of size "<<J.rows()<<" x "<<J.cols()<<"\n";
+    //std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] J\n"<<J<<"\n";
+    std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
+    #endif
+
+
+    /** Extend state by new camera pose **/
+    filter->muState().sensorsk.push_back(camera_pose);
+
+    /** Extend filter covariance matrix **/
+    MultiStateCovariance Pk_i (filter->muState().getDOF() + localization::SensorState::DOF, filter->muState().getDOF() + localization::SensorState::DOF);
+
+    /** Multiplication **/
+    Pk_i = J * filter->getPk() * J.transpose();
+
+    /** Reduce the number of camera poses in case the maximum number is exceeded **/
+    if (filter->muState().sensorsk.size() > _maximum_number_sensor_poses.value())
+    {
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] Sensor size: "<<filter->muState().sensorsk.size()<<" > maximum("<<_maximum_number_sensor_poses.value()<<")\n";
+        std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
+        #endif
+
+        /**Remove in the state **/
+        std::srand( time( NULL ) );  //  using the time seed from srand explanation
+        unsigned int it_dice = std::rand() % (filter->muState().sensorsk.size());
+        filter->muState().sensorsk.erase(filter->muState().sensorsk.begin() + it_dice);
+
+        #ifdef DEBUG_PRINTS
+        std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] it_dice: "<<it_dice<<"\n";
+        #endif
+
+        /**Remove in the covariance matrix **/
+        unsigned int i_remove = WSingleState::DOF + (localization::SensorState::DOF * it_dice);
+        for (register size_t i = 0; i < localization::SensorState::DOF; ++i)
+        {
+            //std::cout<<"i -> "<<i<<" i_remove: "<<i_remove<<"\n";
+
+            /** Remove row and column **/
+            Task::removeRow(Pk_i, i_remove);
+            Task::removeColumn(Pk_i, i_remove);
+            //std::cout<<"Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
+        }
+    }
+
+    /** Store the new Pk in the filter **/
+    filter->setPk(Pk_i);
+}
 
