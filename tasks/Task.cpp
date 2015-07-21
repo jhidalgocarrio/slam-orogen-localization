@@ -167,9 +167,9 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
 
             /** Remove sensor pose from filter **/
-            std::string sensor_pose = removeSensorPoseFromFilter(filter);
+            unsigned int it_removed_pose = removeSensorPoseFromFilter(filter);
 
-            /** Remove sensor pose from envire **/
+            /** Remove sensor pose and measurements from envire **/
 
         }
 
@@ -177,7 +177,7 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         this->addSensorPoseToFilter(filter, tf);
 
         /** New measurement to envire **/
-        //this->addMeasurementToEnvire(filter, visual_features_samples_sample);
+        this->addMeasurementToEnvire(envire_tree, visual_features_samples_sample);
 
     }
 
@@ -373,7 +373,7 @@ void Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eig
 }
 
 
-std::string Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter)
+unsigned int Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter)
 {
     MultiStateCovariance Pk_i (filter->muState().getDOF(), filter->muState().getDOF());
     Pk_i = filter->getPk();
@@ -406,6 +406,48 @@ std::string Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter>
 
     filter->setPk(Pk_i);
 
-    return std::string("pose_" + boost::lexical_cast<std::string>(it_dice));
+    return it_dice;
 }
 
+void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::ExteroFeatures &samples)
+{
+
+    /** Create a list of envire items as measurement in the node **/
+    std::vector< boost::shared_ptr<envire::core::ItemBase> > items_vector;
+
+    std::vector<Feature>::const_iterator it_feature = samples.features.begin();
+    for ( ; it_feature != samples.features.end(); ++it_feature)
+    {
+        /** Compute the measurement item **/
+        Eigen::Matrix<double, 2, 3> projection;
+        projection << 1.0/it_feature->point.z(), 0.00, 0.00,
+                    0.00, 1.0/it_feature->point.z(), 0.00;
+
+        base::Vector2d point = projection * it_feature->point;
+        base::Matrix2d cov = projection * it_feature->cov * projection.transpose();
+
+        std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
+        std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
+        boost::shared_ptr<FeatureMeasurement> feature(new FeatureMeasurement(it_feature->index, point, cov));
+        items_vector.push_back(feature);
+
+    }
+
+    /** Create the node in the envire tree **/
+    envire::core::Frame camera_node("camera_"+boost::lexical_cast<std::string>(samples.img_idx));
+    envire_tree.addVertex(camera_node);
+
+    it_feature = samples.features.begin();
+    for ( ; it_feature != samples.features.end(); ++it_feature)
+    {
+        /** Add the feature to the environment **/
+        envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
+        feature_node.uuid = it_feature->index;
+        envire_tree.addVertex(feature_node);
+
+        /** Edge node -> feature_i **/
+
+    }
+
+    std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<items_vector.size()<<"\n";
+}

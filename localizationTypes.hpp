@@ -23,8 +23,10 @@ namespace localization
     struct ExteroFeatures
     {
         base::Time time;
+        unsigned int img_idx;
         std::vector<Feature> features;
     };
+
 
     typedef boost::uuids::uuid samples_uuid;
 }

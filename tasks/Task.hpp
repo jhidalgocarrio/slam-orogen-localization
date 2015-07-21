@@ -13,6 +13,7 @@
 //#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
 
 /** STD **/
+#include <map>
 #include <cstdlib>
 
 /** Eigen **/
@@ -20,7 +21,7 @@
 #include <Eigen/StdVector> /** For STL container with Eigen types **/
 
 /** Envire **/
-#include <envire_core/Item.hpp>
+#include <envire_core/ItemBase.hpp>
 #include <envire_core/TransformTree.hpp>
 
 /** Boost **/
@@ -40,6 +41,21 @@ namespace localization {
     typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
     typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MultiStateCovariance;
     typedef ::MTK::vect<Eigen::Dynamic, double> MeasurementType;
+
+    class FeatureMeasurement : public envire::core::ItemBase
+    {
+    public:
+
+        boost::uuids::uuid index; // Indexes
+        base::Vector2d point; // Point in camera frame
+        base::Matrix2d cov; // Covariance in camera image
+
+        FeatureMeasurement(boost::uuids::uuid _index,
+                            base::Vector2d &_point,
+                            base::Matrix2d &_cov):
+            index(_index), point(_point), cov(_cov){}
+    };
+
 
     /*! \class Task 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -79,6 +95,9 @@ namespace localization {
 
         /** Envire Tree **/
         envire::core::TransformTree envire_tree;
+
+        /** Camera pose index in filter and envire **/
+        std::map<unsigned int, std::string> filter_to_envire;
 
         /**************************/
         /** Input port variables **/
@@ -185,7 +204,9 @@ namespace localization {
 
         void addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf);
 
-        std::string removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter);
+        unsigned int removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter);
+
+        void addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::ExteroFeatures &samples);
 
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)
