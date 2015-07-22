@@ -42,7 +42,7 @@ namespace localization {
     typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MultiStateCovariance;
     typedef ::MTK::vect<Eigen::Dynamic, double> MeasurementType;
 
-    class FeatureMeasurement : public envire::core::ItemBase
+    class FeatureMeasurement: public envire::core::ItemBase
     {
     public:
 
@@ -54,6 +54,11 @@ namespace localization {
                             base::Vector2d &_point,
                             base::Matrix2d &_cov):
             index(_index), point(_point), cov(_cov){}
+    };
+
+    class FeaturePose: public envire::core::ItemBase, Eigen::Affine3d
+    {
+
     };
 
 
@@ -202,11 +207,13 @@ namespace localization {
         */
         void outputPortSamples(const base::Time &timestamp);
 
-        void addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf);
+        localization::SensorState addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf);
 
         unsigned int removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter);
 
-        void addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::ExteroFeatures &samples);
+        void addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::SensorState &camera_pose, const ::localization::ExteroFeatures &samples);
+
+        void removeSensorPoseFromEnvire(envire::core::TransformTree &envire_tree, const unsigned int &it_removed_pose);
 
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)

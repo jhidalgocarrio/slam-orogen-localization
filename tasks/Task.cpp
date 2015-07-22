@@ -165,19 +165,19 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
             std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk\n"<<filter->getPk()<<"\n";
 
-
             /** Remove sensor pose from filter **/
-            unsigned int it_removed_pose = removeSensorPoseFromFilter(filter);
+            unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
 
             /** Remove sensor pose and measurements from envire **/
+            this->removeSensorPoseFromEnvire(envire_tree, it_removed_pose);
 
         }
 
         /** New sensor camera pose in the filter**/
-        this->addSensorPoseToFilter(filter, tf);
+        localization::SensorState camera_pose = this->addSensorPoseToFilter(filter, tf);
 
         /** New measurement to envire **/
-        this->addMeasurementToEnvire(envire_tree, visual_features_samples_sample);
+        this->addMeasurementToEnvire(envire_tree, camera_pose, visual_features_samples_sample);
 
     }
 
@@ -329,7 +329,7 @@ void Task::outputPortSamples(const base::Time &timestamp)
 }
 
 
-void Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf)
+localization::SensorState Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf)
 {
     Eigen::Quaternion <double> qtf = Eigen::Quaternion <double> (tf.rotation());
 
@@ -370,6 +370,7 @@ void Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eig
     std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
     #endif
 
+    return camera_pose;
 }
 
 
@@ -409,7 +410,9 @@ unsigned int Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter
     return it_dice;
 }
 
-void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::ExteroFeatures &samples)
+void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree,
+                            const ::localization::SensorState &camera_pose,
+                            const ::localization::ExteroFeatures &samples)
 {
 
     /** Create a list of envire items as measurement in the node **/
@@ -426,28 +429,61 @@ void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree, cons
         base::Vector2d point = projection * it_feature->point;
         base::Matrix2d cov = projection * it_feature->cov * projection.transpose();
 
-        std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
-        std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
+        //std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
+        //std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
         boost::shared_ptr<FeatureMeasurement> feature(new FeatureMeasurement(it_feature->index, point, cov));
         items_vector.push_back(feature);
-
     }
 
-    /** Create the node in the envire tree **/
+    std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<items_vector.size()<<"\n";
+
+    /** Create the camera node in the envire tree **/
     envire::core::Frame camera_node("camera_"+boost::lexical_cast<std::string>(samples.img_idx));
+    camera_node.items = items_vector;
     envire_tree.addVertex(camera_node);
 
     it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
     {
-        /** Add the feature to the environment **/
+        /** Feature to the environment **/
         envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
         feature_node.uuid = it_feature->index;
         envire_tree.addVertex(feature_node);
 
-        /** Edge node -> feature_i **/
-
+        /** Edge node -> it_feature **/
+        envire::core::Transform camera_to_feature(samples.time);
+        base::TransformWithCovariance tf(Eigen::AngleAxisd::Identity(), static_cast<base::Position>(it_feature->point));
+        Eigen::Matrix<double, 6, 6> tf_cov;
+        tf_cov << Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(),
+                Eigen::Matrix3d::Zero(), it_feature->cov;
+        tf.setCovariance(tf_cov);
+        camera_to_feature.setTransform(tf);
+        envire_tree.addEdge(camera_node.name, feature_node.name, camera_to_feature);
     }
 
-    std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<items_vector.size()<<"\n";
+}
+
+
+void Task::removeSensorPoseFromEnvire(envire::core::TransformTree &envire_tree, const unsigned int &it_removed_pose)
+{
+    /** Get the camera pose node **/
+    std::string camera_pose_label = filter_to_envire[it_removed_pose];
+    envire::core::TransformTree::vertex_descriptor camera_node = envire_tree.getVertex(camera_pose_label);
+
+    /** Provides iterators to iterate over the out-going edges of camera node **/
+    envire::core::TransformTree::out_edge_iterator ei, ei_end;
+    for (boost::tie(ei, ei_end) = envire_tree.outEdges(camera_node); ei != ei_end; ++ei)
+    {
+        envire::core::TransformTree::vertex_descriptor source = envire_tree.source(*ei);
+        envire::core::TransformTree::vertex_descriptor target = envire_tree.target(*ei);
+        std::cout << "Remove edge from " << source <<  " to " << target << std::endl;
+
+        /** Remove the edge in destructive manner **/
+        envire_tree.removeEdge(source, target, true);
+    }
+
+    /** Remove entry in the map filter to envire **/
+
+
+    return;
 }
