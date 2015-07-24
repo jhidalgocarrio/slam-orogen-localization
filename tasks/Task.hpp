@@ -13,7 +13,7 @@
 //#include <localization/filters/MeasurementModels.hpp> /** Filters Measurement Models */
 
 /** STD **/
-#include <map>
+#include <vector>
 #include <cstdlib>
 
 /** Eigen **/
@@ -22,10 +22,12 @@
 
 /** Envire **/
 #include <envire_core/ItemBase.hpp>
-#include <envire_core/TransformTree.hpp>
+#include <envire_core/Item.hpp>
+#include <envire_core/LabeledTransformTree.hpp>
+#include <envire_core/GraphViz.hpp>
 
 /** Boost **/
-#include <boost/lexical_cast.hpp> /** to string conversion in < C++11 */
+#include <boost/lexical_cast.hpp> /** to string conversion when using < C++11 */
 #include <boost/shared_ptr.hpp> /** For shared pointers **/
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -42,24 +44,10 @@ namespace localization {
     typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MultiStateCovariance;
     typedef ::MTK::vect<Eigen::Dynamic, double> MeasurementType;
 
-    class FeatureMeasurement: public envire::core::ItemBase
+    class MeasurementItem: public envire::core::Item<FeatureMeasurement>
     {
-    public:
-
-        boost::uuids::uuid index; // Indexes
-        base::Vector2d point; // Point in camera frame
-        base::Matrix2d cov; // Covariance in camera image
-
-        FeatureMeasurement(boost::uuids::uuid _index,
-                            base::Vector2d &_point,
-                            base::Matrix2d &_cov):
-            index(_index), point(_point), cov(_cov){}
     };
 
-    class FeaturePose: public envire::core::ItemBase, Eigen::Affine3d
-    {
-
-    };
 
 
     /*! \class Task 
@@ -99,10 +87,10 @@ namespace localization {
         boost::shared_ptr<MultiStateFilter> filter;
 
         /** Envire Tree **/
-        envire::core::TransformTree envire_tree;
+        envire::core::LabeledTransformTree envire_tree;
 
         /** Camera pose index in filter and envire **/
-        std::map<unsigned int, std::string> filter_to_envire;
+        std::vector<std::string> camera_node_labels;
 
         /**************************/
         /** Input port variables **/
@@ -211,9 +199,12 @@ namespace localization {
 
         unsigned int removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter> filter);
 
-        void addMeasurementToEnvire(envire::core::TransformTree &envire_tree, const ::localization::SensorState &camera_pose, const ::localization::ExteroFeatures &samples);
+        void addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tree,
+                            const std::string &camera_pose_label,
+                            const ::localization::SensorState &camera_pose,
+                            const ::localization::ExteroFeatures &samples);
 
-        void removeSensorPoseFromEnvire(envire::core::TransformTree &envire_tree, const unsigned int &it_removed_pose);
+        void removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose);
 
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)

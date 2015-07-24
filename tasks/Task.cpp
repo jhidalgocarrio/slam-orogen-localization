@@ -34,7 +34,7 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 MeasurementType measurementModelK_K_i (const WMultiState &wastate)
 {
     MeasurementType z_hat;
-//    std::cout<<"z_hat "<<z_hat<<"\n";
+//    RTT::log(RTT::Warning)<<"z_hat "<<z_hat<< RTT::endlog();
 
     return z_hat;
 };
@@ -88,14 +88,15 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
         }
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"[LOCALIZATION POSE_SAMPLES] - Initializing Filter...";
+        RTT::log(RTT::Warning)<<"[LOCALIZATION POSE_SAMPLES] - Initializing Filter..."<<RTT::endlog();
+
         #endif
 
         /** Initialization of the filter **/
         this->initMultiStateFilter (filter, tf);
 
         #ifdef DEBUG_PRINTS
-        std::cout<<"[DONE]\n";
+        RTT::log(RTT::Warning)<<"[DONE]\n";
         #endif
 
         initFilter = true;
@@ -104,8 +105,8 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     #ifdef DEBUG_PRINTS
     base::Time delta_t = delta_pose_samples_sample.time - this->delta_pose.time;
     //base::Time delta_t = base::Time::fromSeconds(_pose_samples_period.get());
-    std::cout<<"[LOCALIZATION POSE_SAMPLES] Received new samples at "<<delta_pose_samples_sample.time.toString()<<"\n";
-    std::cout<<"[LOCALIZATION POSE_SAMPLES] delta_t: "<<delta_t.toSeconds()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION POSE_SAMPLES] Received new samples at "<<delta_pose_samples_sample.time.toString()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION POSE_SAMPLES] delta_t: "<<delta_t.toSeconds()<<RTT::endlog();
     #endif
 
     /** A new sample arrived to the input port **/
@@ -152,24 +153,26 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
     /** Perform Measurements Update **/
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received sample at time "<< visual_features_samples_sample.time.toString()<<"\n";
-    std::cout<<"[LOCALIZATION VISUAL_FEATURES] Received Measurements Number "<< visual_features_samples_sample.features.size()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Received sample: "<<visual_features_samples_sample.img_idx<<" at time "<< visual_features_samples_sample.time.toString()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Number of Measurements: "<< visual_features_samples_sample.features.size()<<RTT::endlog();
     #endif
 
     if (initFilter)
     {
+        RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] mu_state\n"<<filter->muState()<<RTT::endlog();
+        RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<RTT::endlog();
+        RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Pk\n"<<filter->getPk()<<RTT::endlog();
+
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
             /** Perform an update when reached maximum number of camera sensor poses **/
-            std::cout<<"[LOCALIZATION VISUAL_FEATURES] mu_state\n"<<filter->muState()<<"\n";
-            std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
-            std::cout<<"[LOCALIZATION VISUAL_FEATURES] Pk\n"<<filter->getPk()<<"\n";
 
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
 
+            RTT::log(RTT::Warning)<<"HOLA\n";
             /** Remove sensor pose and measurements from envire **/
-            this->removeSensorPoseFromEnvire(envire_tree, it_removed_pose);
+            this->removeSensorPoseFromEnvire(this->envire_tree, it_removed_pose);
 
         }
 
@@ -177,11 +180,25 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         localization::SensorState camera_pose = this->addSensorPoseToFilter(filter, tf);
 
         /** New measurement to envire **/
-        this->addMeasurementToEnvire(envire_tree, camera_pose, visual_features_samples_sample);
+        std::string camera_pose_label = "camera_"+boost::lexical_cast<std::string>(visual_features_samples_sample.img_idx);
+        this->camera_node_labels.push_back(camera_pose_label);
+        this->addMeasurementToEnvire(this->envire_tree, camera_pose_label, camera_pose, visual_features_samples_sample);
+
+        #ifdef DEBUG_PRINTS
+        //RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] PRINT FILTER -> ENVIRE"<<RTT::endlog();
+        //std::map<unsigned int, std::string>::iterator it_map = this->camera_node_labels.begin();
+        //for (; it_map != this->camera_node_labels.end(); ++it_map)
+        //{
+        //    RTT::log(RTT::Warning)<<"\n"<<it_map->first<<" -> "<<it_map->second;
+        //}
+        //RTT::log(RTT::Warning)<<RTT::endlog();
+        //envire::core::GraphViz gviz;
+        //gviz.write(envire_tree.graph(), "envire_tree_"+boost::lexical_cast<std::string>(visual_features_samples_sample.img_idx)+".dot");
+        #endif
 
     }
 
-    std::cout<<"[LOCALIZATION VISUAL_FEATURES] **** END ****\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] **** END ****"<<RTT::endlog();
 
     /** Get the measurement vector and uncertainty **/
     MeasurementType measurement;
@@ -290,21 +307,21 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
 
     #ifdef DEBUG_PRINTS
     WMultiState vstate = filter->muState();
-    std::cout<<"\n";
-    std::cout<<"[LOCALIZATION INIT] State P0|0 is of size " <<P0_single.rows()<<" x "<<P0_single.cols()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] State P0|0:\n"<<P0_single<<"\n";
-    std::cout<<"[LOCALIZATION INIT] Multi State P0|0 is of size " <<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] Multi State P0|0:\n"<<filter->getPk()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] state:\n"<<vstate.getVectorizedState()<<"\n";
-    std::cout<<"[LOCALIZATION INIT] position:\n"<<vstate.statek.pos<<"\n";
+    RTT::log(RTT::Warning)<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] State P0|0 is of size " <<P0_single.rows()<<" x "<<P0_single.cols()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] State P0|0:\n"<<P0_single<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] Multi State P0|0 is of size " <<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] Multi State P0|0:\n"<<filter->getPk()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] state:\n"<<vstate.getVectorizedState()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] position:\n"<<vstate.statek.pos<<"\n";
     Eigen::Vector3d euler; /** In Euler angles **/
     euler[2] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
     euler[1] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
     euler[0] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
-    std::cout<<"[LOCALIZATION INIT] orientation Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
-    std::cout<<"[LOCALIZATION INIT] velocity:\n"<<vstate.statek.velo<<"\n";
-    std::cout<<"[LOCALIZATION INIT] angular velocity:\n"<<vstate.statek.angvelo<<"\n";
-    std::cout<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] orientation Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] velocity:\n"<<vstate.statek.velo<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] angular velocity:\n"<<vstate.statek.angvelo<<"\n";
+    RTT::log(RTT::Warning)<<"\n";
     #endif
 
     return;
@@ -365,9 +382,9 @@ localization::SensorState Task::addSensorPoseToFilter(boost::shared_ptr<MultiSta
     filter->setPk(Pk_i);
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] J is of size "<<J.rows()<<" x "<<J.cols()<<"\n";
-    std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] J\n"<<J<<"\n";
-    std::cout<<"[LOCALIZATION ADD_SENSOR_POSE] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_SENSOR_POSE] J is of size "<<J.rows()<<" x "<<J.cols()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_SENSOR_POSE] J\n"<<J<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_SENSOR_POSE] Pk is of size "<<filter->getPk().rows()<<" x "<<filter->getPk().cols()<<"\n";
     #endif
 
     return camera_pose;
@@ -380,8 +397,8 @@ unsigned int Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter
     Pk_i = filter->getPk();
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LOCALIZATION REMOVE_SENSOR_POSE] Sensor size: "<<filter->muState().sensorsk.size()<<" == maximum("<<_maximum_number_sensor_poses.value()<<")\n";
-    std::cout<<"[LOCALIZATION REMOVE_SENSOR_POSE] Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_SENSOR_POSE] Sensor size: "<<filter->muState().sensorsk.size()<<" == maximum("<<_maximum_number_sensor_poses.value()<<")\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_SENSOR_POSE] Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
     #endif
 
     /**Remove in the state **/
@@ -390,57 +407,63 @@ unsigned int Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter
     filter->muState().sensorsk.erase(filter->muState().sensorsk.begin() + it_dice);
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"[LOCALIZATION REMOVE_SENSOR_POSE] it_dice: "<<it_dice<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_SENSOR_POSE] it_dice: "<<it_dice<<"\n";
     #endif
 
     /**Remove in the covariance matrix **/
     unsigned int i_remove = WSingleState::DOF + (localization::SensorState::DOF * it_dice);
     for (register size_t i = 0; i < localization::SensorState::DOF; ++i)
     {
-        //std::cout<<"i -> "<<i<<" i_remove: "<<i_remove<<"\n";
+        //RTT::log(RTT::Warning)<<"i -> "<<i<<" i_remove: "<<i_remove<<"\n";
 
         /** Remove row and column **/
         Task::removeRow(Pk_i, i_remove);
         Task::removeColumn(Pk_i, i_remove);
-        //std::cout<<"Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
+        //RTT::log(RTT::Warning)<<"Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
     }
 
     filter->setPk(Pk_i);
 
+    #ifdef DEBUG_PRINTS
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_SENSOR_POSE] After remove Sensor size: "<<filter->muState().sensorsk.size()<<" == maximum("<<_maximum_number_sensor_poses.value()<<")\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_SENSOR_POSE] After remove Pk_i is of size "<<Pk_i.rows()<<" x "<<Pk_i.cols()<<"\n";
+    #endif
+
+
     return it_dice;
 }
 
-void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree,
+void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tree,
+                            const std::string &camera_pose_label,
                             const ::localization::SensorState &camera_pose,
                             const ::localization::ExteroFeatures &samples)
 {
 
-    /** Create a list of envire items as measurement in the node **/
-    std::vector< boost::shared_ptr<envire::core::ItemBase> > items_vector;
+    /** Create the camera node in the envire tree **/
+    envire::core::Frame camera_node(camera_pose_label);
 
+    /** Compute the measurement item. Measurement of the features from the camera **/
     std::vector<Feature>::const_iterator it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
     {
-        /** Compute the measurement item **/
         Eigen::Matrix<double, 2, 3> projection;
         projection << 1.0/it_feature->point.z(), 0.00, 0.00,
                     0.00, 1.0/it_feature->point.z(), 0.00;
 
-        base::Vector2d point = projection * it_feature->point;
-        base::Matrix2d cov = projection * it_feature->cov * projection.transpose();
+        FeatureMeasurement m(it_feature->index);
+        m.point = projection * it_feature->point;
+        m.cov = projection * it_feature->cov * projection.transpose();
 
-        //std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
-        //std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
-        boost::shared_ptr<FeatureMeasurement> feature(new FeatureMeasurement(it_feature->index, point, cov));
-        items_vector.push_back(feature);
+        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
+        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
+        boost::intrusive_ptr<MeasurementItem> feature_item(new MeasurementItem());
+        feature_item->setData(m);
+        camera_node.items.push_back(feature_item);
     }
 
-    std::cout<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<items_vector.size()<<"\n";
-
-    /** Create the camera node in the envire tree **/
-    envire::core::Frame camera_node("camera_"+boost::lexical_cast<std::string>(samples.img_idx));
-    camera_node.items = items_vector;
-    envire_tree.addVertex(camera_node);
+    /** Include camera on the envire tree **/
+    envire_tree.add_vertex(camera_node);
+    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<camera_node.items.size()<<"\n";
 
     it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
@@ -448,7 +471,7 @@ void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree,
         /** Feature to the environment **/
         envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
         feature_node.uuid = it_feature->index;
-        envire_tree.addVertex(feature_node);
+        envire_tree.add_vertex(feature_node);
 
         /** Edge node -> it_feature **/
         envire::core::Transform camera_to_feature(samples.time);
@@ -458,32 +481,46 @@ void Task::addMeasurementToEnvire(envire::core::TransformTree &envire_tree,
                 Eigen::Matrix3d::Zero(), it_feature->cov;
         tf.setCovariance(tf_cov);
         camera_to_feature.setTransform(tf);
-        envire_tree.addEdge(camera_node.name, feature_node.name, camera_to_feature);
+        envire_tree.add_edge(camera_node.name, feature_node.name, camera_to_feature);
     }
 
 }
 
 
-void Task::removeSensorPoseFromEnvire(envire::core::TransformTree &envire_tree, const unsigned int &it_removed_pose)
+void Task::removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose)
 {
     /** Get the camera pose node **/
-    std::string camera_pose_label = filter_to_envire[it_removed_pose];
-    envire::core::TransformTree::vertex_descriptor camera_node = envire_tree.getVertex(camera_pose_label);
+    envire::core::LabeledTransformTree::vertex_descriptor camera_node = envire_tree.vertex(this->camera_node_labels[it_removed_pose]);
 
     /** Provides iterators to iterate over the out-going edges of camera node **/
-    envire::core::TransformTree::out_edge_iterator ei, ei_end;
-    for (boost::tie(ei, ei_end) = envire_tree.outEdges(camera_node); ei != ei_end; ++ei)
+    envire::core::LabeledTransformTree::out_edge_iterator ei, ei_end;
+    for (boost::tie(ei, ei_end) = envire_tree.out_edges(camera_node); ei != ei_end; ++ei)
     {
-        envire::core::TransformTree::vertex_descriptor source = envire_tree.source(*ei);
-        envire::core::TransformTree::vertex_descriptor target = envire_tree.target(*ei);
-        std::cout << "Remove edge from " << source <<  " to " << target << std::endl;
+        envire::core::LabeledTransformTree::vertex_descriptor source = envire_tree.source(*ei);
+        envire::core::LabeledTransformTree::vertex_descriptor target = envire_tree.target(*ei);
+        RTT::log(RTT::Warning) << "Remove edge from " << source <<
+            " to " << target << RTT::endlog();
 
         /** Remove the edge in destructive manner **/
-        envire_tree.removeEdge(source, target, true);
+        //envire_tree.removeEdge(source, target, true);
     }
 
-    /** Remove entry in the map filter to envire **/
-
+    /** Erase the it_removed_pose entry in the vector **/
+    this->camera_node_labels.erase(this->camera_node_labels.begin() + (it_removed_pose-1));
+   // std::map<unsigned int, std::string>::iterator it_map = this->camera_node_labels.begin();
+   // for (; it_map != this->camera_node_labels.end(); ++it_map)
+   // {
+   //     std::cout<<it_map->first<<" -> "<<it_map->second<<"\n";
+   //     if (it_map->first == it_removed_pose)
+   //     {
+   //         this->camera_node_labels.erase(it_removed_pose);
+   //     }
+   //     else if (it_map->first > it_removed_pose)
+   //     {
+   //         std::pair<unsigned int, std::string> map_pair(it_map->first - 1, it_map->second);
+   //         this->camera_node_labels.erase(it_map->first);
+   //     }
+   //}
 
     return;
 }
