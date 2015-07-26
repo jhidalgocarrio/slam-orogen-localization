@@ -17,6 +17,7 @@
   <depend package="drivers/orogen/aggregator" />
   <depend package="drivers/orogen/transformer" />
   <depend package="slam/localization" />
+  <depend package="envire/core" />
 
 <!--
   <tags>Debug</tags>

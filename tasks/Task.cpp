@@ -170,7 +170,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
 
-            RTT::log(RTT::Warning)<<"HOLA\n";
             /** Remove sensor pose and measurements from envire **/
             this->removeSensorPoseFromEnvire(this->envire_tree, it_removed_pose);
 
@@ -185,15 +184,15 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         this->addMeasurementToEnvire(this->envire_tree, camera_pose_label, camera_pose, visual_features_samples_sample);
 
         #ifdef DEBUG_PRINTS
-        //RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] PRINT FILTER -> ENVIRE"<<RTT::endlog();
-        //std::map<unsigned int, std::string>::iterator it_map = this->camera_node_labels.begin();
-        //for (; it_map != this->camera_node_labels.end(); ++it_map)
-        //{
-        //    RTT::log(RTT::Warning)<<"\n"<<it_map->first<<" -> "<<it_map->second;
-        //}
-        //RTT::log(RTT::Warning)<<RTT::endlog();
-        //envire::core::GraphViz gviz;
-        //gviz.write(envire_tree.graph(), "envire_tree_"+boost::lexical_cast<std::string>(visual_features_samples_sample.img_idx)+".dot");
+        RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] PRINT FILTER -> ENVIRE"<<RTT::endlog();
+        std::vector<std::string>::iterator it = this->camera_node_labels.begin();
+        for (; it != this->camera_node_labels.end(); ++it)
+        {
+            RTT::log(RTT::Warning)<<"\n"<<it-this->camera_node_labels.begin()<<" -> "<<*it;
+        }
+        RTT::log(RTT::Warning)<<RTT::endlog();
+        envire::core::GraphViz gviz;
+        gviz.write(envire_tree.graph(), "envire_tree_"+camera_pose_label+".dot");
         #endif
 
     }
@@ -235,6 +234,7 @@ bool Task::configureHook()
     /** Info and Warnings **/
     /***********************/
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Desired Target Frame is "<<pose_out.targetFrame<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Maximum number of camera poses: "<<_maximum_number_sensor_poses.value()<<RTT::endlog();
 
     return true;
 }
@@ -462,8 +462,11 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     }
 
     /** Include camera on the envire tree **/
-    envire_tree.add_vertex(camera_node);
-    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Item vector size: "<<camera_node.items.size()<<"\n";
+    std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> camera_pair = envire_tree.insert_vertex(camera_node);
+    if (!camera_pair.second)
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] ERROR!! Camera node("<<camera_pair.second<<")\n";
+    else
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Camera node with Item vector size: "<<camera_node.items.size()<<"\n";
 
     it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
@@ -471,9 +474,11 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
         /** Feature to the environment **/
         envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
         feature_node.uuid = it_feature->index;
-        envire_tree.add_vertex(feature_node);
+        std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> feature_pair = envire_tree.insert_vertex(feature_node);
+        if (!feature_pair.second)
+            RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] ERROR!! Feature node("<<feature_pair.second<<")\n";
 
-        /** Edge node -> it_feature **/
+        /** Edge camera node -> it_feature **/
         envire::core::Transform camera_to_feature(samples.time);
         base::TransformWithCovariance tf(Eigen::AngleAxisd::Identity(), static_cast<base::Position>(it_feature->point));
         Eigen::Matrix<double, 6, 6> tf_cov;
@@ -481,9 +486,10 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
                 Eigen::Matrix3d::Zero(), it_feature->cov;
         tf.setCovariance(tf_cov);
         camera_to_feature.setTransform(tf);
-        envire_tree.add_edge(camera_node.name, feature_node.name, camera_to_feature);
+        envire::core::LabeledTransformTree::edge_descriptor edge; bool b;
+        boost::tie(edge, b) = envire_tree.add_edge(camera_node.name, feature_node.name, camera_to_feature);
+        std::cout<<"ADDED EDGE("<<b<<") "<<camera_node.name<<" -> "<<feature_node.name<<"\n";
     }
-
 }
 
 
@@ -491,36 +497,41 @@ void Task::removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire
 {
     /** Get the camera pose node **/
     envire::core::LabeledTransformTree::vertex_descriptor camera_node = envire_tree.vertex(this->camera_node_labels[it_removed_pose]);
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_MEASUREMENT_ENVIRE] Got camera_node with Item vector size: "<<envire_tree.getFrame(camera_node).items.size()<<"\n";
 
     /** Provides iterators to iterate over the out-going edges of camera node **/
-    envire::core::LabeledTransformTree::out_edge_iterator ei, ei_end;
-    for (boost::tie(ei, ei_end) = envire_tree.out_edges(camera_node); ei != ei_end; ++ei)
+    std::vector<std::string> features_to_remove;
+    envire::core::TransformTree::out_edge_iterator ei, ei_end, enext;
+    boost::tie(ei, ei_end) = envire_tree.out_edges(camera_node);
+    for (enext = ei; ei != ei_end; ei = enext)
     {
         envire::core::LabeledTransformTree::vertex_descriptor source = envire_tree.source(*ei);
         envire::core::LabeledTransformTree::vertex_descriptor target = envire_tree.target(*ei);
-        RTT::log(RTT::Warning) << "Remove edge from " << source <<
-            " to " << target << RTT::endlog();
+        RTT::log(RTT::Warning) << "REMOVE EDGE " << envire_tree.getFrame(source).name <<
+                            " -> " << envire_tree.getFrame(target).name << RTT::endlog();
 
-        /** Remove the edge in destructive manner **/
-        //envire_tree.removeEdge(source, target, true);
+        ++enext;
+        envire_tree.remove_edge(*ei, false);
+        if (envire_tree.degree(target) == 0)
+        {
+            features_to_remove.push_back(envire_tree.getFrame(target).name);
+        }
     }
 
     /** Erase the it_removed_pose entry in the vector **/
-    this->camera_node_labels.erase(this->camera_node_labels.begin() + (it_removed_pose-1));
-   // std::map<unsigned int, std::string>::iterator it_map = this->camera_node_labels.begin();
-   // for (; it_map != this->camera_node_labels.end(); ++it_map)
-   // {
-   //     std::cout<<it_map->first<<" -> "<<it_map->second<<"\n";
-   //     if (it_map->first == it_removed_pose)
-   //     {
-   //         this->camera_node_labels.erase(it_removed_pose);
-   //     }
-   //     else if (it_map->first > it_removed_pose)
-   //     {
-   //         std::pair<unsigned int, std::string> map_pair(it_map->first - 1, it_map->second);
-   //         this->camera_node_labels.erase(it_map->first);
-   //     }
-   //}
+    this->camera_node_labels.erase(this->camera_node_labels.begin() + it_removed_pose);
+    RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_MEASUREMENT_ENVIRE] REMOVED camera_node_labels["<<it_removed_pose<<"]\n";
+
+    /** Clean tree **/
+    RTT::log(RTT::Warning)<<"CLEAN THE TREE!!\n";
+    for (std::vector<std::string>::iterator it_feature_label = features_to_remove.begin();
+            it_feature_label != features_to_remove.end(); ++it_feature_label)
+    {
+        envire_tree.remove_vertex(*it_feature_label);
+    }
+
+    envire_tree.remove_vertex(envire_tree.getFrame(camera_node).name);
+
 
     return;
 }
