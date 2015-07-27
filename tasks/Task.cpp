@@ -37,6 +37,7 @@ MeasurementType measurementModel(const WMultiState &wstate, envire::core::Labele
     z_hat.resize(2*envire_tree.num_edges(), 1);
 
     unsigned int feature_counts = 0;
+    unsigned int measurement_counts = 0;
 
     envire::core::TransformTree::vertex_iterator vi, vi_end, vnext;
     boost::tie(vi, vi_end) = envire_tree.vertices();
@@ -76,7 +77,9 @@ MeasurementType measurementModel(const WMultiState &wstate, envire::core::Labele
                     std::cout<<"f_pos_it->getData():\n"<<f_pos_it->getData()<<"\n";
                     std::cout<<"st_pose.pos:\n"<<st_pose.pos<<"\n";
                     std::cout<<"feature 3d point wrt camera:\n"<<feature_pos_in_camera<<"\n";
-                    z_hat.block(2*feature_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
+                    std::cout<<"feature 2d point wrt camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<<"\n";
+                    z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
+                    measurement_counts++;
                 }
                 ++edges_pair.first;
             }
@@ -86,11 +89,10 @@ MeasurementType measurementModel(const WMultiState &wstate, envire::core::Labele
     }
 
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed features: "<<feature_counts<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] envire_tree.num_vertices(): "<<envire_tree.num_vertices()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] envire_tree.num_edges(): "<<envire_tree.num_edges()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_hat[0]:\n"<<z_hat.block(0,0,2,1)<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_hat[1]:\n"<<z_hat.block(2,0,2,1)<< RTT::endlog();
 
     return z_hat;
 };
@@ -228,7 +230,15 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             //filter->update(static_cast< Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
             //              boost::bind(measurementModel, _1), measurementCov);
 
-            measurementModel(this->filter->muState(), this->envire_tree, this->camera_node_labels);
+            MeasurementType measurement_hat = measurementModel(this->filter->muState(), this->envire_tree, this->camera_node_labels);
+
+            std::cout<<"MEASUREMENT COMPARISON\n";
+            std::cout<<"Z\tZ_HAT\n";
+            for (register int i=0; i<measurement.size(); ++i)
+            {
+                std::cout<<measurement[i]<<"\t"<<measurement_hat[i]<<"\t["<<measurement[i]-measurement_hat[i]<<"]\n";
+            }
+
 
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
@@ -616,6 +626,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
     z.resize(2*envire_tree.num_edges(), 1);
 
     unsigned int feature_counts = 0;
+    unsigned int measurement_counts = 0;
 
     envire::core::TransformTree::vertex_iterator vi, vi_end, vnext;
     boost::tie(vi, vi_end) = envire_tree.vertices();
@@ -648,7 +659,9 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                     if (p_it->getData().index == f.uuid)
                     {
                         std::cout<<boost::uuids::to_string(p_it->getData().index)<<" == "<<f.name<<"\n";
-                        z.block(2*feature_counts, 0, 2, 1) = p_it->getData().point;
+                        z.block(2*measurement_counts, 0, 2, 1) = p_it->getData().point;
+                        measurement_counts++;
+                        std::cout<<"2D POINT\n"<<p_it->getData().point<<"\n";
                     }
 
                 }
@@ -659,11 +672,10 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
     }
 
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] Number processed features: "<<feature_counts<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] Number processed measurements: "<<measurement_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] envire_tree.num_vertices(): "<<envire_tree.num_vertices()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] envire_tree.num_edges(): "<<envire_tree.num_edges()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] z.size(): "<<z.size()<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] z[0]:\n"<<z.block(0,0,2,1)<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] z[1]:\n"<<z.block(2,0,2,1)<< RTT::endlog();
 
     return z;
 }
