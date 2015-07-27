@@ -31,7 +31,7 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 };
 
 
-MeasurementType measurementModel(const WMultiState &wstate, envire::core::LabeledTransformTree &envire_tree, const std::vector<std::string> &camera_node_labels)
+MeasurementType measurementModel(envire::core::LabeledTransformTree &envire_tree, const std::vector<std::string> &camera_node_labels, const WMultiState &wstate)
 {
     MeasurementType z_hat;
     z_hat.resize(2*envire_tree.num_edges(), 1);
@@ -223,22 +223,18 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
-            /** Compute the measurement vector of the current features **/
+            /** Compute the measurement vector and covariance of the current features **/
+            Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
             MeasurementType measurement = this->measurementVector(this->envire_tree);
 
+            /** Function of the measurement **/
+            typedef boost::function<MeasurementType (WMultiState &)> MeasurementFunction;
+            MeasurementFunction f = boost::bind(measurementModel, boost::ref(this->envire_tree), boost::cref(this->camera_node_labels), _1);
+
             /** Perform an update when reached maximum number of camera sensor poses **/
-            //filter->update(static_cast< Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
-            //              boost::bind(measurementModel, _1), measurementCov);
+            filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
 
-            MeasurementType measurement_hat = measurementModel(this->filter->muState(), this->envire_tree, this->camera_node_labels);
-
-            std::cout<<"MEASUREMENT COMPARISON\n";
-            std::cout<<"Z\tZ_HAT\n";
-            for (register int i=0; i<measurement.size(); ++i)
-            {
-                std::cout<<measurement[i]<<"\t"<<measurement_hat[i]<<"\t["<<measurement[i]-measurement_hat[i]<<"]\n";
-            }
-
+            //MeasurementType measurement_hat = f(this->filter->muState());
 
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
@@ -271,10 +267,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
     }
 
     RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] **** END ****"<<RTT::endlog();
-
-    /** Get the measurement vector and uncertainty **/
-    Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
-
 }
 
 /// The following lines are template definitions for the various state machine
