@@ -31,10 +31,55 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 };
 
 
-MeasurementType measurementModelK_K_i (const WMultiState &wastate)
+MeasurementType measurementModel(const WMultiState &wstate, envire::core::LabeledTransformTree &envire_tree, const std::vector<std::string> &camera_node_labels)
 {
     MeasurementType z_hat;
-//    RTT::log(RTT::Warning)<<"z_hat "<<z_hat<< RTT::endlog();
+    std::vector<Eigen::Vector2d> z_vector_hat;
+    unsigned int feature_counts = 0;
+
+    envire::core::TransformTree::vertex_iterator vi, vi_end, vnext;
+    boost::tie(vi, vi_end) = envire_tree.vertices();
+    for (vnext = vi; vi != vi_end; vi = vnext)
+    {
+        ++vnext;
+
+        /** Get Frame **/
+        envire::core::Frame f = envire_tree.getFrame(*vi);
+
+        /** In case it is a feature node (no camera) **/
+        if(f.name.find("camera") == std::string::npos)
+        {
+            /** Take the feature position **/
+            envire::core::ItemBase f_it_base = *(f.items[0]);
+            envire::core::Item<Eigen::Vector3d> *f_it = static_cast< envire::core::Item<Eigen::Vector3d>* >(&f_it_base);
+
+            /** Loop all the in edges to compute measurement per each camera pose **/
+            std::pair<envire::core::LabeledTransformTree::in_edge_iterator,
+                envire::core::LabeledTransformTree::in_edge_iterator> edges_pair = envire_tree.in_edges(*vi);
+
+            /** Process all camera measurements of the feature **/
+            while(edges_pair.first != edges_pair.second)
+            {
+                /** Look at the source of the edge **/
+                envire::core::Frame camera_source = envire_tree.getFrame(envire_tree.source(*(edges_pair.first)));
+
+                /** Look for camera index in filter **/
+                std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
+                if (it_pose != camera_node_labels.end())
+                {
+                    localization::SensorState st_pose = wstate.sensorsk[std::distance(camera_node_labels.begin(), it_pose)];
+                    Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (f_it->getData() - st_pose.pos);
+                    z_vector_hat.push_back(Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z()));
+                }
+                ++edges_pair.first;
+            }
+
+            feature_counts++;
+        }
+    }
+
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed features: "<<feature_counts<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_vector_hat.size(): "<<z_vector_hat.size()<< RTT::endlog();
 
     return z_hat;
 };
@@ -165,7 +210,13 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
+            /** Compute the measurement vector of the current features **/
+
             /** Perform an update when reached maximum number of camera sensor poses **/
+            //filter->update(static_cast< Eigen::Matrix<StateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+            //              boost::bind(measurementModel, _1), measurementCov);
+
+            measurementModel(this->filter->muState(), this->envire_tree, this->camera_node_labels);
 
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
@@ -202,7 +253,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
     /** Get the measurement vector and uncertainty **/
     MeasurementType measurement;
     Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
-
 
 }
 
@@ -454,8 +504,8 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
         m.point = projection * it_feature->point;
         m.cov = projection * it_feature->cov * projection.transpose();
 
-        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<point<<"\n";
-        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<cov<<"\n";
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Point:\n"<<it_feature->point<<"\n";
+        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Cov:\n"<<it_feature->cov<<"\n";
         boost::intrusive_ptr<MeasurementItem> feature_item(new MeasurementItem());
         feature_item->setData(m);
         camera_node.items.push_back(feature_item);
@@ -471,9 +521,19 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
     {
-        /** Feature to the environment **/
+        /** Feature Pose w.r.t the global frame **/
+        Eigen::Vector3d feature_pos;
+        feature_pos = camera_pose.pos + camera_pose.orient * it_feature->point;
+
+        /** Fill the Feature information **/
         envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
         feature_node.uuid = it_feature->index;
+        boost::intrusive_ptr<FeaturePositionItem> pos_item(new FeaturePositionItem());
+        pos_item->setData(feature_pos);
+        feature_node.items.push_back(pos_item);
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Feature("<<feature_node.name<<") Point in navigation:\n"<<feature_pos<<"\n";
+
+        /** Feature to the environment tree **/
         std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> feature_pair = envire_tree.insert_vertex(feature_node);
         if (!feature_pair.second)
             RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] ERROR!! Feature node("<<feature_pair.second<<")\n";
@@ -523,7 +583,6 @@ void Task::removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire
     RTT::log(RTT::Warning)<<"[LOCALIZATION REMOVE_MEASUREMENT_ENVIRE] REMOVED camera_node_labels["<<it_removed_pose<<"]\n";
 
     /** Clean tree **/
-    RTT::log(RTT::Warning)<<"CLEAN THE TREE!!\n";
     for (std::vector<std::string>::iterator it_feature_label = features_to_remove.begin();
             it_feature_label != features_to_remove.end(); ++it_feature_label)
     {

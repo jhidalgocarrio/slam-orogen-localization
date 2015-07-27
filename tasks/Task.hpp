@@ -48,6 +48,10 @@ namespace localization {
     {
     };
 
+    class FeaturePositionItem: public envire::core::Item<Eigen::Vector3d>
+    {
+    };
+
 
 
     /*! \class Task 
