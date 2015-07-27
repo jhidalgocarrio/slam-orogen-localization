@@ -210,6 +210,8 @@ namespace localization {
 
         void removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose);
 
+        MeasurementType measurementVector(envire::core::LabeledTransformTree &envire_tree);
+
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)
         {
