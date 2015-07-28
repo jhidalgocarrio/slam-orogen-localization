@@ -38,7 +38,7 @@ namespace localization {
 
     /** Wrap the Multi and Single State **/
     typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkMultiStateWrap< localization::MultiState<localization::SensorState> > WMultiState;
+    typedef localization::MtkDynamicWrap< localization::MultiState<localization::SensorState> > WMultiState;
 
     /** Filter and covariances types **/
     typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
@@ -211,7 +211,7 @@ namespace localization {
 
         void removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose);
 
-        MeasurementType measurementVector(envire::core::LabeledTransformTree &envire_tree);
+        MeasurementType measurementVector(envire::core::LabeledTransformTree &envire_tree, Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> &cov);
 
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)
