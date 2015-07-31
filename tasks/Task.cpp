@@ -14,18 +14,15 @@
 using namespace localization;
 
 /** Process model when accumulating delta poses **/
-WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &delta_position, const localization::SO3 &delta_orientation,
-                            const Eigen::Vector3d &velocity, const Eigen::Vector3d &angular_velocity)
+WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &delta_position, const localization::SO3 &delta_orientation)
 {
     WSingleState s2; /** Propagated state */
 
     /** Apply Rotation **/
     s2.orient = state.orient * delta_orientation;
-    s2.angvelo = angular_velocity;
 
     /** Apply Translation **/
     s2.pos = state.pos + (s2.orient * delta_position);
-    s2.velo = velocity;
 
     return s2;
 };
@@ -63,7 +60,7 @@ MeasurementType measurementModel(envire::core::LabeledTransformTree &envire_tree
             {
                 /** Look at the source of the edge **/
                 envire::core::Frame camera_source = envire_tree.getFrame(envire_tree.source(*(edges_pair.first)));
-                std::cout<<"camera source name: "<<camera_source.name<<"\n";
+                //std::cout<<"camera source name: "<<camera_source.name<<"\n";
 
                 /** Look for camera index in filter **/
                 std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
@@ -184,15 +181,11 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     //cov_process = 1.e-26 * cov_process;
     MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
     MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
-    MTK::subblock (cov_process, &WSingleState::velo, &WSingleState::velo) = this->delta_pose.cov_linear_velocity();
-    MTK::subblock (cov_process, &WSingleState::angvelo, &WSingleState::angvelo) = this->delta_pose.cov_angular_velocity();
 
     /** Predict the filter state **/
     filter->predict(boost::bind(processModel, _1 ,
                             static_cast<const Eigen::Vector3d>(delta_pose.position()),
-                            static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation())),
-                            static_cast<const Eigen::Vector3d>(delta_pose.linear_velocity()),
-                            static_cast<const Eigen::Vector3d>(delta_pose.angular_velocity())),
+                            static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation()))),
                             cov_process);
 
     this->outputPortSamples(delta_pose.time);
@@ -349,10 +342,6 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
     single_state.pos = tf.translation(); //!Initial position
     single_state.orient = Eigen::Quaternion<double>(tf.rotation());
 
-    /** Set the initial velocities in the state vector **/
-    single_state.velo.setZero(); //!Initial linear velocity
-    single_state.angvelo.setZero(); //!Initial angular velocity
-
     /** Store the single state into the state vector **/
     statek_0.statek = single_state;
 
@@ -369,8 +358,6 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
 
     MTK::setDiagonal (P0_single, &WSingleState::pos, 1e-06);
     MTK::setDiagonal (P0_single, &WSingleState::orient, 1e-06);
-    MTK::setDiagonal (P0_single, &WSingleState::velo, 1e-10);
-    MTK::setDiagonal (P0_single, &WSingleState::angvelo, 1e-10);
 
     P0.block(0, 0, WSingleState::DOF, WSingleState::DOF) = P0_single;
 
@@ -391,8 +378,6 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
     euler[1] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
     euler[0] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
     RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] orientation Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<<"\n";
-    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] velocity:\n"<<vstate.statek.velo<<"\n";
-    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] angular velocity:\n"<<vstate.statek.angvelo<<"\n";
     RTT::log(RTT::Warning)<<"\n";
     #endif
 
@@ -409,10 +394,6 @@ void Task::outputPortSamples(const base::Time &timestamp)
     pose_out.cov_position = filter->getPkSingleState().block<3,3>(0,0);
     pose_out.orientation = statek_i.orient;
     pose_out.cov_orientation = filter->getPkSingleState().block<3,3>(3,3);
-    pose_out.velocity = statek_i.velo;
-    pose_out.cov_velocity =  filter->getPkSingleState().block<3,3>(6,6);
-    pose_out.angular_velocity = statek_i.angvelo;
-    pose_out.cov_angular_velocity =  filter->getPkSingleState().block<3,3>(9,9);
     _pose_samples_out.write(pose_out);
 
 }

@@ -28,7 +28,7 @@
 
 /** Boost **/
 #include <boost/lexical_cast.hpp> /** to string conversion when using < C++11 */
-#include <boost/shared_ptr.hpp> /** For shared pointers **/
+#include <boost/shared_ptr.hpp> /** shared pointers **/
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/function.hpp>
@@ -37,8 +37,8 @@
 namespace localization {
 
     /** Wrap the Multi and Single State **/
-    typedef localization::MtkWrap<localization::State> WSingleState;
-    typedef localization::MtkDynamicWrap< localization::MultiState<localization::SensorState> > WMultiState;
+    typedef localization::MtkWrap<localization::ReducedState> WSingleState;
+    typedef localization::MtkDynamicWrap< localization::MultiState<localization::ReducedState, localization::SensorState> > WMultiState;
 
     /** Filter and covariances types **/
     typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
