@@ -28,70 +28,34 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 };
 
 
-MeasurementType measurementModel(envire::core::LabeledTransformTree &envire_tree, const std::vector<std::string> &camera_node_labels, const WMultiState &wstate)
+MeasurementType measurementModel(const WMultiState &wstate, const std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation)
 {
     MeasurementType z_hat;
-    z_hat.resize(2*envire_tree.num_edges(), 1);
+    z_hat.resize(2*observation.size(), 1);
 
-    unsigned int feature_counts = 0;
     unsigned int measurement_counts = 0;
 
-    envire::core::TransformTree::vertex_iterator vi, vi_end, vnext;
-    boost::tie(vi, vi_end) = envire_tree.vertices();
-    for (vnext = vi; vi != vi_end; vi = vnext)
+    std::vector< std::pair<unsigned int, Eigen::Vector3d> >::const_iterator it_observation = observation.begin();
+    for(; it_observation != observation.end(); ++it_observation)
     {
-        ++vnext;
+        std::pair<unsigned int, Eigen::Vector3d> const &entry(*it_observation);
+        localization::SensorState const &st_pose(wstate.sensorsk[entry.first]);
 
-        /** Get Frame **/
-        envire::core::Frame f = envire_tree.getFrame(*vi);
+        /** Compute the observation **/
+        Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos);
+        z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
+        measurement_counts++;
 
-        /** In case it is a feature node (no camera) **/
-        if(f.name.find("camera") == std::string::npos)
-        {
-            /** Take the feature position **/
-            boost::intrusive_ptr<FeaturePositionItem> f_pos_it =  boost::static_pointer_cast<FeaturePositionItem>(f.items[0]);
+        #ifdef DEBUG_PRINTS
+        std::cout<<"st_pose.pos:\n"<<st_pose.pos<<"\n";
+        std::cout<<"feature 3d point wrt camera:\n"<<feature_pos_in_camera<<"\n";
+        std::cout<<"feature 2d point wrt camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<<"\n";
+        #endif
 
-            /** Loop all the in edges to compute measurement per each camera pose **/
-            std::pair<envire::core::LabeledTransformTree::in_edge_iterator,
-                envire::core::LabeledTransformTree::in_edge_iterator> edges_pair = envire_tree.in_edges(*vi);
-
-            /** Process all camera measurements of the feature **/
-            while(edges_pair.first != edges_pair.second)
-            {
-                /** Look at the source of the edge **/
-                envire::core::Frame camera_source = envire_tree.getFrame(envire_tree.source(*(edges_pair.first)));
-                //std::cout<<"camera source name: "<<camera_source.name<<"\n";
-
-                /** Look for camera index in filter **/
-                std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
-                if (it_pose != camera_node_labels.end())
-                {
-                    localization::SensorState st_pose = wstate.sensorsk[std::distance(camera_node_labels.begin(), it_pose)];
-                    Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (f_pos_it->getData() - st_pose.pos);
-                    z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
-                    measurement_counts++;
-                    #ifdef DEBUG_PRINTS
-                    std::cout<<"feature: "<<f.name<<"\n";
-                    std::cout<<"camera (st_pose): "<<st_pose<<"\n";
-                    std::cout<<"camera orientation: "<<st_pose.orient.x()<<","<<st_pose.orient.y()<<","<<st_pose.orient.z()<<","<<st_pose.orient.w()<<"\n";
-                    std::cout<<"f_pos_it->getData():\n"<<f_pos_it->getData()<<"\n";
-                    std::cout<<"st_pose.pos:\n"<<st_pose.pos<<"\n";
-                    std::cout<<"feature 3d point wrt camera:\n"<<feature_pos_in_camera<<"\n";
-                    std::cout<<"feature 2d point wrt camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<<"\n";
-                    #endif
-                }
-                ++edges_pair.first;
-            }
-
-            feature_counts++;
-        }
     }
 
     #ifdef DEBUG_PRINTS
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed features: "<<feature_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] envire_tree.num_vertices(): "<<envire_tree.num_vertices()<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] envire_tree.num_edges(): "<<envire_tree.num_edges()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
     #endif
 
@@ -223,13 +187,19 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
+            /** Observation vector for cameras and features 3d positions **/
+            std::vector< std::pair<unsigned int, Eigen::Vector3d> > observation_vector;
+
             /** Compute the measurement vector and covariance of the current features **/
             Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
-            MeasurementType measurement = this->measurementVector(this->envire_tree, measurementCov);
+            MeasurementType measurement = this->measurementVector(this->envire_tree,
+                                                                this->camera_node_labels,
+                                                                observation_vector,
+                                                                measurementCov);
 
             /** Function of the measurement **/
             typedef boost::function<MeasurementType (WMultiState &)> MeasurementFunction;
-            MeasurementFunction f = boost::bind(measurementModel, boost::ref(this->envire_tree), boost::cref(this->camera_node_labels), _1);
+            MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector));
 
             /** Perform an update when reached maximum number of camera sensor poses **/
             filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
@@ -610,16 +580,21 @@ void Task::removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire
     return;
 }
 
-MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envire_tree, Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> &cov)
+MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envire_tree,
+        const std::vector<std::string> &camera_node_labels,
+        std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation,
+        Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> &cov)
 {
     MeasurementType z;
     z.resize(2*envire_tree.num_edges(), 1);
     cov.resize(2*envire_tree.num_edges(), 2*envire_tree.num_edges());
     cov.setZero();
+    observation.clear();
 
     unsigned int feature_counts = 0;
     unsigned int measurement_counts = 0;
 
+    /** Iterate trough all vertices **/
     envire::core::TransformTree::vertex_iterator vi, vi_end, vnext;
     boost::tie(vi, vi_end) = envire_tree.vertices();
     for (vnext = vi; vi != vi_end; vi = vnext)
@@ -632,6 +607,9 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
         /** In case it is a feature node (no camera) **/
         if(f.name.find("camera") == std::string::npos)
         {
+            /** Take the feature position **/
+            boost::intrusive_ptr<FeaturePositionItem> f_pos_it =  boost::static_pointer_cast<FeaturePositionItem>(f.items[0]);
+
             /** Loop all the in edges to get the measurement from each camera **/
             std::pair<envire::core::LabeledTransformTree::in_edge_iterator,
                 envire::core::LabeledTransformTree::in_edge_iterator> edges_pair = envire_tree.in_edges(*vi);
@@ -643,6 +621,15 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                 envire::core::Frame camera_source = envire_tree.getFrame(envire_tree.source(*(edges_pair.first)));
                 //std::cout<<"camera source name: "<<camera_source.name<<"\n";
 
+                /** Look for camera index in filter **/
+                std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
+                if (it_pose != camera_node_labels.end())
+                {
+                    /** Fill the observation  **/
+                    observation.push_back(std::pair<unsigned int, Eigen::Vector3d> (std::distance(camera_node_labels.begin(), it_pose), f_pos_it->getData()));
+                }
+
+
                 /** Look for the features unique index in all camera measurements **/
                 std::vector< boost::intrusive_ptr<envire::core::ItemBase> >::const_iterator it_idx = camera_source.items.begin();
                 for(; it_idx != camera_source.items.end(); ++it_idx)
@@ -650,6 +637,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                     boost::intrusive_ptr<MeasurementItem> p_it = boost::static_pointer_cast<MeasurementItem>(*it_idx);
                     if (p_it->getData().index == f.uuid)
                     {
+                        /** Fill the measurement **/
                         //std::cout<<boost::uuids::to_string(p_it->getData().index)<<" == "<<f.name<<"\n";
                         z.block(2*measurement_counts, 0, 2, 1) = p_it->getData().point;
                         cov.block(2*measurement_counts, 2*measurement_counts, 2, 2) = p_it->getData().cov;
@@ -674,6 +662,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] envire_tree.num_vertices(): "<<envire_tree.num_vertices()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] envire_tree.num_edges(): "<<envire_tree.num_edges()<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] z.size(): "<<z.size()<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] observation.size(): "<<observation.size()<< RTT::endlog();
     #endif
 
     return z;

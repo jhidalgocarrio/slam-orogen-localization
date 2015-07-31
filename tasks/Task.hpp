@@ -211,7 +211,10 @@ namespace localization {
 
         void removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose);
 
-        MeasurementType measurementVector(envire::core::LabeledTransformTree &envire_tree, Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> &cov);
+        MeasurementType measurementVector(envire::core::LabeledTransformTree &envire_tree,
+                            const std::vector<std::string> &camera_node_labels,
+                            std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation,
+                            Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> &cov);
 
     public:
         static void removeRow(Eigen::MatrixXd& matrix, unsigned int rowToRemove)
