@@ -19,17 +19,13 @@ namespace localization
 
         boost::uuids::uuid index; // Indexes
         base::Vector2d point; // Point in camera frame
-        base::Matrix2d cov; // Covariance in camera image
-
 
         FeatureMeasurement(){}
 
         FeatureMeasurement(boost::uuids::uuid _index):index(_index){}
 
         FeatureMeasurement(boost::uuids::uuid _index,
-                            base::Vector2d &_point,
-                            base::Matrix2d &_cov):
-            index(_index), point(_point), cov(_cov){}
+                            base::Vector2d &_point):index(_index), point(_point){}
     };
 
     struct Feature

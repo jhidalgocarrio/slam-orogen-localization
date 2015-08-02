@@ -30,6 +30,9 @@ task_context "Task" do
     property('maximum_number_sensor_poses', 'unsigned int', 0).
         doc 'Maximum number of sensor camera poses in the filter state.'
 
+    property('measurement_covariance', 'base::MatrixXd').
+        doc "Measurement uncertainty in meters at the sensor plane projection."
+
     #******************************
     #******* Input ports  *********
     #******************************

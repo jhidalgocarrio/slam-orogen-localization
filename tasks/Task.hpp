@@ -97,6 +97,9 @@ namespace localization {
         /** Camera pose index in filter and envire **/
         std::vector<std::string> camera_node_labels;
 
+        /** Features noise in the sensor plane **/
+        base::Matrix2d feature_cov;
+
         /**************************/
         /** Input port variables **/
         /**************************/
