@@ -9,7 +9,7 @@
 #define R2D 180.00/M_PI /** Convert radian to degree **/
 #endif
 
-#define DEBUG_PRINTS 1
+//#define DEBUG_PRINTS 1
 
 using namespace localization;
 
@@ -46,18 +46,20 @@ MeasurementType measurementModel(const WMultiState &wstate, const std::vector< s
         z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
         measurement_counts++;
 
-        #ifdef DEBUG_PRINTS
-        RTT::log(RTT::Warning)<<"st_pose.pos:\n"<<st_pose.pos<< RTT::endlog();
-        RTT::log(RTT::Warning)<<"feature 3d point wrt camera:\n"<<feature_pos_in_camera<< RTT::endlog();
-        RTT::log(RTT::Warning)<<"feature 2d point wrt camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<< RTT::endlog();
-        #endif
+        //#ifdef DEBUG_PRINTS
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] #####################################"<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] CAMERA["<<entry.first<<"]:\n"<<st_pose.pos<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in world:\n"<<entry.second<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in camera:\n"<<feature_pos_in_camera<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 2D POINT in camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<< RTT::endlog();
+        //#endif
 
     }
 
-    #ifdef DEBUG_PRINTS
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
-    #endif
+    //#ifdef DEBUG_PRINTS
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
+    //#endif
 
     return z_hat;
 };
@@ -138,6 +140,11 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     /********************/
     /** Filter Predict **/
     /********************/
+    #ifdef DEBUG_PRINTS
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
+    #endif
+
 
     /** Process Model Uncertainty **/
     typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
@@ -151,6 +158,13 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
                             static_cast<const Eigen::Vector3d>(delta_pose.position()),
                             static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation()))),
                             cov_process);
+    #ifdef DEBUG_PRINTS
+    gettimeofday(&end, NULL);
+
+    double execution_delta = ((end.tv_sec  - start.tv_sec) * 1000000u + end.tv_usec - start.tv_usec) / 1.e6;
+    std::cout<<"Execution prediction delta:"<< execution_delta<<"\n";
+    #endif
+
 
     this->outputPortSamples(delta_pose.time);
 }
@@ -187,6 +201,11 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
 
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
+            //#ifdef DEBUG_PRINTS
+            struct timeval start, end;
+            gettimeofday(&start, NULL);
+            //#endif
+
             /** Observation vector for cameras and features 3d positions **/
             std::vector< std::pair<unsigned int, Eigen::Vector3d> > observation_vector;
 
@@ -202,9 +221,14 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector));
 
             /** Perform an update when reached maximum number of camera sensor poses **/
-            filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
+            //filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
 
-            //MeasurementType measurement_hat = f(this->filter->muState());
+            MeasurementType measurement_hat = f(this->filter->muState());
+
+            for (register int i = 0; i<measurement.size(); ++i)
+            {
+                std::cout<<"z["<<i<<"]:\t"<<measurement[i]<<" - "<<measurement_hat[i]<<" = "<<measurement[i] - measurement_hat[i]<<"\n";
+            }
 
             /** Remove sensor pose from filter **/
             unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
@@ -212,7 +236,19 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             /** Remove sensor pose and measurements from envire **/
             this->removeSensorPoseFromEnvire(this->envire_tree, it_removed_pose);
 
+            //#ifdef DEBUG_PRINTS
+            gettimeofday(&end, NULL);
+
+            double execution_delta = ((end.tv_sec  - start.tv_sec) * 1000000u + end.tv_usec - start.tv_usec) / 1.e6;
+            std::cout<<"Execution update delta:"<< execution_delta<<"\n";
+            //#endif
         }
+
+        //#ifdef DEBUG_PRINTS
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
+        //#endif
+
 
         /** New sensor camera pose in the filter**/
         localization::SensorState camera_pose = this->addSensorPoseToFilter(filter, tf);
@@ -234,6 +270,12 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         gviz.write(envire_tree.graph(), "envire_tree_"+camera_pose_label+".dot");
         #endif
 
+        //#ifdef DEBUG_PRINTS
+        gettimeofday(&end, NULL);
+
+        double execution_delta = ((end.tv_sec  - start.tv_sec) * 1000000u + end.tv_usec - start.tv_usec) / 1.e6;
+        std::cout<<"Execution add measurement delta:"<< execution_delta<<"\n";
+        //#endif
     }
 
     #ifdef DEBUG_PRINTS
@@ -368,6 +410,26 @@ void Task::outputPortSamples(const base::Time &timestamp)
     pose_out.cov_orientation = filter->getPkSingleState().block<3,3>(3,3);
     _pose_samples_out.write(pose_out);
 
+    if (_output_debug.value())
+    {
+        localization::FilterInfo info;
+        info.time = timestamp;
+
+        std::vector<localization::SensorState>::const_iterator it_sensors = filter->muState().sensorsk.begin();
+
+        for (; it_sensors != filter->muState().sensorsk.end(); ++it_sensors)
+        {
+            base::samples::RigidBodyState rbs;
+            rbs.time = timestamp;
+            rbs.position = (*it_sensors).pos;
+            rbs.orientation = (*it_sensors).orient;
+            info.sensors_rbs.push_back(rbs);
+        }
+        info.Pk = filter->getPk();
+        _filter_info_out.write(info);
+    }
+
+    return;
 }
 
 
@@ -467,27 +529,6 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     /** Create the camera node in the envire tree **/
     envire::core::Frame camera_node(camera_pose_label);
 
-    /** Compute the measurement item. Measurement of the features from the camera **/
-    std::vector<Feature>::const_iterator it_feature = samples.features.begin();
-    for ( ; it_feature != samples.features.end(); ++it_feature)
-    {
-        Eigen::Matrix<double, 2, 3> projection;
-        projection << 1.0/it_feature->point.z(), 0.00, 0.00,
-                    0.00, 1.0/it_feature->point.z(), 0.00;
-
-        FeatureMeasurement m(it_feature->index);
-        m.point = projection * it_feature->point;
-
-        #ifdef DEBUG_PRINTS
-        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] UUID:\n"<<boost::uuids::to_string(it_feature->index)<< RTT::endlog();
-        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 3D Point:\n"<<it_feature->point<< RTT::endlog();
-        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 2D Point:\n"<<m.point<< RTT::endlog();
-        #endif
-        boost::intrusive_ptr<MeasurementItem> feature_item(new MeasurementItem());
-        feature_item->setData(m);
-        camera_node.items.push_back(feature_item);
-    }
-
     /** Include camera on the envire tree **/
     std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> camera_pair = envire_tree.insert_vertex(camera_node);
     //if (!camera_pair.second)
@@ -495,29 +536,52 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     //else
     //    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Camera node with Item vector size: "<<camera_node.items.size()<< RTT::endlog();
 
-    it_feature = samples.features.begin();
+    /** Compute the measurement item. Measurement of the features from the camera **/
+    std::vector<Feature>::const_iterator it_feature = samples.features.begin();
     for ( ; it_feature != samples.features.end(); ++it_feature)
     {
-        /** Feature Pose w.r.t the global frame **/
+        /** Compute the measurement that goes in the camera node **/
+        Eigen::Matrix<double, 2, 3> projection;
+        projection << 1.0/it_feature->point.z(), 0.00, 0.00,
+                    0.00, 1.0/it_feature->point.z(), 0.00;
+
+        FeatureMeasurement m(it_feature->index);
+        m.point = projection * it_feature->point;
+
+        //#ifdef DEBUG_PRINTS
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] #####################################"<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] FEATURE UUID:\n"<<boost::uuids::to_string(it_feature->index)<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 3D Point in camera:\n"<<it_feature->point<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 2D Point in camera:\n"<<m.point<< RTT::endlog();
+        //#endif
+
+        /** Store the measurement that goes in the camera node **/
+        boost::intrusive_ptr<MeasurementItem> feature_item(new MeasurementItem());
+        feature_item->setData(m);
+        camera_node.items.push_back(feature_item);
+
+        /** Feature Pose in the global frame that goes in the feature node **/
         Eigen::Vector3d feature_pos;
         feature_pos = camera_pose.pos + camera_pose.orient * it_feature->point;
 
-        /** Fill the Feature information **/
+        /** Fill the Feature information that goes in the feature node **/
         envire::core::Frame feature_node(boost::uuids::to_string(it_feature->index));
         feature_node.uuid = it_feature->index;
         boost::intrusive_ptr<FeaturePositionItem> pos_item(new FeaturePositionItem());
         pos_item->setData(feature_pos);
         feature_node.items.push_back(pos_item);
 
-        #ifdef DEBUG_PRINTS
-        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Feature("<<feature_node.name<<") Point in navigation:\n"<<feature_pos<< RTT::endlog();
-        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Stored position:\n"<<pos_item->getData()<< RTT::endlog();
-        #endif
+        //#ifdef DEBUG_PRINTS
+        RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 3D Point in navigation:\n"<<feature_pos<< RTT::endlog();
+        //RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Stored position:\n"<<pos_item->getData()<< RTT::endlog();
+        //#endif
 
         /** Feature to the environment tree **/
         std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> feature_pair = envire_tree.insert_vertex(feature_node);
-        //if (!feature_pair.second)
-        //    RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] ERROR!! Feature node("<<feature_pair.second<<")\n";
+        if (!feature_pair.second)
+        {
+            RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] Feature already exist!! ("<<feature_pair.second<<")\n";
+        }
 
         /** Edge camera node -> it_feature **/
         envire::core::Transform camera_to_feature(samples.time);
@@ -533,6 +597,10 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
         RTT::log(RTT::Warning)<<"ADDED EDGE("<<b<<") "<<camera_node.name<<" -> "<<feature_node.name<< RTT::endlog();
         #endif
     }
+
+    /** Update the measurement items in the camera node **/
+    envire_tree[camera_pose_label].frame = camera_node;
+
 }
 
 
@@ -619,6 +687,8 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
             {
                 /** Look at the source of the edge **/
                 envire::core::Frame camera_source = envire_tree.getFrame(envire_tree.source(*(edges_pair.first)));
+                RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] #####################################"<< RTT::endlog();
+                RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] FEATURE UUID:\n"<<f.name<< RTT::endlog();
 
                 /** Look for camera index in filter **/
                 std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
@@ -626,8 +696,8 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                 {
                     /** Fill the observation  **/
                     observation.push_back(std::pair<unsigned int, Eigen::Vector3d> (std::distance(camera_node_labels.begin(), it_pose), f_pos_it->getData()));
+                    RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] OBSERVATION: "<<std::distance(camera_node_labels.begin(), it_pose)<<"\n"<<f_pos_it->getData()<< RTT::endlog();
                 }
-
 
                 /** Look for the features unique index in all camera measurements **/
                 std::vector< boost::intrusive_ptr<envire::core::ItemBase> >::const_iterator it_idx = camera_source.items.begin();
@@ -642,7 +712,8 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                         measurement_counts++;
 
                         #ifdef DEBUG_PRINTS
-                        RTT::log(RTT::Warning)<<"2D POINT\n"<<p_it->getData().point<< RTT::endlog();
+                        RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] CAMERA: "<<camera_source.name<< RTT::endlog();
+                        RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] 2D POINT\n"<<p_it->getData().point<< RTT::endlog();
                         #endif
                     }
 

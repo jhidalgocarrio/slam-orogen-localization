@@ -68,9 +68,11 @@ task_context "Task" do
     output_port('body_pose_samples_out', '/base/samples/BodyState').
 	    doc 'Corrected estimated robot pose.'
 
-    output_port('state_estimation_samples_out', 'localization/StateEstimation').
-    	doc 'State estimation information.'
+    property('output_debug', 'bool', false).
+        doc "Set to true in case you want to have filter debug information"
 
+    output_port('filter_info_out', 'localization/FilterInfo').
+    	doc 'State estimation information.'
 
     port_driven
 
