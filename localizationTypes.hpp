@@ -45,6 +45,9 @@ namespace localization
     struct FilterInfo
     {
         base::Time time; //time-stamp
+        base::Time predict_execution_time;
+        base::Time update_execution_time;
+        base::Time add_features_execution_time;
         std::vector< base::samples::RigidBodyState > sensors_rbs; //Rbs with the orientation and position of the contact point
         base::MatrixXd Pk; //filter covariance matrix
     };

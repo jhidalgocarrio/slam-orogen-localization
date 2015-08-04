@@ -15,6 +15,8 @@
 /** STD **/
 #include <vector>
 #include <cstdlib>
+#include <cmath>
+#include <time.h>
 
 /** Eigen **/
 #include <Eigen/Core> /** Core */
@@ -112,6 +114,8 @@ namespace localization {
         /***************************/
         base::samples::RigidBodyState pose_out;
         //base::samples::BodyState body_pose_out;
+
+        localization::FilterInfo info;
 
     protected:
 
