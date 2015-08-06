@@ -34,7 +34,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/function.hpp>
-
+#include <boost/math/special_functions/round.hpp> // to round a number in standard C++ < 11
 
 namespace localization {
 
@@ -89,6 +89,9 @@ namespace localization {
         /******************************************/
         /*** General Internal Storage Variables ***/
         /******************************************/
+
+        /** Variable to control the update period **/
+        unsigned short update_counts, update_idx;
 
         /** The filter uses by the Back-End **/
         boost::shared_ptr<MultiStateFilter> filter;

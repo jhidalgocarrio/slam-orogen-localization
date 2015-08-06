@@ -29,11 +29,21 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 };
 
 
-MeasurementType measurementModel(const WMultiState &wstate, const std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation)
+MeasurementType measurementModel(const WMultiState &wstate,
+                                 const std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation,
+                                 Eigen::MatrixXd & h_observation,
+                                 const bool ekf_update = false)
 {
     MeasurementType z_hat;
     z_hat.resize(2*observation.size(), 1);
 
+    if (ekf_update)
+    {
+        h_observation.resize(z_hat.rows(), wstate.getDOF());
+        h_observation.setZero();
+    }
+
+    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation size "<<h_observation.rows()<<" x "<<h_observation.cols()<< RTT::endlog();
     unsigned int measurement_counts = 0;
 
     std::vector< std::pair<unsigned int, Eigen::Vector3d> >::const_iterator it_observation = observation.begin();
@@ -45,7 +55,6 @@ MeasurementType measurementModel(const WMultiState &wstate, const std::vector< s
         /** Compute the observation **/
         Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos);
         z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
-        measurement_counts++;
 
         #ifdef DEBUG_PRINTS
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] #####################################"<< RTT::endlog();
@@ -55,11 +64,32 @@ MeasurementType measurementModel(const WMultiState &wstate, const std::vector< s
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 2D POINT in camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<< RTT::endlog();
         #endif
 
+        if (ekf_update)
+        {
+            Eigen::Matrix<double, 2, localization::vec3::DOF> j_i;
+            j_i.block<2, 2>(0, 0).setIdentity();
+            j_i.col(2) =  -Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
+            j_i = j_i / feature_pos_in_camera.z();
+            Eigen::Matrix<double, 2, localization::SensorState::DOF> j;
+            j.block<2, localization::vec3::DOF>(0, 0) = -j_i * st_pose.orient.toRotationMatrix(); //position
+            j.block<2, localization::SO3::DOF>(0, localization::vec3::DOF) = j_i * Task::makeSkewSymmetric(feature_pos_in_camera); //orientation
+
+            h_observation.block(2*measurement_counts, wstate.DOF + (entry.first * wstate.SENSOR_DOF),
+                    2, wstate.SENSOR_DOF) = j;
+        }
+
+        /** Increment count **/
+        measurement_counts++;
     }
 
     #ifdef DEBUG_PRINTS
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
+    if (ekf_update)
+    {
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation size "<<h_observation.rows()<<" x "<<h_observation.cols()<< RTT::endlog();
+        RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation\n"<<h_observation<< RTT::endlog();
+    }
     #endif
 
     return z_hat;
@@ -148,7 +178,7 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     /** Process Model Uncertainty **/
     typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
     SingleStateCovariance cov_process; cov_process.setIdentity();
-    //cov_process = 1.e-26 * cov_process;
+    //cov_process = 1.e-3 * cov_process;
     MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
     MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
 
@@ -183,6 +213,8 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         return;
     }
 
+    /** Increase the update period index **/
+    this->update_idx++;
 
     /** Perform Measurements Update **/
     #ifdef DEBUG_PRINTS
@@ -190,7 +222,7 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
     RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Number of Measurements: "<< visual_features_samples_sample.features.size()<<RTT::endlog();
     #endif
 
-    if (initFilter)
+    if (initFilter && (this->update_idx >= this->update_counts))
     {
         #ifdef DEBUG_PRINTS
         RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] mu_state\n"<<filter->muState()<<RTT::endlog();
@@ -198,32 +230,34 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         RTT::log(RTT::Warning)<<"[LOCALIZATION VISUAL_FEATURES] Pk\n"<<filter->getPk()<<RTT::endlog();
         #endif
 
+        /** In case the maximum number of camera poses is reached then trigger an update **/
         if (filter->muState().sensorsk.size() == _maximum_number_sensor_poses.value())
         {
             #ifdef DEBUG_EXECUTION_TIME
             clock_t start = clock();
             #endif
 
-            /** Observation vector for cameras and features 3d positions **/
+            /** Observation vector for cameras and features 3D positions **/
             std::vector< std::pair<unsigned int, Eigen::Vector3d> > observation_vector;
 
             /** Compute the measurement vector and covariance of the current features **/
+            Eigen::MatrixXd h_observation;
             Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
             MeasurementType measurement = this->measurementVector(this->envire_tree,
                                                                 this->camera_node_labels,
                                                                 observation_vector,
                                                                 measurementCov);
 
-            /** Remove maximum number of states divided by 3.0 as a good rule **/
+            /** Function of the measurement or observation model **/
+            typedef boost::function<MeasurementType (WMultiState &, Eigen::MatrixXd &)> MeasurementFunction;
+            MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true);
+
+            /** Perform an update **/
+            //filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
+
+            /** Remove maximum number of sensor camera poses divided by 3.0 as a good rule **/
             for (register size_t i = 0; i< static_cast<size_t>(std::ceil(_maximum_number_sensor_poses.value()/3.0)); ++i)
             {
-                /** Function of the measurement **/
-                typedef boost::function<MeasurementType (WMultiState &)> MeasurementFunction;
-                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector));
-
-                /** Perform an update when reached maximum number of camera sensor poses **/
-                filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
-
                 /** Remove sensor pose from filter **/
                 unsigned int it_removed_pose = this->removeSensorPoseFromFilter(filter);
 
@@ -241,7 +275,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         #ifdef DEBUG_EXECUTION_TIME
         clock_t start = clock();
         #endif
-
 
         /** New sensor camera pose in the filter**/
         localization::SensorState camera_pose = this->addSensorPoseToFilter(filter, tf);
@@ -268,6 +301,9 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
         this->info.add_features_execution_time = base::Time::fromMicroseconds(cpu_time_used*1000000.00);
         #endif
+
+        /** Reset update index **/
+        this->update_idx = 0;
     }
 
     #ifdef DEBUG_PRINTS
@@ -300,11 +336,30 @@ bool Task::configureHook()
     /** Initialize features covariance **/
     this->feature_cov = _measurement_covariance.value().block(0, 0, 2, 2);
 
+    if (_update_period.value() < _visual_features_samples_period.value())
+    {
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] ERROR in configuration. Update period too small"<<RTT::endlog();
+        throw std::runtime_error("[LOCALIZATION TASK] Desired Update period cannot be smaller than measurement input ports period!");
+    }
+    else if (_update_period.value() == 0.00)
+    {
+        _update_period.value() = _visual_features_samples_period.value();
+        this->update_counts = 1;
+    }
+    else
+    {
+        this->update_counts = boost::math::iround(_update_period.value()/_visual_features_samples_period.value());
+        _update_period.value() = this->update_counts * _visual_features_samples_period.value();
+    }
+
+    this->update_idx = 0;
+
     /***********************/
     /** Info and Warnings **/
     /***********************/
-    RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Desired Target Frame is "<<pose_out.targetFrame<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Desired Target Frame is: "<<pose_out.targetFrame<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Maximum number of camera poses: "<<_maximum_number_sensor_poses.value()<<RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Filter Update period at: "<<_update_period.value()<<" [seconds]"<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Features measurement covariance:\n"<<this->feature_cov<<RTT::endlog();
 
     return true;
@@ -427,6 +482,7 @@ void Task::outputPortSamples(const base::Time &timestamp)
 
 localization::SensorState Task::addSensorPoseToFilter(boost::shared_ptr<MultiStateFilter> filter, Eigen::Affine3d &tf)
 {
+    /** Translation Tbody_camera **/
     Eigen::Quaternion <double> qtf = Eigen::Quaternion <double> (tf.rotation());
 
     /** Create the camera pose **/
@@ -693,7 +749,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                 std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
                 if (it_pose != camera_node_labels.end())
                 {
-                    /** Fill the observation  **/
+                    /** Fill the observation, 3D position vector of the feature in world(global) frame  **/
                     observation.push_back(std::pair<unsigned int, Eigen::Vector3d> (std::distance(camera_node_labels.begin(), it_pose), f_pos_it->getData()));
                     //RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] OBSERVATION: "<<std::distance(camera_node_labels.begin(), it_pose)<<"\n"<<f_pos_it->getData()<< RTT::endlog();
                 }
@@ -705,7 +761,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                     boost::intrusive_ptr<MeasurementItem> p_it = boost::static_pointer_cast<MeasurementItem>(*it_idx);
                     if (p_it->getData().index == f.uuid)
                     {
-                        /** Fill the measurement **/
+                        /** Fill the measurement, inverse depth of features measurement in camera **/
                         z.block(2*measurement_counts, 0, 2, 1) = p_it->getData().point;
                         cov.block(2*measurement_counts, 2*measurement_counts, 2, 2) = this->feature_cov;
                         measurement_counts++;
@@ -734,4 +790,5 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
 
     return z;
 }
+
 
