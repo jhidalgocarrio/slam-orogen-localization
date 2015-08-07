@@ -56,13 +56,13 @@ MeasurementType measurementModel(const WMultiState &wstate,
         Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos);
         z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
 
-        #ifdef DEBUG_PRINTS
+        //#ifdef DEBUG_PRINTS
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] #####################################"<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] CAMERA["<<entry.first<<"]:\n"<<st_pose.pos<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in world:\n"<<entry.second<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in camera:\n"<<feature_pos_in_camera<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 2D POINT in camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<< RTT::endlog();
-        #endif
+        //#endif
 
         if (ekf_update)
         {
@@ -82,7 +82,7 @@ MeasurementType measurementModel(const WMultiState &wstate,
         measurement_counts++;
     }
 
-    #ifdef DEBUG_PRINTS
+   // #ifdef DEBUG_PRINTS
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
     if (ekf_update)
@@ -90,7 +90,7 @@ MeasurementType measurementModel(const WMultiState &wstate,
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation size "<<h_observation.rows()<<" x "<<h_observation.cols()<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation\n"<<h_observation<< RTT::endlog();
     }
-    #endif
+    //#endif
 
     return z_hat;
 };
@@ -241,19 +241,34 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             std::vector< std::pair<unsigned int, Eigen::Vector3d> > observation_vector;
 
             /** Compute the measurement vector and covariance of the current features **/
-            Eigen::MatrixXd h_observation;
             Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, Eigen::Dynamic> measurementCov;
             MeasurementType measurement = this->measurementVector(this->envire_tree,
                                                                 this->camera_node_labels,
                                                                 observation_vector,
                                                                 measurementCov);
+            if (this->ekf_update)
+            {
 
-            /** Function of the measurement or observation model **/
-            typedef boost::function<MeasurementType (WMultiState &, Eigen::MatrixXd &)> MeasurementFunction;
-            MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true);
+                /** Function of the measurement or observation model **/
+                Eigen::MatrixXd h_observation;
+                typedef boost::function<MeasurementType (WMultiState &, Eigen::MatrixXd &)> MeasurementFunction;
+                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true);
 
-            /** Perform an update **/
-            //filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement), f, measurementCov);
+                /** Perform an update **/
+                filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+                            f, h_observation, measurementCov);
+            }
+            else
+            {
+                /** Function of the measurement or observation model **/
+                Eigen::MatrixXd h_observation;
+                typedef boost::function<MeasurementType (WMultiState &)> MeasurementFunction;
+                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), h_observation, false);
+
+                /** Perform an update **/
+                filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+                            f, measurementCov);
+            }
 
             /** Remove maximum number of sensor camera poses divided by 3.0 as a good rule **/
             for (register size_t i = 0; i< static_cast<size_t>(std::ceil(_maximum_number_sensor_poses.value()/3.0)); ++i)
@@ -353,6 +368,15 @@ bool Task::configureHook()
     }
 
     this->update_idx = 0;
+
+    if (_update_type.value() == EKF)
+    {
+        this->ekf_update = true;
+    }
+    else if (_update_type.value() == UKF)
+    {
+        this->ekf_update = false;
+    }
 
     /***********************/
     /** Info and Warnings **/

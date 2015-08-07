@@ -13,6 +13,12 @@
 
 namespace localization
 {
+    enum UpdateType
+    {
+        EKF,
+        UKF
+    };
+
     class FeatureMeasurement
     {
     public:

@@ -80,7 +80,7 @@ namespace localization {
         /******************************/
         /*** Control Flow Variables ***/
         /******************************/
-        bool initFilter;
+        bool initFilter, ekf_update;
 
         /**************************/
         /*** Property Variables ***/

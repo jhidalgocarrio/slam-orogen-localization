@@ -36,6 +36,9 @@ task_context "Task" do
     property('update_period', 'double').
         doc "Desired update period. It cannot be smaller that the visual features samples period."
 
+    property("update_type", "localization::UpdateType", :EKF).
+        doc "Filter update type."
+
     #******************************
     #******* Input ports  *********
     #******************************
