@@ -43,7 +43,6 @@ MeasurementType measurementModel(const WMultiState &wstate,
         h_observation.setZero();
     }
 
-    RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation size "<<h_observation.rows()<<" x "<<h_observation.cols()<< RTT::endlog();
     unsigned int measurement_counts = 0;
 
     std::vector< std::pair<unsigned int, Eigen::Vector3d> >::const_iterator it_observation = observation.begin();
@@ -56,13 +55,13 @@ MeasurementType measurementModel(const WMultiState &wstate,
         Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos);
         z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
 
-        //#ifdef DEBUG_PRINTS
+        #ifdef DEBUG_PRINTS
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] #####################################"<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] CAMERA["<<entry.first<<"]:\n"<<st_pose.pos<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in world:\n"<<entry.second<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 3D POINT in camera:\n"<<feature_pos_in_camera<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] 2D POINT in camera:\n"<<Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z())<< RTT::endlog();
-        //#endif
+        #endif
 
         if (ekf_update)
         {
@@ -82,7 +81,7 @@ MeasurementType measurementModel(const WMultiState &wstate,
         measurement_counts++;
     }
 
-   // #ifdef DEBUG_PRINTS
+    #ifdef DEBUG_PRINTS
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] Number processed measurements: "<<measurement_counts<< RTT::endlog();
     RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] z_hat.size(): "<<z_hat.size()<< RTT::endlog();
     if (ekf_update)
@@ -90,7 +89,7 @@ MeasurementType measurementModel(const WMultiState &wstate,
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation size "<<h_observation.rows()<<" x "<<h_observation.cols()<< RTT::endlog();
         RTT::log(RTT::Warning)<<"[MEASUREMENT OBSERVATION_MODEL] h_observation\n"<<h_observation<< RTT::endlog();
     }
-    //#endif
+    #endif
 
     return z_hat;
 };
@@ -369,15 +368,6 @@ bool Task::configureHook()
 
     this->update_idx = 0;
 
-    if (_update_type.value() == EKF)
-    {
-        this->ekf_update = true;
-    }
-    else if (_update_type.value() == UKF)
-    {
-        this->ekf_update = false;
-    }
-
     /***********************/
     /** Info and Warnings **/
     /***********************/
@@ -385,6 +375,19 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Maximum number of camera poses: "<<_maximum_number_sensor_poses.value()<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Filter Update period at: "<<_update_period.value()<<" [seconds]"<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Features measurement covariance:\n"<<this->feature_cov<<RTT::endlog();
+
+
+    /** Select update method **/
+    if (_update_type.value() == EKF)
+    {
+        this->ekf_update = true;
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Extended Kalman Filter [EKF]"<<RTT::endlog();
+    }
+    else if (_update_type.value() == UKF)
+    {
+        this->ekf_update = false;
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Unscented Kalman Filter [UKF]"<<RTT::endlog();
+    }
 
     return true;
 }
