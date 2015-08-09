@@ -269,6 +269,16 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
                             f, measurementCov);
             }
 
+            #ifdef DEBUG_EXECUTION_TIME
+            clock_t end = clock();
+            double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+            this->info.update_execution_time = base::Time::fromMicroseconds(cpu_time_used*1000000.00);
+            #endif
+
+            #ifdef DEBUG_EXECUTION_TIME
+            start = clock();
+            #endif
+
             /** Remove maximum number of sensor camera poses divided by 3.0 as a good rule **/
             for (register size_t i = 0; i< static_cast<size_t>(std::ceil(_maximum_number_sensor_poses.value()/3.0)); ++i)
             {
@@ -280,10 +290,11 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
             }
 
             #ifdef DEBUG_EXECUTION_TIME
-            clock_t end = clock();
-            double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
-            this->info.update_execution_time = base::Time::fromMicroseconds(cpu_time_used*1000000.00);
+            end = clock();
+            cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+            this->info.remove_features_execution_time = base::Time::fromMicroseconds(cpu_time_used*1000000.00);
             #endif
+
         }
 
         #ifdef DEBUG_EXECUTION_TIME
@@ -294,7 +305,7 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         localization::SensorState camera_pose = this->addSensorPoseToFilter(filter, tf);
 
         /** New measurement to envire **/
-        std::string camera_pose_label = "camera_"+boost::lexical_cast<std::string>(visual_features_samples_sample.img_idx);
+        std::string camera_pose_label = _sensor_frame.value()+"_"+boost::lexical_cast<std::string>(visual_features_samples_sample.img_idx);
         this->camera_node_labels.push_back(camera_pose_label);
         this->addMeasurementToEnvire(this->envire_tree, camera_pose_label, camera_pose, visual_features_samples_sample);
 
@@ -315,6 +326,9 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
         double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
         this->info.add_features_execution_time = base::Time::fromMicroseconds(cpu_time_used*1000000.00);
         #endif
+
+        /** Number of features added in the envire **/
+        this->info.number_features_added = visual_features_samples_sample.features.size();
 
         /** Reset update index **/
         this->update_idx = 0;
@@ -475,13 +489,13 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
 
 void Task::outputPortSamples(const base::Time &timestamp)
 {
-    WSingleState statek_i = filter->muState().statek;
+    WSingleState statek_i = this->filter->muState().statek;
 
     pose_out.time = timestamp;
     pose_out.position = statek_i.pos;
-    pose_out.cov_position = filter->getPkSingleState().block<3,3>(0,0);
+    pose_out.cov_position = this->filter->getPkSingleState().block<3,3>(0,0);
     pose_out.orientation = statek_i.orient;
-    pose_out.cov_orientation = filter->getPkSingleState().block<3,3>(3,3);
+    pose_out.cov_orientation = this->filter->getPkSingleState().block<3,3>(3,3);
     _pose_samples_out.write(pose_out);
 
     if (_output_debug.value())
@@ -489,17 +503,20 @@ void Task::outputPortSamples(const base::Time &timestamp)
         this->info.time = timestamp;
         this->info.sensors_rbs.clear();
 
-        std::vector<localization::SensorState>::const_iterator it_sensors = filter->muState().sensorsk.begin();
+        std::vector<localization::SensorState>::const_iterator it_sensors = this->filter->muState().sensorsk.begin();
 
-        for (; it_sensors != filter->muState().sensorsk.end(); ++it_sensors)
+        for (; it_sensors != this->filter->muState().sensorsk.end(); ++it_sensors)
         {
             base::samples::RigidBodyState rbs;
             rbs.time = timestamp;
+            const unsigned short i = it_sensors - this->filter->muState().sensorsk.begin();
+            rbs.sourceFrame = this->camera_node_labels[i];
+            rbs.targetFrame = _body_frame.value();
             rbs.position = (*it_sensors).pos;
             rbs.orientation = (*it_sensors).orient;
             info.sensors_rbs.push_back(rbs);
         }
-        info.Pk = filter->getPk();
+        info.Pk = this->filter->getPk();
         _filter_info_out.write(info);
     }
 
@@ -717,6 +734,9 @@ void Task::removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire
     /** Erase the it_removed_pose entry in the vector **/
     this->camera_node_labels.erase(this->camera_node_labels.begin() + it_removed_pose);
 
+    /** Information about the number of features to remove **/
+    this->info.number_features_removed = features_to_remove.size();
+
     /** Clean tree **/
     for (std::vector<std::string>::iterator it_feature_label = features_to_remove.begin();
             it_feature_label != features_to_remove.end(); ++it_feature_label)
@@ -755,8 +775,9 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
         envire::core::Frame f = envire_tree.getFrame(*vi);
 
         /** In case it is a feature node (no camera) **/
-        if(f.name.find("camera") == std::string::npos)
+        if(f.name.find(_sensor_frame.value()) == std::string::npos)
         {
+
             /** Take the feature position **/
             boost::intrusive_ptr<FeaturePositionItem> f_pos_it =  boost::static_pointer_cast<FeaturePositionItem>(f.items[0]);
 

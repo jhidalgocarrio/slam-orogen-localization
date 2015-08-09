@@ -54,6 +54,9 @@ namespace localization
         base::Time predict_execution_time;
         base::Time update_execution_time;
         base::Time add_features_execution_time;
+        base::Time remove_features_execution_time;
+        unsigned int number_features_added;
+        unsigned int number_features_removed;
         std::vector< base::samples::RigidBodyState > sensors_rbs; //Rbs with the orientation and position of the contact point
         base::MatrixXd Pk; //filter covariance matrix
     };
