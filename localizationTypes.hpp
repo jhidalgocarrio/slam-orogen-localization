@@ -13,6 +13,12 @@
 
 namespace localization
 {
+    enum PredictType
+    {
+        ADDITION,
+        COMPOSITION
+    };
+
     enum UpdateType
     {
         EKF,

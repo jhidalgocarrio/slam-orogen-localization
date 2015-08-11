@@ -173,19 +173,40 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     clock_t start = clock();
     #endif
 
+    if (_predict_type.value() == ADDITION)
+    {
+        /** Process Model Uncertainty **/
+        typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
+        SingleStateCovariance cov_process; cov_process.setIdentity();
+        //cov_process = 1.e-3 * cov_process;
+        MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
+        MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
 
-    /** Process Model Uncertainty **/
-    typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
-    SingleStateCovariance cov_process; cov_process.setIdentity();
-    //cov_process = 1.e-3 * cov_process;
-    MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
-    MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
+        /** Predict the filter state **/
+        filter->predict(boost::bind(processModel, _1 ,
+                                static_cast<const Eigen::Vector3d>(delta_pose.position()),
+                                static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation()))),
+                                cov_process);
+    }
+    else if (_predict_type.value() == COMPOSITION)
+    {
+        Eigen::Matrix<double, 6, 6> cov = this->filter->getPkSingleState();
+        cov.block<3,3>(0,0).swap(cov.block<3,3>(3,3));
+        cov.block<3,3>(0,3).swap(cov.block<3,3>(3,0));
+        Eigen::AngleAxisd orient (this->filter->muSingleState().orient);
+        base::TransformWithCovariance current_pose(orient, this->filter->muSingleState().pos, cov);
 
-    /** Predict the filter state **/
-    filter->predict(boost::bind(processModel, _1 ,
-                            static_cast<const Eigen::Vector3d>(delta_pose.position()),
-                            static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation()))),
-                            cov_process);
+        current_pose = current_pose * this->delta_pose.pose;
+        WSingleState single_state;
+        single_state.pos = current_pose.translation;
+        single_state.orient = Eigen::Quaternion<double>(current_pose.orientation);
+        this->filter->muSingleState(single_state);
+        cov.block<3,3>(0,0) = current_pose.getTranslationCov();
+        cov.block<3,3>(3,3) = current_pose.getOrientationCov();
+        cov.block<3,3>(0,3) = current_pose.getCovariance().block<3,3>(3,0);
+        cov.block<3,3>(3,0) = current_pose.getCovariance().block<3,3>(0,3);
+        this->filter->setPkSingleState(cov);
+    }
 
     #ifdef DEBUG_EXECUTION_TIME
     clock_t end = clock();
@@ -245,7 +266,7 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
                                                                 this->camera_node_labels,
                                                                 observation_vector,
                                                                 measurementCov);
-            if (this->ekf_update)
+            if (_update_type.value() == EKF)
             {
 
                 /** Function of the measurement or observation model **/
@@ -390,16 +411,23 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Filter Update period at: "<<_update_period.value()<<" [seconds]"<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Features measurement covariance:\n"<<this->feature_cov<<RTT::endlog();
 
+    /** Select predict type **/
+    if (_predict_type.value() == ADDITION)
+    {
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Predict method: Addition of covariance process [UKF]"<<RTT::endlog();
+    }
+    else if (_predict_type.value() == COMPOSITION)
+    {
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Predict method: Composition of covariance process [TWC]"<<RTT::endlog();
+    }
 
     /** Select update method **/
     if (_update_type.value() == EKF)
     {
-        this->ekf_update = true;
         RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Extended Kalman Filter [EKF]"<<RTT::endlog();
     }
     else if (_update_type.value() == UKF)
     {
-        this->ekf_update = false;
         RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Unscented Kalman Filter [UKF]"<<RTT::endlog();
     }
 

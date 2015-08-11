@@ -33,6 +33,9 @@ task_context "Task" do
     property('measurement_covariance', 'base::MatrixXd').
         doc "Measurement uncertainty in meters at the sensor plane projection."
 
+    property("predict_type", "localization::PredictType", :ADDITION).
+        doc "Filter predict type for the uncertainty transformation."
+
     property('update_period', 'double').
         doc "Desired update period. It cannot be smaller that the visual features samples period."
 
