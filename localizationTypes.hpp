@@ -13,6 +13,8 @@
 
 namespace localization
 {
+
+    /** Property types **/
     enum PredictType
     {
         ADDITION,
@@ -21,10 +23,13 @@ namespace localization
 
     enum UpdateType
     {
-        EKF,
-        UKF
+        EKF, // EKF update
+        EKF_OB, // EKF with Observability analysis
+        UKF, //Unscented update
+        NO_UPDATE //NO UPDATE
     };
 
+    /** Envire graph types **/
     class FeatureMeasurement
     {
     public:
@@ -40,6 +45,8 @@ namespace localization
                             base::Vector2d &_point):index(_index), point(_point){}
     };
 
+
+    /** Input port types **/
     struct Feature
     {
         boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
@@ -54,6 +61,8 @@ namespace localization
         std::vector<Feature> features;
     };
 
+
+    /** Output port type **/
     struct FilterInfo
     {
         base::Time time; //time-stamp
@@ -63,6 +72,7 @@ namespace localization
         base::Time remove_features_execution_time;
         unsigned int number_features_added;
         unsigned int number_features_removed;
+        unsigned int number_outliers;
         std::vector< base::samples::RigidBodyState > sensors_rbs; //Rbs with the orientation and position of the contact point
         base::MatrixXd Pk; //filter covariance matrix
     };

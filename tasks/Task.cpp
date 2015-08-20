@@ -32,7 +32,8 @@ WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &de
 MeasurementType measurementModel(const WMultiState &wstate,
                                  const std::vector< std::pair<unsigned int, Eigen::Vector3d> > &observation,
                                  Eigen::MatrixXd & h_observation,
-                                 const bool ekf_update = false)
+                                 const bool ekf_update = false,
+                                 const bool ekf_observability = false)
 {
     MeasurementType z_hat;
     z_hat.resize(2*observation.size(), 1);
@@ -43,8 +44,11 @@ MeasurementType measurementModel(const WMultiState &wstate,
         h_observation.setZero();
     }
 
+    Eigen::Vector3d gravity; gravity << 0.0, 0.0, 9.81;
+
     unsigned int measurement_counts = 0;
 
+    /** For all the features to observe **/
     std::vector< std::pair<unsigned int, Eigen::Vector3d> >::const_iterator it_observation = observation.begin();
     for(; it_observation != observation.end(); ++it_observation)
     {
@@ -52,7 +56,7 @@ MeasurementType measurementModel(const WMultiState &wstate,
         localization::SensorState const &st_pose(wstate.sensorsk[entry.first]);
 
         /** Compute the observation **/
-        Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos);
+        Eigen::Vector3d feature_pos_in_camera = st_pose.orient.inverse() * (entry.second - st_pose.pos); // feature_in_camera = Tcamera_global * (feature_in_global - camera_in_global)
         z_hat.block(2*measurement_counts, 0, 2, 1) = Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
 
         #ifdef DEBUG_PRINTS
@@ -65,16 +69,40 @@ MeasurementType measurementModel(const WMultiState &wstate,
 
         if (ekf_update)
         {
+            /** Jacobian of the camera perspective projection with respect to the feature i **/
             Eigen::Matrix<double, 2, localization::vec3::DOF> j_i;
             j_i.block<2, 2>(0, 0).setIdentity();
             j_i.col(2) =  -Eigen::Vector2d(feature_pos_in_camera.x()/feature_pos_in_camera.z(),feature_pos_in_camera.y()/feature_pos_in_camera.z());
             j_i = j_i / feature_pos_in_camera.z();
+
+            /** Jacobian per camera pose i **/
             Eigen::Matrix<double, 2, localization::SensorState::DOF> j;
             j.block<2, localization::vec3::DOF>(0, 0) = -j_i * st_pose.orient.toRotationMatrix(); //position
             j.block<2, localization::SO3::DOF>(0, localization::vec3::DOF) = j_i * Task::makeSkewSymmetric(feature_pos_in_camera); //orientation
 
-            h_observation.block(2*measurement_counts, wstate.DOF + (entry.first * wstate.SENSOR_DOF),
-                    2, wstate.SENSOR_DOF) = j;
+
+            if (ekf_observability)
+            {
+                /** Observability vector **/
+                Eigen::Matrix<double, localization::SensorState::DOF, 1> nk;
+                nk.block<localization::vec3::DOF, 1>(0,0) = Task::makeSkewSymmetric(entry.second - st_pose.pos) * gravity; // position observation
+                nk.block<localization::SO3::DOF, 1>(localization::vec3::DOF,0) = st_pose.orient.inverse() * gravity; //g_in_camera = Tg_c * g_in_global (orientation observation)
+
+                /** Optimal observability **/
+                Eigen::Matrix<double, 2, localization::SensorState::DOF> h_optimal;
+                h_optimal = j - j*nk*(nk.transpose()*nk).inverse() * nk.transpose();
+
+                /** Observation matrix, all Jacobian per camera poses **/
+                h_observation.block(2*measurement_counts, wstate.DOF + (entry.first * wstate.SENSOR_DOF),
+                        2, wstate.SENSOR_DOF) = h_optimal;
+
+            }
+            else
+            {
+                /** Observation matrix, all Jacobian per camera poses **/
+                h_observation.block(2*measurement_counts, wstate.DOF + (entry.first * wstate.SENSOR_DOF),
+                        2, wstate.SENSOR_DOF) = j;
+            }
         }
 
         /** Increment count **/
@@ -268,26 +296,41 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
                                                                 measurementCov);
             if (_update_type.value() == EKF)
             {
+                /** Function of the measurement or observation model **/
+                Eigen::MatrixXd h_observation;
+                typedef boost::function<MeasurementType (WMultiState &, Eigen::MatrixXd &)> MeasurementFunction;
+                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true, false);
+
+                /** Perform an update **/
+                this->info.number_outliers = filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+                            f, h_observation, measurementCov);
+            }
+            else if (_update_type.value() == EKF_OB)
+            {
 
                 /** Function of the measurement or observation model **/
                 Eigen::MatrixXd h_observation;
                 typedef boost::function<MeasurementType (WMultiState &, Eigen::MatrixXd &)> MeasurementFunction;
-                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true);
+                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), _2, true, true);
 
                 /** Perform an update **/
-                filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+                this->info.number_outliers = filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
                             f, h_observation, measurementCov);
             }
-            else
+            else if (_update_type.value() == UKF)
             {
                 /** Function of the measurement or observation model **/
                 Eigen::MatrixXd h_observation;
                 typedef boost::function<MeasurementType (WMultiState &)> MeasurementFunction;
-                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), h_observation, false);
+                MeasurementFunction f = boost::bind(measurementModel, _1, boost::cref(observation_vector), h_observation, false, false);
 
                 /** Perform an update **/
-                filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
+                this->info.number_outliers = filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
                             f, measurementCov);
+            }
+            else
+            {
+
             }
 
             #ifdef DEBUG_EXECUTION_TIME
@@ -649,7 +692,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     /** Create the camera node in the envire tree **/
     envire::core::Frame camera_node(camera_pose_label);
 
-    /** Include camera on the envire tree **/
+    /** Include camera node in the envire tree **/
     std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> camera_pair = envire_tree.insert_vertex(camera_node);
 
     if (camera_pair.second)
@@ -697,7 +740,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
 
             /** Feature to the environment tree **/
             #ifdef DEBUG_PRINTS
-            std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> feature_pair = 
+            std::pair<envire::core::LabeledTransformTree::vertex_descriptor, bool> feature_pair =
             #endif
 
             envire_tree.insert_vertex(feature_node);
@@ -709,7 +752,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
             }
             #endif
 
-            /** Edge camera node -> it_feature **/
+            /** New Edge: camera node -> it_feature **/
             envire::core::Transform camera_to_feature(samples.time);
             base::TransformWithCovariance tf(Eigen::AngleAxisd::Identity(), static_cast<base::Position>(it_feature->point));
             Eigen::Matrix<double, 6, 6> tf_cov;
@@ -724,7 +767,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
             #endif
         }
 
-        /** Update the measurement items in the camera node **/
+        /** Update the measurement items of the camera node **/
         envire_tree[camera_pose_label].frame = camera_node;
     }
 }
@@ -825,7 +868,7 @@ MeasurementType Task::measurementVector(envire::core::LabeledTransformTree &envi
                 std::vector<std::string>::const_iterator it_pose = std::find(camera_node_labels.begin(), camera_node_labels.end(), camera_source.name);
                 if (it_pose != camera_node_labels.end())
                 {
-                    /** Fill the observation, 3D position vector of the feature in world(global) frame  **/
+                    /** Fill the observation, 3D position vector of the feature in world(global) frame and its associated camera index in the filter **/
                     observation.push_back(std::pair<unsigned int, Eigen::Vector3d> (std::distance(camera_node_labels.begin(), it_pose), f_pos_it->getData()));
                     //RTT::log(RTT::Warning)<<"[MEASUREMENT VECTOR] OBSERVATION: "<<std::distance(camera_node_labels.begin(), it_pose)<<"\n"<<f_pos_it->getData()<< RTT::endlog();
                 }
