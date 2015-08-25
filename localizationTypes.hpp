@@ -29,6 +29,8 @@ namespace localization
         NO_UPDATE //NO UPDATE
     };
 
+    typedef boost::uuids::uuid samples_uuid;
+
     /** Envire graph types **/
     class FeatureMeasurement
     {
@@ -46,22 +48,6 @@ namespace localization
     };
 
 
-    /** Input port types **/
-    struct Feature
-    {
-        boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
-        base::Vector3d point; // Point cloud used for the delta displacement
-        base::Matrix3d cov; // Covariance of the points/samples uses to compute the relative measurement
-    };
-
-    struct ExteroFeatures
-    {
-        base::Time time;
-        unsigned int img_idx;
-        std::vector<Feature> features;
-    };
-
-
     /** Output port type **/
     struct FilterInfo
     {
@@ -76,9 +62,26 @@ namespace localization
         std::vector< base::samples::RigidBodyState > sensors_rbs; //Rbs with the orientation and position of the contact point
         base::MatrixXd Pk; //filter covariance matrix
     };
+}
 
-
+namespace visual_stereo
+{
     typedef boost::uuids::uuid samples_uuid;
+
+    /** Input port types **/
+    struct Feature
+    {
+        boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
+        base::Vector3d point; // Point cloud used for the delta displacement
+        base::Matrix3d cov; // Covariance of the points/samples uses to compute the relative measurement
+    };
+
+    struct ExteroFeatures
+    {
+        base::Time time;
+        unsigned int img_idx;
+        std::vector<Feature> features;
+    };
 }
 
 #endif

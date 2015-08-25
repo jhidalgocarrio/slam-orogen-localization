@@ -206,7 +206,7 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
         /** Process Model Uncertainty **/
         typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
         SingleStateCovariance cov_process; cov_process.setIdentity();
-        //cov_process = 1.e-3 * cov_process;
+        //cov_process = 1.e-4 * cov_process;
         MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
         MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
 
@@ -246,7 +246,7 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     this->outputPortSamples(delta_pose.time);
 }
 
-void Task::visual_features_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample)
+void Task::visual_features_samplesTransformerCallback(const base::Time &ts, const ::visual_stereo::ExteroFeatures &visual_features_samples_sample)
 {
     Eigen::Affine3d tf; /** Transformer transformation **/
 
@@ -474,6 +474,9 @@ bool Task::configureHook()
         RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Unscented Kalman Filter [UKF]"<<RTT::endlog();
     }
 
+    /** Clean features 3D point debug output port **/
+    this->features_points.points.clear();
+
     return true;
 }
 bool Task::startHook()
@@ -587,8 +590,13 @@ void Task::outputPortSamples(const base::Time &timestamp)
             rbs.orientation = (*it_sensors).orient;
             info.sensors_rbs.push_back(rbs);
         }
-        info.Pk = this->filter->getPk();
+        this->info.Pk = this->filter->getPk();
         _filter_info_out.write(info);
+
+        /** 3D features **/
+        this->features_points.time = timestamp;
+        _features_point_samples_out.write(this->features_points);
+        this->features_points.points.clear();
     }
 
     return;
@@ -686,7 +694,7 @@ unsigned int Task::removeSensorPoseFromFilter(boost::shared_ptr<MultiStateFilter
 void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tree,
                             const std::string &camera_pose_label,
                             const ::localization::SensorState &camera_pose,
-                            const ::localization::ExteroFeatures &samples)
+                            const ::visual_stereo::ExteroFeatures &samples)
 {
 
     /** Create the camera node in the envire tree **/
@@ -699,7 +707,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
     {
 
         /** Compute the measurement item. Measurement of the features from the camera **/
-        std::vector<Feature>::const_iterator it_feature = samples.features.begin();
+        std::vector<visual_stereo::Feature>::const_iterator it_feature = samples.features.begin();
         for ( ; it_feature != samples.features.end(); ++it_feature)
         {
             /** Compute the measurement that goes in the camera node **/
@@ -732,6 +740,11 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
             boost::intrusive_ptr<FeaturePositionItem> pos_item(new FeaturePositionItem());
             pos_item->setData(feature_pos);
             feature_node.items.push_back(pos_item);
+
+            if (_output_debug.value())
+            {
+                this->features_points.points.push_back(feature_pos);
+            }
 
             #ifdef DEBUG_PRINTS
             RTT::log(RTT::Warning)<<"[LOCALIZATION ADD_MEASUREMENT_ENVIRE] 3D Point in navigation:\n"<<feature_pos<< RTT::endlog();

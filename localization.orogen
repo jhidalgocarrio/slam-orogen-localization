@@ -54,7 +54,7 @@ task_context "Task" do
     #******* Exteroceptive sensors *********
 
     # Exteroceptive update samples to correct the prediction (Visual, ICP, etc..).
-    input_port('visual_features_samples', 'localization::ExteroFeatures').
+    input_port('visual_features_samples', 'visual_stereo::ExteroFeatures').
         doc 'Visual features samples.'
 
     ##########################
@@ -82,6 +82,10 @@ task_context "Task" do
 
     output_port('filter_info_out', 'localization/FilterInfo').
     	doc 'State estimation information.'
+
+    output_port("features_point_samples_out",  'base::samples::Pointcloud').
+        doc 'Features 3d point of the Opportunistic features in the localization.'
+
 
     port_driven
 

@@ -118,13 +118,17 @@ namespace localization {
         base::samples::RigidBodyState pose_out;
         //base::samples::BodyState body_pose_out;
 
+        /** Debug filter info **/
         localization::FilterInfo info;
+
+        /** Debug features 3D points **/
+        base::samples::Pointcloud features_points;
 
     protected:
 
         virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample);
 
-        virtual void visual_features_samplesTransformerCallback(const base::Time &ts, const ::localization::ExteroFeatures &visual_features_samples_sample);
+        virtual void visual_features_samplesTransformerCallback(const base::Time &ts, const ::visual_stereo::ExteroFeatures &visual_features_samples_sample);
 
     public:
         /** TaskContext constructor for Task
@@ -217,7 +221,7 @@ namespace localization {
         void addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tree,
                             const std::string &camera_pose_label,
                             const ::localization::SensorState &camera_pose,
-                            const ::localization::ExteroFeatures &samples);
+                            const ::visual_stereo::ExteroFeatures &samples);
 
         void removeSensorPoseFromEnvire(envire::core::LabeledTransformTree &envire_tree, const unsigned int it_removed_pose);
 
