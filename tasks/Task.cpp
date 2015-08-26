@@ -92,6 +92,8 @@ MeasurementType measurementModel(const WMultiState &wstate,
                 Eigen::Matrix<double, 2, localization::SensorState::DOF> h_optimal;
                 h_optimal = j - j*nk*(nk.transpose()*nk).inverse() * nk.transpose();
 
+                //h_optimal.block<2, localization::SO3::DOF-1>(0, localization::vec3::DOF).setZero();// rotation only heading
+
                 /** Observation matrix, all Jacobian per camera poses **/
                 h_observation.block(2*measurement_counts, wstate.DOF + (entry.first * wstate.SENSOR_DOF),
                         2, wstate.SENSOR_DOF) = h_optimal;
@@ -206,7 +208,6 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
         /** Process Model Uncertainty **/
         typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
         SingleStateCovariance cov_process; cov_process.setIdentity();
-        //cov_process = 1.e-4 * cov_process;
         MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
         MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
 
@@ -596,7 +597,6 @@ void Task::outputPortSamples(const base::Time &timestamp)
         /** 3D features **/
         this->features_points.time = timestamp;
         _features_point_samples_out.write(this->features_points);
-        this->features_points.points.clear();
     }
 
     return;
