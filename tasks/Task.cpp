@@ -15,15 +15,22 @@
 using namespace localization;
 
 /** Process model when accumulating delta poses **/
-WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &delta_position, const localization::SO3 &delta_orientation)
+WSingleState processModel (const WSingleState &state,  const Eigen::Vector3d &linear_velocity, const Eigen::Vector3d &angular_velocity, const double delta_t)
 {
     WSingleState s2; /** Propagated state */
 
+    /** Update rotation rate **/
+    s2.angvelo = angular_velocity;
+
     /** Apply Rotation **/
-    s2.orient = state.orient * delta_orientation;
+    ::localization::vec3 scaled_axis = state.angvelo * delta_t;
+    s2.orient = state.orient * localization::SO3::exp(scaled_axis);
+
+    /** Update the velocity (position rate) **/
+    s2.velo = state.orient * linear_velocity;
 
     /** Apply Translation **/
-    s2.pos = state.pos + (s2.orient * delta_position);
+    s2.pos = state.pos + (state.velo * delta_t);
 
     return s2;
 };
@@ -143,14 +150,14 @@ Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
     /**************************/
     /** Input port variables **/
     /**************************/
-    delta_pose.invalidate();
+    this->delta_pose.invalidate();
 }
 
 Task::~Task()
 {
 }
 
-void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample)
+void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &delta_pose_samples_sample)
 {
 
     if(!initFilter)
@@ -179,6 +186,9 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
         /** Initialization of the filter **/
         this->initMultiStateFilter (filter, tf);
 
+        /** Set the delta_pose **/
+        this->delta_pose = delta_pose_samples_sample;
+
         #ifdef DEBUG_PRINTS
         RTT::log(RTT::Warning)<<"[DONE]\n";
         #endif
@@ -193,6 +203,8 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     RTT::log(RTT::Warning)<<"[LOCALIZATION POSE_SAMPLES] delta_t: "<<delta_t.toSeconds()<<RTT::endlog();
     #endif
 
+    const double predict_delta_t = delta_pose_samples_sample.time.toSeconds() - this->delta_pose.time.toSeconds();
+
     /** A new sample arrived to the input port **/
     this->delta_pose = delta_pose_samples_sample;
 
@@ -203,39 +215,18 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     clock_t start = clock();
     #endif
 
-    if (_predict_type.value() == ADDITION)
-    {
-        /** Process Model Uncertainty **/
-        typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
-        SingleStateCovariance cov_process; cov_process.setIdentity();
-        MTK::subblock (cov_process, &WSingleState::pos, &WSingleState::pos) = this->delta_pose.cov_position();
-        MTK::subblock (cov_process, &WSingleState::orient, &WSingleState::orient) = this->delta_pose.cov_orientation();
+    /** Process Model Uncertainty **/
+    typedef MultiStateFilter::SingleStateCovariance SingleStateCovariance;
+    SingleStateCovariance cov_process; cov_process.setZero();
+    MTK::subblock (cov_process, &WSingleState::velo, &WSingleState::velo) = this->delta_pose.cov_velocity;
+    MTK::subblock (cov_process, &WSingleState::angvelo, &WSingleState::angvelo) = this->delta_pose.cov_angular_velocity;
 
-        /** Predict the filter state **/
-        filter->predict(boost::bind(processModel, _1 ,
-                                static_cast<const Eigen::Vector3d>(delta_pose.position()),
-                                static_cast<const localization::SO3>(Eigen::Quaterniond(delta_pose.orientation()))),
-                                cov_process);
-    }
-    else if (_predict_type.value() == COMPOSITION)
-    {
-        Eigen::Matrix<double, 6, 6> cov = this->filter->getPkSingleState();
-        cov.block<3,3>(0,0).swap(cov.block<3,3>(3,3));
-        cov.block<3,3>(0,3).swap(cov.block<3,3>(3,0));
-        Eigen::AngleAxisd orient (this->filter->muSingleState().orient);
-        base::TransformWithCovariance current_pose(orient, this->filter->muSingleState().pos, cov);
-
-        current_pose = current_pose * this->delta_pose.pose;
-        WSingleState single_state;
-        single_state.pos = current_pose.translation;
-        single_state.orient = Eigen::Quaternion<double>(current_pose.orientation);
-        this->filter->muSingleState(single_state);
-        cov.block<3,3>(0,0) = current_pose.getTranslationCov();
-        cov.block<3,3>(3,3) = current_pose.getOrientationCov();
-        cov.block<3,3>(0,3) = current_pose.getCovariance().block<3,3>(3,0);
-        cov.block<3,3>(3,0) = current_pose.getCovariance().block<3,3>(0,3);
-        this->filter->setPkSingleState(cov);
-    }
+    /** Predict the filter state **/
+    filter->predict(boost::bind(processModel, _1 ,
+                            static_cast<const Eigen::Vector3d>(this->delta_pose.velocity),
+                            static_cast<const Eigen::Vector3d>(this->delta_pose.angular_velocity),
+                            predict_delta_t),
+                            cov_process);
 
     #ifdef DEBUG_EXECUTION_TIME
     clock_t end = clock();
@@ -244,7 +235,7 @@ void Task::delta_pose_samplesTransformerCallback(const base::Time &ts, const ::b
     #endif
 
 
-    this->outputPortSamples(delta_pose.time);
+    this->outputPortSamples(this->delta_pose.time);
 }
 
 void Task::visual_features_samplesTransformerCallback(const base::Time &ts, const ::visual_stereo::ExteroFeatures &visual_features_samples_sample)
@@ -328,10 +319,6 @@ void Task::visual_features_samplesTransformerCallback(const base::Time &ts, cons
                 /** Perform an update **/
                 this->info.number_outliers = filter->update(static_cast< Eigen::Matrix<MultiStateFilter::ScalarType, Eigen::Dynamic, 1> > (measurement),
                             f, measurementCov);
-            }
-            else
-            {
-
             }
 
             #ifdef DEBUG_EXECUTION_TIME
@@ -426,23 +413,27 @@ bool Task::configureHook()
     /** Relative Frame to port out the samples **/
     pose_out.targetFrame = _world_frame.value();
 
-    /** Initialize features covariance **/
-    this->feature_cov = _measurement_covariance.value().block(0, 0, 2, 2);
+    if (_update_type.value() != NO_UPDATE)
+    {
+        /** Initialize features covariance **/
+        this->feature_cov = _measurement_covariance.value().block(0, 0, 2, 2);
 
-    if (_update_period.value() < _visual_features_samples_period.value())
-    {
-        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] ERROR in configuration. Update period too small"<<RTT::endlog();
-        throw std::runtime_error("[LOCALIZATION TASK] Desired Update period cannot be smaller than measurement input ports period!");
-    }
-    else if (_update_period.value() == 0.00)
-    {
-        _update_period.value() = _visual_features_samples_period.value();
-        this->update_counts = 1;
-    }
-    else
-    {
-        this->update_counts = boost::math::iround(_update_period.value()/_visual_features_samples_period.value());
-        _update_period.value() = this->update_counts * _visual_features_samples_period.value();
+        /** Set the update period **/
+        if (_update_period.value() < _visual_features_samples_period.value())
+        {
+            RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] ERROR in configuration. Update period too small"<<RTT::endlog();
+            throw std::runtime_error("[LOCALIZATION TASK] Desired Update period cannot be smaller than measurement input ports period!");
+        }
+        else if (_update_period.value() == 0.00)
+        {
+            _update_period.value() = _visual_features_samples_period.value();
+            this->update_counts = 1;
+        }
+        else
+        {
+            this->update_counts = boost::math::iround(_update_period.value()/_visual_features_samples_period.value());
+            _update_period.value() = this->update_counts * _visual_features_samples_period.value();
+        }
     }
 
     this->update_idx = 0;
@@ -455,16 +446,6 @@ bool Task::configureHook()
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Filter Update period at: "<<_update_period.value()<<" [seconds]"<<RTT::endlog();
     RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Features measurement covariance:\n"<<this->feature_cov<<RTT::endlog();
 
-    /** Select predict type **/
-    if (_predict_type.value() == ADDITION)
-    {
-        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Predict method: Addition of covariance process [UKF]"<<RTT::endlog();
-    }
-    else if (_predict_type.value() == COMPOSITION)
-    {
-        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Predict method: Composition of covariance process [TWC]"<<RTT::endlog();
-    }
-
     /** Select update method **/
     if (_update_type.value() == EKF)
     {
@@ -473,6 +454,10 @@ bool Task::configureHook()
     else if (_update_type.value() == UKF)
     {
         RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: Unscented Kalman Filter [UKF]"<<RTT::endlog();
+    }
+    else
+    {
+        RTT::log(RTT::Warning)<<"[LOCALIZATION TASK] Update method: No Update [NO_UPDATE]"<<RTT::endlog();
     }
 
     /** Clean features 3D point debug output port **/
@@ -519,6 +504,10 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
     single_state.pos = tf.translation(); //!Initial position
     single_state.orient = Eigen::Quaternion<double>(tf.rotation());
 
+    /** Set the initial velocities in the state vector **/
+    single_state.velo.setZero(); //!Initial linear velocity
+    single_state.angvelo.setZero(); //!Initial angular velocity
+
     /** Store the single state into the state vector **/
     statek_0.statek = single_state;
 
@@ -535,6 +524,8 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
 
     MTK::setDiagonal (P0_single, &WSingleState::pos, 1e-06);
     MTK::setDiagonal (P0_single, &WSingleState::orient, 1e-06);
+    MTK::setDiagonal (P0_single, &WSingleState::velo, 1e-10);
+    MTK::setDiagonal (P0_single, &WSingleState::angvelo, 1e-10);
 
     P0.block(0, 0, WSingleState::DOF, WSingleState::DOF) = P0_single;
 
@@ -555,6 +546,8 @@ void Task::initMultiStateFilter(boost::shared_ptr<MultiStateFilter> &filter, Eig
     euler[1] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
     euler[0] = vstate.statek.orient.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
     RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] orientation Roll: "<<euler[0]*R2D<<" Pitch: "<<euler[1]*R2D<<" Yaw: "<<euler[2]*R2D<< RTT::endlog();
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] velocity:\n"<<vstate.statek.velo<<"\n";
+    RTT::log(RTT::Warning)<<"[LOCALIZATION INIT] angular velocity:\n"<<vstate.statek.angvelo<<"\n";
     RTT::log(RTT::Warning)<< RTT::endlog();
     #endif
 
@@ -571,6 +564,10 @@ void Task::outputPortSamples(const base::Time &timestamp)
     pose_out.cov_position = this->filter->getPkSingleState().block<3,3>(0,0);
     pose_out.orientation = statek_i.orient;
     pose_out.cov_orientation = this->filter->getPkSingleState().block<3,3>(3,3);
+    pose_out.velocity = statek_i.velo;
+    pose_out.cov_velocity =  this->filter->getPkSingleState().block<3,3>(6,6);
+    pose_out.angular_velocity = statek_i.angvelo;
+    pose_out.cov_angular_velocity =  this->filter->getPkSingleState().block<3,3>(9,9);
     _pose_samples_out.write(pose_out);
 
     if (_output_debug.value())
@@ -767,7 +764,7 @@ void Task::addMeasurementToEnvire(envire::core::LabeledTransformTree &envire_tre
 
             /** New Edge: camera node -> it_feature **/
             envire::core::Transform camera_to_feature(samples.time);
-            base::TransformWithCovariance tf(Eigen::AngleAxisd::Identity(), static_cast<base::Position>(it_feature->point));
+            base::TransformWithCovariance tf(static_cast<base::Position>(it_feature->point), Eigen::Quaterniond::Identity());
             Eigen::Matrix<double, 6, 6> tf_cov;
             tf_cov << Eigen::Matrix3d::Zero(), Eigen::Matrix3d::Zero(),
                     Eigen::Matrix3d::Zero(), it_feature->cov;

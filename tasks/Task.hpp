@@ -39,8 +39,8 @@
 namespace localization {
 
     /** Wrap the Multi and Single State **/
-    typedef localization::MtkWrap<localization::ReducedState> WSingleState;
-    typedef localization::MtkDynamicWrap< localization::MultiState<localization::ReducedState, localization::SensorState> > WMultiState;
+    typedef localization::MtkWrap<localization::State> WSingleState;
+    typedef localization::MtkDynamicWrap< localization::MultiState<localization::State, localization::SensorState> > WMultiState;
 
     /** Filter and covariances types **/
     typedef localization::Msckf<WMultiState, WSingleState> MultiStateFilter;
@@ -93,7 +93,7 @@ namespace localization {
         /** Variable to control the update period **/
         unsigned short update_counts, update_idx;
 
-        /** The filter uses by the Back-End **/
+        /** The filter to use as Back-End **/
         boost::shared_ptr<MultiStateFilter> filter;
 
         /** Envire Tree **/
@@ -110,7 +110,7 @@ namespace localization {
         /**************************/
 
         /** Pose estimation **/
-        ::base::samples::BodyState delta_pose;
+        ::base::samples::RigidBodyState delta_pose;
 
         /***************************/
         /** Output port variables **/
@@ -126,7 +126,7 @@ namespace localization {
 
     protected:
 
-        virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::BodyState &delta_pose_samples_sample);
+        virtual void delta_pose_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &delta_pose_samples_sample);
 
         virtual void visual_features_samplesTransformerCallback(const base::Time &ts, const ::visual_stereo::ExteroFeatures &visual_features_samples_sample);
 
