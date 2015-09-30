@@ -19,6 +19,8 @@
   <depend package="slam/localization" />
   <depend package="envire/core" />
 
+  <tags>stable</tags>
+
 <!--
   <tags>Debug</tags>
 -->
