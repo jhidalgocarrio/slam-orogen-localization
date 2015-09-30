@@ -14,13 +14,6 @@
 namespace localization
 {
 
-    /** Property types **/
-    enum PredictType
-    {
-        ADDITION,
-        COMPOSITION
-    };
-
     enum UpdateType
     {
         EKF, // EKF update

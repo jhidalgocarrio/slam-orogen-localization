@@ -33,9 +33,6 @@ task_context "Task" do
     property('measurement_covariance', 'base::MatrixXd').
         doc "Measurement uncertainty in meters at the sensor plane projection."
 
-    property("predict_type", "localization::PredictType", :ADDITION).
-        doc "Filter predict type for the uncertainty transformation."
-
     property('update_period', 'double').
         doc "Desired update period. It cannot be smaller that the visual features samples period."
 
@@ -47,7 +44,7 @@ task_context "Task" do
     #******************************
 
     #******* Proprioceptive sensors *********
-    input_port('delta_pose_samples', '/base/samples/BodyState').
+    input_port('delta_pose_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection.
         doc 'Delta pose displacement.'
 
@@ -74,7 +71,7 @@ task_context "Task" do
     output_port('pose_samples_out', '/base/samples/RigidBodyState').
 	    doc 'Corrected estimated robot pose.'
 
-    output_port('body_pose_samples_out', '/base/samples/BodyState').
+    output_port('body_pose_samples_out', '/base/samples/RigidBodyState').
 	    doc 'Corrected estimated robot pose.'
 
     property('output_debug', 'bool', false).
