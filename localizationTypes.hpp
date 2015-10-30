@@ -65,8 +65,9 @@ namespace visual_stereo
     struct Feature
     {
         boost::uuids::uuid index; // Indexes of the points/samples uses to compute the relative measurement
-        base::Vector3d point; // Point cloud used for the delta displacement
-        base::Matrix3d cov; // Covariance of the points/samples uses to compute the relative measurement
+        base::Vector3d stereo_point; // 2D stereo point (u_left, u_right, v)
+        base::Vector3d point_3d; // 3D point (x, y, z)
+        base::Matrix3d cov_3d; // Covariance of the points/samples uses to compute the relative measurement
     };
 
     struct ExteroFeatures
